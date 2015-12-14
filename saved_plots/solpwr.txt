@@ -1,0 +1,1 @@
+Schedule Data SolarPower 1 Charge, Schedule Data SolarPower 1 AmpHours, Schedule Data SolarPower 1 Volts

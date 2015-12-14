@@ -1,0 +1,1 @@
+Antenna 1 Frontend TEC DutyFactor, Antenna 2 Frontend TEC DutyFactor, Antenna 3 Frontend TEC DutyFactor, Antenna 4 Frontend TEC DutyFactor, Antenna 5 Frontend TEC DutyFactor, Antenna 6 Frontend TEC DutyFactor, Antenna 7 Frontend TEC DutyFactor, Antenna 8 Frontend TEC DutyFactor, Antenna 12 Frontend TEC DutyFactor

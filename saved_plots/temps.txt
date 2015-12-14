@@ -1,0 +1,8 @@
+Antenna 1 Frontend FEM Temperature, Antenna 1 Frontend TEC Temperature,
+Antenna 2 Frontend FEM Temperature, Antenna 2 Frontend TEC Temperature,
+Antenna 3 Frontend FEM Temperature, Antenna 3 Frontend TEC Temperature,
+Antenna 4 Frontend FEM Temperature, Antenna 4 Frontend TEC Temperature,
+Antenna 5 Frontend FEM Temperature, Antenna 5 Frontend TEC Temperature,
+Antenna 7 Frontend FEM Temperature, Antenna 7 Frontend TEC Temperature,
+Antenna 8 Frontend FEM Temperature, Antenna 8 Frontend TEC Temperature,
+Antenna 12 Frontend FEM Temperature, Antenna 12 Frontend TEC Temperature

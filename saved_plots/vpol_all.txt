@@ -1,0 +1,5 @@
+Antenna 1 Frontend FEM VPol Voltage, Antenna 2 Frontend FEM VPol Voltage, 
+Antenna 3 Frontend FEM VPol Voltage, Antenna 4 Frontend FEM VPol Voltage, 
+Antenna 5 Frontend FEM VPol Voltage, Antenna 6 Frontend FEM VPol Voltage, 
+Antenna 7 Frontend FEM VPol Voltage, Antenna 8 Frontend FEM VPol Voltage, 
+Antenna 12 Frontend FEM VPol Voltage

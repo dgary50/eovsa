@@ -1,0 +1,1 @@
+Antenna 1 Frontend FEM HPol Voltage, DCM 1 HPol Voltage, DCM 2 HPol Voltage, DCM 3 HPol Voltage, Antenna 2 Frontend FEM HPol Voltage, Antenna 3 Frontend FEM HPol Voltage

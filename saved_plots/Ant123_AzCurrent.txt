@@ -1,0 +1,1 @@
+Antenna 2 Controller AzimuthMotorCurrent, Antenna 3 Controller AzimuthMotorCurrent, Antenna 1 Controller AzimuthMotorCurrent
