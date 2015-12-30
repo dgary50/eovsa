@@ -45,6 +45,10 @@
 #     object, which resulted in an annoying warning message.
 #   2015-Dec-01  DG
 #     Reduce font size of listboxes when the screen height is small.
+#   2015-Dec-19  DG
+#     Changed LNA output to print LNA name instead of number.
+#   2015-Dec-30  DG
+#     Changed Outlet heading to include outlet number.
 #
 
 from Tkinter import *
@@ -1497,7 +1501,7 @@ class App():
             line = 'Voltage [V]   Current [A]  Computer  Brick   LNA5VBB  LNA12V   2ndAmp   OptRabit RFSwitch NoiseDiode'
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
-            line = '--1-----2--  --1-----2--   -------  -------  -------  -------  -------  -------  -------  -------'
+            line = '--1-----2--  --1-----2--   ---4----  --3---  ---6---  ---5---  ---7---  ---2---- ---1---- ----8-----'
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
             cur = stf.extract(data,ps['Current'])
@@ -1524,12 +1528,14 @@ class App():
             line = 'LNA  DrainVoltage  DrainCurrent  GateAVoltage  GateACurrent  GateBVoltage  GateBCurrent'
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
-            line = '---  ---Volts----  -----mA-----  ---Volts----  -----mA-----  ---Volts----  -----mA-----'
+            line = '----  ---Volts----  -----mA-----  ---Volts----  -----mA-----  ---Volts----  -----mA-----'
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
-            for i in range(4):
-                lna = rx['LNAs'][i]
-                line = '{:2d}   {:8.2f}      {:8.2f}      {:8.2f}      {:8.2f}      {:8.2f}      {:8.2f}'.format(i+1,
+            lnas = {'Hi H':0,'Lo H':1,'Lo V':2,'Hi V':3}
+            lna_order = ['Lo H','Lo V','Hi H','Hi V']
+            for x in lna_order:
+                lna = rx['LNAs'][lnas[x]]
+                line = '{:4s}   {:8.2f}      {:8.2f}      {:8.2f}      {:8.2f}      {:8.2f}      {:8.2f}'.format(x,
                     stf.extract(data,lna['DrainVoltage']),stf.extract(data,lna['DrainCurrent']),
                     stf.extract(data,lna['GateAVoltage']),stf.extract(data,lna['GateACurrent']),
                     stf.extract(data,lna['GateBVoltage']),stf.extract(data,lna['GateBCurrent']))
