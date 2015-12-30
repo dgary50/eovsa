@@ -4,7 +4,11 @@
     Author: Lokbondo Kung
     Email: lkkung@caltech.edu
 """
-
+# Change-log:
+#   2015-12-30  DG
+#     Changed RxSel to SelectedRx.  Also swapped FirstStageTemp and
+#     SecondStageTemp.  Changed stateframe version accordingly.
+#
 import numpy as np
 import struct
 import shutil
@@ -33,11 +37,11 @@ POWERSTRIP_DEF = ['RFSwitchStatus',
                   'NoiseDiodeStatus']
 
 # THERMAL DEFINITIONS
-THERMAL_DEF = ['SecondStageTemp',
+THERMAL_DEF = ['FirstStageTemp',
                'HiFreq15KPlateTemp',
                'HiFreqLNATemp',
                'HiFreqFeedhornTemp',
-               'FirstStageTemp',
+               'SecondStageTemp',
                'LowFreqLNATemp',
                'RadiationShieldTemp',
                'LowFreqFeedhornTemp']
@@ -56,8 +60,8 @@ AXIS_DEF = {1: 'ZFocus',
             4: 'RxSelect'}
 
 # Version Number for FEM stateframe
-VERSION = 1.2              # Version Date: 10/6/15
-VERSION_DATE = '10.6.15'   # Most recent update (used to write backup file)
+VERSION = 1.3              # Version Date: 12/30/15
+VERSION_DATE = '12.30.15'   # Most recent update (used to write backup file)
 
 
 def gen_fem_sf(sf_dict, mk_xml=False):
@@ -563,16 +567,16 @@ def __servo(dict, xml, mk_xml):
         xml.write('</U32>\n')
 
     # ----------------------------------------------------------------------
-    # ELEMENT 2> RxSel: 0 = LF Rx, 1 = HR Rx (unsigned int)
+    # ELEMENT 2> SelectedRx: 0 = LF Rx, 1 = HR Rx (unsigned int)
     # ----------------------------------------------------------------------
 
     # Pack an unsigned int for status report.
-    item = dict.get('RXSEL', default_status)
+    item = dict.get('SELECTEDRX', default_status)
     fmt += 'I'
     buf += struct.pack('I', item)
     if mk_xml:
         xml.write('<U32>\n')
-        xml.write('<Name>RxSel</Name>\n')
+        xml.write('<Name>SelectedRx</Name>\n')
         xml.write('<Val></Val>\n')
         xml.write('</U32>\n')
 

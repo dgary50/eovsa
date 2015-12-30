@@ -3,7 +3,13 @@
     Author: Lokbondo Kung
     Email: lkkung@caltech.edu
 """
-
+# Change-log:
+#   2015-12-30  DG
+#     Changed __frm_rx_sel() to use RX values 'LO' and 'HI' 
+#     instead of 1, 2.  Also eliminated unhandled error when
+#     brick returns bad information.  Also changed RXSEL to
+#     SELECTEDRX to reflect change in gen_fem_sf.py
+#
 import i_worker
 import socket
 import struct
@@ -51,6 +57,8 @@ RQ = {'sendline': '\xb0',
 COORDINATE = {1: 'Z',
               3: 'A',
               4: 'X'}
+RX = {'LO':1,
+      'HI':2}
 AXIS_SCALING = {1: 42.5636 * 96 * 32,
                 3: 23181.5208 * 96 * 32,
                 4: 3973.477 * 96 * 32}
@@ -153,18 +161,18 @@ class BrickWorker(i_worker.IWorker):
         if len(acc_command) != 2:
             self.logger('Invalid call to FRM-RX-SEL.')
             return None
-        rx = None
+        rxstr = None
         try:
-            rx = int(acc_command[1])
-            if rx not in [1, 2]:
-                raise ValueError('Invalid RX selection.')
+            rxstr = acc_command[1].upper()
+            if rxstr not in ['LO', 'HI']:
+                raise ValueError('Invalid RX selection: '+rxstr)
         except ValueError:
             self.logger('Invalid call to FRM-RX-SEL.')
             return None
 
         # Build command based on parameters.
         command = COMMAND_REGIS + str(COMMAND_DICT['SelRx']) + \
-                  ARG1_REGIS + str(rx)
+                  ARG1_REGIS + str(RX[rxstr])
         command_packets = [command]
 
         return command_packets, self.__make_brick_command('download',
@@ -472,10 +480,12 @@ class BrickWorker(i_worker.IWorker):
                            'AXIS3': {},
                            'AXIS4': {}}
         fetched_data = self.__brickmonitor_query()
-
+        # Check if fetched_data is truncated, and zero-fill if so
+        if len(fetched_data) < 24:
+            fetched_data += [0.0]*(24-len(fetched_data))
         stateframe_data['HOMED'] = \
             int(fetched_data[1])
-        stateframe_data['RXSEL'] = \
+        stateframe_data['SELECTEDRX'] = \
             int(fetched_data[2])
 
         stateframe_data['AXIS1']['P'] = \
