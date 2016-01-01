@@ -9,6 +9,10 @@
 #     instead of 1, 2.  Also eliminated unhandled error when
 #     brick returns bad information.  Also changed RXSEL to
 #     SELECTEDRX to reflect change in gen_fem_sf.py
+#   2016-01-01  DG
+#     Trap unhandled timeout exception in reading from BRICK
+#     (in case BRICK outlet is powered off). Added try..except clause 
+#     to just return zeros in __brickmonitor_query(), for this case.
 #
 import i_worker
 import socket
@@ -391,7 +395,14 @@ class BrickWorker(i_worker.IWorker):
         query_socket = socket.socket(socket.AF_INET,
                                      socket.SOCK_STREAM)
         query_socket.settimeout(BRICK_TIMEOUT)
-        query_socket.connect((self.brick_ip, BRICK_PORT))
+        try:
+            query_socket.connect((self.brick_ip, BRICK_PORT))
+        except socket.timeout:
+            # Connect times out when, for example, the BRICK outlet
+            # is powered off.
+            self.logger(
+                'Unable to connect to BRICK--returning zeros')
+            return [0.0]
         cmd_string = [command]
         cmd = self.__make_brick_command('download', 'getresponse',
                                         0, 0, cmd_string)

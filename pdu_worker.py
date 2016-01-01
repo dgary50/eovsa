@@ -3,7 +3,12 @@
     Author: Lokbondo Kung
     Email: lkkung@caltech.edu
 """
-
+# Change-log:
+#   2016-01-01  DG
+#     During the rare sending of a command to the PDU, the stateframe
+#     query was failing.  Added try..except clause to just return zeros
+#     in __statusandpower_query(), for this case.
+#
 from bs4 import BeautifulSoup as Soup
 import mechanize
 import urllib
@@ -190,7 +195,14 @@ class PDUWorker(i_worker.IWorker):
         else:
             # Get statuses of the 8 devices.
             html_response = self.browser.response()
-            xml_data = html_response.read()
+            try:
+                xml_data = html_response.read()
+            except mechanize.HTTPError:
+                # Read fails when trying to read while sending a
+                # command, so just return zeros in that case.
+                self.logger(
+                    'PDU statusandpower query failed--returning zeros')
+                return [0,0,0,0,0,0,0,0], [0.0,0.0], [0.0,0.0]
             xml_soup = Soup(xml_data, 'html.parser')
             read_statuses = xml_soup('table')[5]('font')
             for status in read_statuses:
