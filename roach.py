@@ -29,6 +29,14 @@
 #   2015-Oct-27  DG
 #      Attempt to get three pairs of ROACHes working. Slight change to
 #      print boffile status during initial connection.
+#   2016-Jan-02  DG
+#      Cleaned up some bugs that became apparent when testing the new
+#      16-antenna correlator.  It was basically associated with IP
+#      address assignments and also ARP table errors.
+#   2016-Jan-03  DG
+#      Added setup of multiplicative "equalization" coefficients for
+#      registers eq_x0_coeff, in 16-antenna design (skipped if nbds
+#      is not 8).
 #
 
 import corr, struct, numpy, time, copy, sys
@@ -315,24 +323,6 @@ class Roach():
         else:
             self.fpga.write_int('swreg_board_info',(2**16)*(rnum-1) + act_bds)
 
-        # Load dpp address and port number
-        dppn, self.msg = rd_ini(cfg,'dpp',[2,1])
-        dppn_idx = [0,0,1,1,0,1,0,1] # indexes for the 8 ROACH boards
-        if dppn is None:
-            return
-        if dbg:
-            print 'DPP IP Address',dppn[(rnum-1) % 2],'packed =',ip2int(dppn[dppn_idx[rnum-1]])
-        else:
-            self.fpga.write_int('swreg_dpp_ip',ip2int(dppn[dppn_idx[rnum-1]]))
-        dpp_port, self.msg = rd_ini(cfg,'dpp port')
-        if self.msg != 'int':
-            self.msg = 'Incorrect format for DPP port'
-            return
-        if dbg:
-            print 'DPP Port',dpp_port
-        else:
-            self.fpga.write_int('swreg_dpp_port',dpp_port)
-
         # Load ROACH address and port information
         nbds, self.msg = rd_ini(cfg,'n boards')
         if self.msg != 'int':
@@ -346,21 +336,34 @@ class Roach():
 #            for i in range(nbds):
 #                print 'Roach'+str(i)+' FX0 IP address',fx[0,i],'packed =',ip2int(fx[0,i])
 #                print 'Roach'+str(i)+' FX1 IP address',fx[1,i],'packed =',ip2int(fx[1,i])
-            j = int(self.roach_ip[5:6])-1
-            # If j is odd, use next lower index -- this only works for pairs of ROACHes
-            j = (j/2)*2
-            print 'Roach'+str(j)+' FX0 IP address','swreg_ip0_roach0',fx[0,j],'packed =',ip2int(fx[0,j])
-            print 'Roach'+str(j)+' FX1 IP address','swreg_ip1_roach0',fx[1,j],'packed =',ip2int(fx[1,j])
-            print 'Roach'+str(j+1)+' FX0 IP address','swreg_ip0_roach1',fx[0,j+1],'packed =',ip2int(fx[0,j+1])
-            print 'Roach'+str(j+1)+' FX1 IP address','swreg_ip1_roach1',fx[1,j+1],'packed =',ip2int(fx[1,j+1])
+            if nbds == 2:
+                # Case of 4-antenna prototype
+                j = int(self.roach_ip[5:6])-1
+                # If j is odd, use next lower index -- this only works for pairs of ROACHes
+                j = (j/2)*2
+                print 'Roach'+str(j)+' FX0 IP address','swreg_ip0_roach0',fx[0,j],'packed =',ip2int(fx[0,j])
+                print 'Roach'+str(j)+' FX1 IP address','swreg_ip1_roach0',fx[1,j],'packed =',ip2int(fx[1,j])
+                print 'Roach'+str(j+1)+' FX0 IP address','swreg_ip0_roach1',fx[0,j+1],'packed =',ip2int(fx[0,j+1])
+                print 'Roach'+str(j+1)+' FX1 IP address','swreg_ip1_roach1',fx[1,j+1],'packed =',ip2int(fx[1,j+1])
+            else:
+                for j in range(8):
+                    print 'Roach'+str(j)+' FX0 IP address','swreg_ip0_roach'+str(j),fx[0,j],'packed =',ip2int(fx[0,j])
+                    print 'Roach'+str(j)+' FX1 IP address','swreg_ip1_roach'+str(j),fx[1,j],'packed =',ip2int(fx[1,j])
         else:
-            j = int(self.roach_ip[5:6])-1
-            # If j is odd, use next lower index -- this only works for pairs of ROACHes
-            j = (j/2)*2
-            self.fpga.write_int('swreg_ip0_roach0',ip2int(fx[0,j]))
-            self.fpga.write_int('swreg_ip1_roach0',ip2int(fx[1,j]))
-            self.fpga.write_int('swreg_ip0_roach1',ip2int(fx[0,j+1]))
-            self.fpga.write_int('swreg_ip1_roach1',ip2int(fx[1,j+1]))
+            if nbds == 2:
+                # Case of 4-antenna prototype
+                j = int(self.roach_ip[5:6])-1
+                # If j is odd, use next lower index -- this only works for pairs of ROACHes
+                j = (j/2)*2
+                self.fpga.write_int('swreg_ip0_roach0',ip2int(fx[0,j]))
+                self.fpga.write_int('swreg_ip1_roach0',ip2int(fx[1,j]))
+                self.fpga.write_int('swreg_ip0_roach1',ip2int(fx[0,j+1]))
+                self.fpga.write_int('swreg_ip1_roach1',ip2int(fx[1,j+1]))
+            else:
+                for j in range(8):
+                    self.fpga.write_int('swreg_ip0_roach'+str(j),ip2int(fx[0,j]))
+                    self.fpga.write_int('swreg_ip1_roach'+str(j),ip2int(fx[1,j]))
+                
         fx_port, self.msg = rd_ini(cfg,'fx port')
         if self.msg != 'int':
             self.msg = 'Incorrect format for FX port'
@@ -417,7 +420,7 @@ class Roach():
                 self.fpga.write_int('swreg_x_op_select',(2**16)*i + (2**4)*op + 1)
                 self.fpga.write_int('swreg_x_op_select',0)
 
-        # Set up 10Gbe cores
+        # Read X and P interface assignments
         dpp_P, self.msg = rd_ini(cfg,'dpp_P',[1,8])
         if dpp_P is None:
             return
@@ -428,6 +431,29 @@ class Roach():
         mac, self.msg = rd_ini(cfg,'mac',[2,1])
         if mac is None:
             return
+        # Determine the subnet this ROACH is going to use for X and P packets
+        subnet = int(dpp_P[rnum-1].split('.')[-2])
+        if int(dpp_X[rnum-1].split('.')[-2]) != subnet:
+            self.msg = 'Subnet for X and P packets for this ROACH do not agree'
+            return
+
+        # Load dpp address and port number
+        dppn, self.msg = rd_ini(cfg,'dpp',[2,1])
+        if dppn is None:
+            return
+        if dbg:
+            print 'DPP IP Address',dppn[subnet-1],'packed =',ip2int(dppn[subnet-1])
+        else:
+            self.fpga.write_int('swreg_dpp_ip',ip2int(dppn[subnet-1]))
+        dpp_port, self.msg = rd_ini(cfg,'dpp port')
+        if self.msg != 'int':
+            self.msg = 'Incorrect format for DPP port'
+            return
+        if dbg:
+            print 'DPP Port',dpp_port
+        else:
+            self.fpga.write_int('swreg_dpp_port',dpp_port)
+
         # Manually fix Tx_P and Tx_X ARP table (for some reason tap_start does not work right)
         # Configuring 10GbE core Tx_P (transmitting P data)
         arp = self.fpga.read('Tx_P', 256 * 8, 0x3000)
@@ -435,10 +461,11 @@ class Roach():
         for roach_id in range(8):
             idxP = int(dpp_P[roach_id].split('.')[-1])
             idxX = int(dpp_X[roach_id].split('.')[-1])
-            arp_tab[idxP] = mac2int(mac0) + ip2int(dpp_P[roach_id])  #  MAC address for 10.0.1.n1 (ROACHn)
-            arp_tab[idxX] = mac2int(mac0) + ip2int(dpp_X[roach_id])  #  MAC address for 10.0.1.n2 (ROACHn)
-        idx = int(dppn[dppn_idx[rnum-1]].split('.')[-1])
-        arp_tab[idx] = mac2int(mac[dppn_idx[rnum-1]])   # MAC address for 10.0.1.100 or 10.0.2.100 (dpp eth2 or eth3)
+            if int(dpp_P[roach_id].split('.')[-2]) == subnet:
+                arp_tab[idxP] = mac2int(mac0) + ip2int(dpp_P[roach_id])  #  MAC address for 10.0.x.n1 (ROACHn)
+                arp_tab[idxX] = mac2int(mac0) + ip2int(dpp_X[roach_id])  #  MAC address for 10.0.x.n2 (ROACHn)
+        idx = int(dppn[subnet-1].split('.')[-1])
+        arp_tab[idx] = mac2int(mac[subnet-1])   # MAC address for 10.0.1.100 or 10.0.2.100 (dpp eth2 or eth3)
         self.fpga.config_10gbe_core('Tx_P', mac2int(mac0) + ip2int(dpp_P[rnum-1]),
                                ip2int(dpp_P[rnum-1]), dpp_port, arp_tab.tolist())
         if print_arp:
@@ -451,10 +478,11 @@ class Roach():
         for roach_id in range(8):
             idxP = int(dpp_P[roach_id].split('.')[-1])
             idxX = int(dpp_X[roach_id].split('.')[-1])
-            arp_tab[idxP] = mac2int(mac0) + ip2int(dpp_P[roach_id])  #  MAC address for 10.0.1.n1 (ROACHn)
-            arp_tab[idxX] = mac2int(mac0) + ip2int(dpp_X[roach_id])  #  MAC address for 10.0.1.n2 (ROACHn)
-        idx = int(dppn[dppn_idx[rnum-1]].split('.')[-1])
-        arp_tab[idx] = mac2int(mac[dppn_idx[rnum-1]])   # MAC address for 10.0.1.100 or 10.0.2.100 (dpp eth2 or eth3)
+            if int(dpp_P[roach_id].split('.')[-2]) == subnet:
+                arp_tab[idxP] = mac2int(mac0) + ip2int(dpp_P[roach_id])  #  MAC address for 10.0.x.n1 (ROACHn)
+                arp_tab[idxX] = mac2int(mac0) + ip2int(dpp_X[roach_id])  #  MAC address for 10.0.x.n2 (ROACHn)
+        idx = int(dppn[subnet-1].split('.')[-1])
+        arp_tab[idx] = mac2int(mac[subnet-1])   # MAC address for 10.0.1.100 or 10.0.2.100 (dpp eth2 or eth3)
         self.fpga.config_10gbe_core('Tx_X', mac2int(mac0) + ip2int(dpp_X[rnum-1]),
                                ip2int(dpp_X[rnum-1]), dpp_port, arp_tab.tolist())
         if print_arp:
@@ -490,6 +518,11 @@ class Roach():
         if not dbg:
             self.fpga.write_int( 'swreg_rst', 1 )
 #            self.fpga.write_int( 'swreg_rst', 0 )  # Commented out to hold 10  GbE cores in reset state
+
+        # Set nominal values for multiplicative coefficients, in the case of the 16-antenna correlator
+        if nbds == 8:
+            coefficients = numpy.ones(2**13, dtype='>I') << (10 + 6)
+            for i in range(4): self.fpga.write('eq_x'+str(i)+'_coeffs',coefficients.tostring())
 
         self.msg = 'Success'
 
@@ -869,12 +902,15 @@ def reload(roach_list=None,pcycle=False):
     # Sleep for 2 s, then get current mcount on first roach
     time.sleep(2)
     mc = roach_list[0].fpga.read_int('rx_mcount_fx0',0)
-    print 'MCount is:',mc,'Future MCount should be:',mc+700
-    # Set mcount to 700
-    mc = 700
+    mcstart = 700
+    if len(roach_list) == 8:
+        mcstart = 350
+    print 'MCount is:',mc,'Future MCount should be:',mc+mcstart
+    # Set mcount to desired start value
+    mc = mcstart
     # Set mcount_start in all roaches for 16 s from now
     for roach in roach_list:
-        roach.fpga.write_int('swreg_mcount_start',mc)
+        #roach.fpga.write_int('vacc_target_mcnt',mc)
         roach.fpga.write_int('swreg_mcount_start',mc)
     time.sleep(16)
     for i,roach in enumerate(roach_list):

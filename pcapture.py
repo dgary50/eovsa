@@ -174,7 +174,7 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 lines.append(line)
     return lines
 
-def rd_spec(filename,ptype='P',boardID=0,verbose=False):
+def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
     ''' Read all spectra in a packet capture file according to ptype and board ID.
         If ptype = 'P', read P and P^2 packets only, and returns a float
         array of size [nsec, 50, 4096, 8], where nsec is one more than
@@ -240,8 +240,9 @@ def rd_spec(filename,ptype='P',boardID=0,verbose=False):
     # Start reading records
     out = pcap.readpkts()
     npkt = len(out)
-    naccum = npkt / 384 / 2
-    nsec = naccum / 50 + 1
+    # naccum = npkt / 384 / nboards
+    naccum = npkt / 256 / nboards  # Case for 16-ant corr test (no X packets)
+    nsec = naccum / 50 + 2
     if ptype is 'P':
         outarr = np.zeros([nsec,50,4096,8],'float')
         p1x = np.zeros(4096,'float')
