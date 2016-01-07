@@ -8,6 +8,8 @@
 #   2015-12-30  DG
 #     Changed RxSel to SelectedRx.  Also swapped FirstStageTemp and
 #     SecondStageTemp.  Changed stateframe version accordingly.
+#   2016-01-07  DG
+#     Corrected bug in fmt (for LNA doubles--was 12d, now 24d)
 #
 import numpy as np
 import struct
@@ -62,7 +64,7 @@ AXIS_DEF = {1: 'ZFocus',
 # Version Number for FEM stateframe
 VERSION = 1.3              # Version Date: 12/30/15
 VERSION_DATE = '12.30.15'   # Most recent update (used to write backup file)
-
+import datetime
 
 def gen_fem_sf(sf_dict, mk_xml=False):
     # Set up file name, format string, and buffer.
@@ -94,7 +96,8 @@ def gen_fem_sf(sf_dict, mk_xml=False):
         shutil.copyfile(xmlFile, backup_file)
 
         # Print size of buf
-        print 'fem size =', len(buf)
+        print 'fem size =', len(buf), 'fmt size =', struct.calcsize(fmt)
+        print 'These should agree.'
         print 'Modify acc.ini to reflect this if this is a change in size'
 
     return fmt, buf, xmlFile
@@ -350,7 +353,7 @@ def __receiver(dict, xml, mk_xml):
 
     fmt += 'I'
     buf += struct.pack('I', 4)
-    fmt += '12d'
+    fmt += '24d'
     if mk_xml:
         xml.write('<Array>\n')
         xml.write('<Name>LNAs</Name>\n')
@@ -555,7 +558,6 @@ def __servo(dict, xml, mk_xml):
     # ----------------------------------------------------------------------
     # ELEMENT 1> Homed: 0 = false, 1 = true (unsigned int)
     # ----------------------------------------------------------------------
-
     # Pack an unsigned int for status report.
     item = dict.get('HOMED', default_status)
     fmt += 'I'
@@ -596,6 +598,7 @@ def __servo(dict, xml, mk_xml):
     # ----------------------------------------------------------------------
     if mk_xml:
         xml.write('</Cluster>\n')
+
     return fmt, buf
 
 

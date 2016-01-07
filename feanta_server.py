@@ -3,6 +3,11 @@
     Author: Lokbondo Kung
     Email: lkkung@caltech.edu
 """
+# Change-log:
+#   2016-01-07  DG
+#     Added code to implement the "hybrid" stateframe information for
+#     NOISEDIODESTATUS, HIFREQSTATUS, and LOFREQSTATUS.
+#
 
 import datetime
 import socket
@@ -166,11 +171,6 @@ class ServerDaemon():
             except Exception, e:
                 pass
 
-        working_dict['LOFREQSTATUS'] = 0
-        working_dict['HIFREQSTATUS'] = 0
-        working_dict['NOISESTATUS'] = 0
-        fem_dict['RECEIVER'] = working_dict
-
         # Handle servo cluster.
         worker = self.workers.get('GeoBrick-Worker', None)
         if worker is not None:
@@ -181,6 +181,25 @@ class ServerDaemon():
                 self.__log(traceback.format_exc())
         else:
             fem_dict['SERVO'] = {}
+
+        # These items require information from multiple sources,
+        # which can be determined from the stateframe contents
+        working_dict['NOISESTATUS'] = fem_dict['POWERSTRIP']['STATUS'][7]
+
+        # Both selected Rx and RF switch set for low frequency receiver?
+        if fem_dict['SERVO']['SELECTEDRX'] == 1 and \
+                         fem_dict['POWERSTRIP']['STATUS'][0] == 0:
+            working_dict['LOFREQSTATUS'] = 1
+        else:
+            working_dict['LOFREQSTATUS'] = 0
+
+        # Both selected Rx and RF switch set for high frequency receiver?        
+        if fem_dict['SERVO']['SELECTEDRX'] == 2 and \
+                         fem_dict['POWERSTRIP']['STATUS'][0] == 1:
+            working_dict['HIFREQSTATUS'] = 1
+        else:
+            working_dict['HIFREQSTATUS'] = 0
+        fem_dict['RECEIVER'] = working_dict
 
         # Handle version.
         fem_dict['VERSION'] = VERSION

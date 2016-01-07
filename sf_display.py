@@ -1562,12 +1562,12 @@ class App():
             # Section on Motors
             serv = cryo['FRMServo']
             selrx = '***Unset***'
-            if serv['SelectedRx'] == 1:
+            if stf.extract(data,serv['SelectedRx']) == 1:
                 selrx = 'Low Freq RX '
-            elif serv['SelectedRx'] == 2:
+            elif stf.extract(data,serv['SelectedRx']) == 2:
                 selrx = 'High Freq RX'
             homed = '       '
-            if serv['Homed'] == 1: homed = '*HOMED*'
+            if stf.extract(data,serv['Homed']) == 1: homed = '*HOMED*'
             line = ' Motor      Fault    Limit  Current  Position  PosErr  PosOff  Home Indicator:   Selected RX: '
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
