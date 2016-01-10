@@ -19,10 +19,14 @@
 #   routines must have broken this.  Now I just do the compute in starobs2dxeldel().
 #   I realize that I also needed an hadec switch in that routine, to write out
 #   HA and Dec coordinates for equatorial mounts (see eq_mountcal() in mountcal.py).
+# 2016-Jan-09  DG
+#   Added analyze_stars() routine, to automatically upload image files to
+#   Astrometry.net, get the solutions, and create the starsolutions file.
+#   Really cool!
 #
 # Must be run from Dropbox/PythonCode/Current directory
 
-from numpy import array, zeros, ones, arange, where, argsort
+from numpy import array, zeros, ones, arange, where, argsort, sort, pi
 from util import *
 import ephem
 import datetime as dt
@@ -426,3 +430,80 @@ def do_stars(yr, mo, da, hr, mn, npts=25, mount='azel'):
     except:
         print 'Could not transfer startracktable.radec file.  ACC is down?'
 
+def analyze_stars(yr, mo, da, radius=3):
+    import os, glob, time
+    from astropy.io import fits
+    import subprocess
+    t = Time(dt.datetime(yr,mo,da,0,0),format='datetime')
+    fileloc = '/home/sched/Dropbox/PythonCode/Star Pointing/'
+    apikey = 'cqjhjsprirwttecb'
+    radeg = 180./pi
+    datestr = t.iso[:10]
+    os.chdir(fileloc+datestr)
+    # Read startable
+    f = open(fileloc+'startable-'+datestr+'.txt','r')
+    table = f.readlines()
+    f.close()
+    # Remove and save header lines of table
+    header = array([table[0].strip(),table[1].strip()])
+    table = table[2:]
+    # Read times, RA and Dec for each line of table
+    times = []
+    RA_J2000 = []
+    Dec_J2000 = []
+    for line in table:
+        times.append(line.strip()[-19:])
+        RA_J2000.append(RA_Angle(line[16:28].strip(),'hms'))
+        Dec_J2000.append(Dec_Angle(line[29:42].strip(),'dms'))
+    # Convert times to Time object
+    times = Time(array(times))
+    # Read image file list
+    filelist = sort(glob.glob('*.fts'))
+    idxlist = []   # List of indexes into table that were processed
+    ftimes = []    # List of times for files that were processed
+    for file in filelist:
+        # Gather information from file header
+        hdulist = fits.open(file)
+        f_datestr = hdulist[0].header['date-obs']
+        f_timestr = hdulist[0].header['time-obs']
+        f_time = Time(f_datestr+' '+f_timestr)
+        # Identify star from time
+        try:
+            idx = where(f_time > times)[0][-1]
+            skip = False
+        except:
+            print f_time.iso,'is before first time in file...skipping'
+            skip = True
+        if not skip:
+            # Submit this image to Astrometry.net, and wait for processing
+            # to complete.
+            command = ['python','/common/python/current/astronet.py','--apikey='+apikey,'--upload='+file,
+                       '--ra='+str(RA_J2000[idx].radians*radeg),'--dec='+str(Dec_J2000[idx].radians*radeg),
+                       '--radius='+str(radius),'--wcs=wcs_'+file[:-3]+'fits']
+            # print 'Sending:',command
+            p = subprocess.Popen(command,stdout=subprocess.PIPE)
+            tstart = time.time()
+            lines = p.stdout.readlines()
+            print 'Result is',lines[-1].strip()
+            print 'Took',time.time() - tstart,'seconds.'
+            if lines[-1][:12] == 'Wrote to wcs': 
+                idxlist.append(idx)
+                ftimes.append(f_timestr)
+    # Write output file
+    f = open(fileloc+'starsolutions-'+datestr+'.txt','w')
+    f.write('Num   Name        RA(J2000)    Dec(J2000)    RA(Meas)      Dec(Meas)  Time(Meas)\n')
+    f.write('==== ========== ============ ============= ============ ============= ==========\n')
+    wcslist = sort(glob.glob('*.fits'))
+    for i,file in enumerate(wcslist):
+        hdulist = fits.open(file)
+        ra = RA_Angle(hdulist[0].header['crval1']/radeg)
+        dec = Dec_Angle(hdulist[0].header['crval2']/radeg)
+        outline = table[idxlist[i]][:41]+'  '+ra.get('hms')[:-1]+'  '+dec.get('dms')[:-2]+'    '+ftimes[i]
+        f.write(outline+'\n')
+    f.write('\n')
+    f.close()
+         
+        
+            
+
+    
