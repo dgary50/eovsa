@@ -31,6 +31,8 @@
 #      Now that Ant13's solar power station is online, changed rd_solpwr() to 
 #      read from either power station depending on supplied url.  Now returns
 #      a single dictionary. 
+#   2016-Jan-15  DG
+#      Cleaned up azel_from_stateframe() code to use extract().
 #
 
 import struct, sys
@@ -334,28 +336,19 @@ def azel_from_stateframe(sf, data, antlist=None):
 
     for i, ant in enumerate(antlist):
         c = sf['Antenna'][ant]['Controller']
-        fmt, off = c['Azimuth1']
-        az1 = struct.unpack_from(fmt,data,off)[0]/10000.
-        fmt, off = c['AzimuthPositionCorrected']
-        az_corr = struct.unpack_from(fmt,data,off)[0]/10000.
-        fmt, off = c['Elevation1']
-        el1 = struct.unpack_from(fmt,data,off)[0]/10000.
-        fmt, off = c['ElevationPositionCorrected']
-        el_corr = struct.unpack_from(fmt,data,off)[0]/10000.
-        fmt, off = c['RunMode']
-        rm = struct.unpack_from(fmt,data,off)[0]
+        az1 = extract(data,c['Azimuth1'])/10000.
+        az_corr = extract(data,c['AzimuthPositionCorrected'])/10000.
+        el1 = extract(data,c['Elevation1'])/10000.
+        el_corr = extract(data,c['ElevationPositionCorrected'])/10000.
+        rm = extract(data,c['RunMode'])
         if rm == 4:
             # Track mode
-            fmt, off = c['AzimuthVirtualAxis']
-            az_req.append(struct.unpack_from(fmt,data,off)[0]/10000.)
-            fmt, off = c['ElevationVirtualAxis']
-            el_req.append(struct.unpack_from(fmt,data,off)[0]/10000.)
+            az_req.append(extract(data,c['AzimuthVirtualAxis'])/10000.)
+            el_req.append(extract(data,c['ElevationVirtualAxis'])/10000.)
         else:
             # All other modes
-            fmt, off = c['AzimuthPosition']
-            az_req.append(struct.unpack_from(fmt,data,off)[0]/10000.)
-            fmt, off = c['ElevationPosition']
-            el_req.append(struct.unpack_from(fmt,data,off)[0]/10000.)
+            az_req.append(extract(data,c['AzimuthPosition'])/10000.)
+            el_req.append(extract(data,c['ElevationPosition'])/10000.)
 
         if rm == 1 or ant == 11:    # New S. Pole telescope works differently
             # Position mode

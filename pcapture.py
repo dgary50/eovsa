@@ -43,6 +43,8 @@
 #      I realized that ovfl values in plot_fig() were plotted wrong--each ROACH
 #      only has one ovfl value per band, i.e. the two ADC boards produce only one
 #      combined ovfl value.
+#   2016-Jan-18  DG
+#      Added code to handle data from 16-antenna "production" correlator.
 #
 
 import numpy as np
@@ -146,10 +148,10 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 line = lines.pop()
                                 lines.append('Acc# Global-Acc# FFTs ID --M--  OvFl    P1x, P1y    P2x, P2y    ---Delays [nsec]---')
                                 lines.append(line)
-        elif len(buf) == 1538:
+        elif len(buf) > 898:
             # This is an X packet
             if ptype == 'X':
-                header = struct.unpack(hdr,buf[-1496:88-1496])
+                header = struct.unpack(hdr,buf[42:88+42])
                 h = dict(zip(khdr,header))
                 l = h['HeaderLength']
                 if l == 88:
@@ -174,7 +176,7 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 lines.append(line)
     return lines
 
-def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
+def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
     ''' Read all spectra in a packet capture file according to ptype and board ID.
         If ptype = 'P', read P and P^2 packets only, and returns a float
         array of size [nsec, 50, 4096, 8], where nsec is one more than
@@ -189,6 +191,10 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
         number of antenans in the array.  Of the 4096 channels, only
         those in the packets are non-zero.  The outputs from multiple
         interfaces can thus be added to fill in more channels.
+        
+        Now that we have the production correlator, I have added the
+        proto=True keyword, so that if it is set to False the X data
+        will be interpreted as from the production correlator.
     '''
     import dpkt, struct
 
@@ -208,6 +214,7 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
         return p1x,p1y,p2x,p2y,P1x,P1y,P2x,P2y
 
     def xspectra(xdata):
+        # Case of prototype X spectra
         x = np.array(xdata)
         # idx is array([0,44,88,132,176,220,264,308,352,396,440,484,528,572,616,660])
         idx = np.arange(0,704,44)
@@ -240,9 +247,25 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
     # Start reading records
     out = pcap.readpkts()
     npkt = len(out)
-    # naccum = npkt / 384 / nboards
-    naccum = npkt / 256 / nboards  # Case for 16-ant corr test (no X packets)
-    nsec = naccum / 50 + 2
+    # Find number of P packets, and use it to determine how many accumulations were
+    # captured in the file.
+    nPpkt = 0
+    xlen = 0
+    for a,b in out:
+        if len(b) == 898: 
+            nPpkt += 1
+        elif xlen == 0:
+            # Get length of X packets and value of first accumulation number
+            xlen = len(b)
+            header = struct.unpack(hdr,b[42:130])
+            h = dict(zip(khdr,header))
+            xaccum = h['AccumNum']
+            pktnum = h['PacketNum']
+            t0 = a  # Initial X packet timestamp
+
+            
+    naccum = nPpkt / 256 / nboards
+    nsec = naccum / 50 + 1
     if ptype is 'P':
         outarr = np.zeros([nsec,50,4096,8],'float')
         p1x = np.zeros(4096,'float')
@@ -253,7 +276,7 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
         P1y = np.zeros(4096,'float')
         P2x = np.zeros(4096,'float')
         P2y = np.zeros(4096,'float')
-    elif ptype is 'X':
+    elif ptype is 'X' and proto:
         outarr = np.zeros([nsec,50,4096,12],'complex')
         a12x = np.zeros(4096,'complex')
         a12y = np.zeros(4096,'complex')
@@ -267,6 +290,17 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
         a24y = np.zeros(4096,'complex')
         a34x = np.zeros(4096,'complex')
         a34y = np.zeros(4096,'complex')
+    elif ptype is 'X':
+        # In case of short capture packets, create the proper xfmt string.
+        # The 130 is the 42-byte tcp packet header + 88 byte CASPER header.
+        # The if statement is in case the capture buffer is not an even
+        # number of 4-byte values, in which case stick on another half-word.
+        nx = (xlen-130)/8
+        x0 = 130  # Start location in packet buffer
+        x1 = 130 + nx*8  # End location in packet buffer
+        xfmt = str(2*nx)+'i'  # Read buffer as 32-bit signed integers
+        # The format is all baselines, all poln products, for one channel
+        outarr = np.zeros([nsec,50,4096,nx],'complex')
     else:
         print 'Invalid ptype: must be "P" or "X"'
         f.close()
@@ -276,10 +310,10 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
     a = -1
     for j in range(npkt):
         if verbose: print 'working on packet',j,'\r',
-        buf = out[j][1]
+        t, buf = out[j]
         if ptype is 'P' and len(buf) == 898:
             # This is a P packet
-            header = struct.unpack(hdr,buf[-856:-768])
+            header = struct.unpack(hdr,buf[42:130])
             h = dict(zip(khdr,header))
             n = h['PacketNum']
             if  h['BoardID'] == boardID:
@@ -318,62 +352,80 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
                 P1y[n*16:(n+1)*16] = P1y_ 
                 P2x[n*16:(n+1)*16] = P2x_ 
                 P2y[n*16:(n+1)*16] = P2y_
-        elif ptype is 'X' and len(buf) == 1538:
-            # This is an X packet
-            header = struct.unpack(hdr,buf[-1496:-1408])
-            h = dict(zip(khdr,header))
-            n = h['PacketNum']
-            if  h['BoardID'] == boardID:
-                if n == 0:
-                    # Beginning of accumulation sample, so save the old one
-                    # unless this is the first time through, indicated when a 
-                    # is an impossible number (-1)
-                    if a != -1:
-                        outarr[isec,a,:,0] = a12x
-                        outarr[isec,a,:,1] = a12y
-                        outarr[isec,a,:,2] = a13x
-                        outarr[isec,a,:,3] = a13y
-                        outarr[isec,a,:,4] = a14x
-                        outarr[isec,a,:,5] = a14y
-                        outarr[isec,a,:,6] = a23x
-                        outarr[isec,a,:,7] = a23y
-                        outarr[isec,a,:,8] = a24x
-                        outarr[isec,a,:,9] = a24y
-                        outarr[isec,a,:,10] = a34x
-                        outarr[isec,a,:,11] = a34y
-                        a12x = np.zeros(4096,'complex')
-                        a12y = np.zeros(4096,'complex')
-                        a13x = np.zeros(4096,'complex')
-                        a13y = np.zeros(4096,'complex')
-                        a14x = np.zeros(4096,'complex')
-                        a14y = np.zeros(4096,'complex')
-                        a23x = np.zeros(4096,'complex')
-                        a23y = np.zeros(4096,'complex')
-                        a24x = np.zeros(4096,'complex')
-                        a24y = np.zeros(4096,'complex')
-                        a34x = np.zeros(4096,'complex')
-                        a34y = np.zeros(4096,'complex')
-                        if h['AccumNum'] == 0: 
-                            # Beginning of a new second
-                            isec += 1
-                a = h['AccumNum']
-                xdata = struct.unpack(xfmt,buf[-1408:])
-                a12x_,a12y_,a13x_,a13y_,a14x_,a14y_,a23x_,a23y_,a24x_,a24y_,a34x_,a34y_ = xspectra(xdata)
-                bid = h['BoardID'] % 2
-                ns = n*16 + bid*2048
-                ne = (n+1)*16 + bid*2048
-                a12x[ns:ne] = a12x_ 
-                a12y[ns:ne] = a12y_ 
-                a13x[ns:ne] = a13x_ 
-                a13y[ns:ne] = a13y_ 
-                a14x[ns:ne] = a14x_ 
-                a14y[ns:ne] = a14y_ 
-                a23x[ns:ne] = a23x_ 
-                a23y[ns:ne] = a23y_ 
-                a24x[ns:ne] = a24x_ 
-                a24y[ns:ne] = a24y_ 
-                a34x[ns:ne] = a34x_ 
-                a34y[ns:ne] = a34y_ 
+        elif ptype is 'X' and len(buf) > 898:
+            if proto:
+                # This is an X packet from the prototype
+                header = struct.unpack(hdr,buf[42:130])
+                h = dict(zip(khdr,header))
+                n = h['PacketNum']
+                # Case of prototype packets
+                if  h['BoardID'] == boardID:
+                    if n == 0:
+                        # Beginning of accumulation sample, so save the old one
+                        # unless this is the first time through, indicated when a 
+                        # is an impossible number (-1)
+                        if a != -1:
+                            outarr[isec,a,:,0] = a12x
+                            outarr[isec,a,:,1] = a12y
+                            outarr[isec,a,:,2] = a13x
+                            outarr[isec,a,:,3] = a13y
+                            outarr[isec,a,:,4] = a14x
+                            outarr[isec,a,:,5] = a14y
+                            outarr[isec,a,:,6] = a23x
+                            outarr[isec,a,:,7] = a23y
+                            outarr[isec,a,:,8] = a24x
+                            outarr[isec,a,:,9] = a24y
+                            outarr[isec,a,:,10] = a34x
+                            outarr[isec,a,:,11] = a34y
+                            a12x = np.zeros(4096,'complex')
+                            a12y = np.zeros(4096,'complex')
+                            a13x = np.zeros(4096,'complex')
+                            a13y = np.zeros(4096,'complex')
+                            a14x = np.zeros(4096,'complex')
+                            a14y = np.zeros(4096,'complex')
+                            a23x = np.zeros(4096,'complex')
+                            a23y = np.zeros(4096,'complex')
+                            a24x = np.zeros(4096,'complex')
+                            a24y = np.zeros(4096,'complex')
+                            a34x = np.zeros(4096,'complex')
+                            a34y = np.zeros(4096,'complex')
+                            if h['AccumNum'] == 0: 
+                                # Beginning of a new second
+                                isec += 1
+                    a = h['AccumNum']
+                    xdata = struct.unpack(xfmt,buf[130:])
+                    a12x_,a12y_,a13x_,a13y_,a14x_,a14y_,a23x_,a23y_,a24x_,a24y_,a34x_,a34y_ = xspectra(xdata)
+                    bid = h['BoardID'] % 2
+                    ns = n*16 + bid*2048
+                    ne = (n+1)*16 + bid*2048
+                    a12x[ns:ne] = a12x_ 
+                    a12y[ns:ne] = a12y_ 
+                    a13x[ns:ne] = a13x_ 
+                    a13y[ns:ne] = a13y_ 
+                    a14x[ns:ne] = a14x_ 
+                    a14y[ns:ne] = a14y_ 
+                    a23x[ns:ne] = a23x_ 
+                    a23y[ns:ne] = a23y_ 
+                    a24x[ns:ne] = a24x_ 
+                    a24y[ns:ne] = a24y_ 
+                    a34x[ns:ne] = a34x_ 
+                    a34y[ns:ne] = a34y_ 
+            else:
+                # This is an X packet from the production correlator
+                header = struct.unpack(hdr,buf[42:130])
+                h = dict(zip(khdr,header))
+                n = h['PacketNum']
+                # Override AccumNum with value based on packet timestamp, since
+                # AccumNum is currently messed up.
+                # This assumes packets coming out at 1-s mark were accumulated in
+                # previous 20 ms (hence -2)
+                aprev = a
+                a = int(t*100 - 2) / 2 % 50  # This is calculated AccumNum
+                if a == 0 and aprev == 49:
+                    isec += 1
+                iFreq = h['iFreq']
+                xdata = np.array(struct.unpack(xfmt,buf[x0:x1]))
+                outarr[isec,a,iFreq,:] = (xdata[::2] + 1j*xdata[1::2]).astype('complex64')
         else:
             # Some unknown packet?
             pass

@@ -303,9 +303,23 @@ class Roach():
         fseq.shape = 50
         self.set_sequence(fseq)
 
+        # Determine number of boards being run (if 8, means 16-ant correlator)
+        nbds, self.msg = rd_ini(cfg,'n boards')
+        if self.msg != 'int':
+            self.msg = 'Incorrect format for "n boards"'
+            return
+        self.nboards = nbds
+
         # Set accumulation start and length (calculate from ADC clock)
         acc_start = int(0.001 * clkHz / 8192.) + 54   # ~1 ms delay
         acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration
+        if nbds == 8:
+            # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
+            # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
+            x_acc_len = 6
+        else:
+            x_acc_len = acc_len
+
         if dbg:
             print 'Acc Length',acc_len
             print 'Acc Start',acc_start,'packed =',hex((2**16)*acc_len+acc_start)
@@ -324,11 +338,6 @@ class Roach():
             self.fpga.write_int('swreg_board_info',(2**16)*(rnum-1) + act_bds)
 
         # Load ROACH address and port information
-        nbds, self.msg = rd_ini(cfg,'n boards')
-        if self.msg != 'int':
-            self.msg = 'Incorrect format for "n boards"'
-            return
-        self.nboards = nbds
         fx, self.msg = rd_ini(cfg,'fx',[2,8])
         if fx is None:
             return
@@ -404,7 +413,7 @@ class Roach():
 
         # Load X control register
         pows = 2**numpy.array([16,8,4,0])
-        vect = numpy.array([acc_len,pktdla,rnum-1,mypoln])
+        vect = numpy.array([x_acc_len,pktdla,rnum-1,mypoln])
         if dbg:
             print 'X Control Register vector [Acc Length,Pktdla,Board,Poln]',vect,'packed',hex((vect*pows).sum())
         else:

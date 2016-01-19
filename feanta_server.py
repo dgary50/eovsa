@@ -7,6 +7,9 @@
 #   2016-01-07  DG
 #     Added code to implement the "hybrid" stateframe information for
 #     NOISEDIODESTATUS, HIFREQSTATUS, and LOFREQSTATUS.
+#   2016-01-08  DG
+#     Added handling of RX-SELECT, which translates to two different
+#     actions.
 #
 
 import datetime
@@ -266,8 +269,33 @@ class ServerDaemon():
             # Verify that the given command exists and execute it with the
             # correct worker if it does.
             try:
-                worker = self.function_map[acc_command[0]]
-                worker.execute(acc_command)
+                if acc_command[0] == 'RX-SELECT':
+                    # This is the sole command that has to do two things
+                    # at once--so handle it separately.  Here are the
+                    # two translations:
+                    #   RX-SELECT LO => OUTLET 1 OFF and FRM-RX-SEL LO
+                    #   RX-SELECT HI => OUTLET 1 ON  and FRM-RX-SEL HI
+                    if acc_command[1].upper() == 'LO':
+                        new_acc_command = ['OUTLET','1','OFF']
+                    elif acc_command[2].upper() == 'HI':
+                        new_acc_command = ['OUTLET','1','ON']
+                    else:
+                        # If acc_command[1] is not LO or HI, this will
+                        # give the correct KeyError response
+                        new_acc_command = acc_command  # In case of error
+                    self.__log('Attempted to send new_acc_commend: ' +
+                           new_acc_command[0] + '.')
+                    worker = self.function_map[new_acc_command[0]]
+                    worker.execute(new_acc_command)
+                    time.sleep(0.1)  #Try giving a little time before the next command
+                    new_acc_command = ['FRM-RX-SEL',acc_command[1]]
+                    self.__log('Attempted to send new_acc_commend: ' +
+                           new_acc_command[0] + '.')
+                    worker = self.function_map[new_acc_command[0]]
+                    worker.execute(new_acc_command)
+                else:
+                    worker = self.function_map[acc_command[0]]
+                    worker.execute(acc_command)
             except KeyError:
                 self.__log('Unrecognized command received: ' +
                            acc_command[0] + '.')

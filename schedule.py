@@ -136,6 +136,11 @@
 #      --one ROACH (#6) seems messed up, so going back to 4 ROACHes for now.
 #   2015-Nov-29  DG
 #      Updated $LNA-INIT command to use new command names and syntax.
+#   2016-Jan-16  DG
+#      Added code for $PCYCLE command, to power-cycle a device in the field
+#      (antenna, crio, or fem) using the new Viking relay controllers
+#   2016-Jan-19  DG
+#      Added attempt to read pwr_cycle queue
 #
 
 import os, signal
@@ -147,7 +152,7 @@ from tkFileDialog import *
 from ftplib import FTP
 import urllib2
 import util
-import threading
+import threading, pwr_cycle
 import subprocess
 import roach
 from eovsa_tracktable import *
@@ -1302,6 +1307,15 @@ class App():
             print t.iso,str(int(self.telapsed*1000))
             sys.stdout.flush() # Flush stdout (/tmp/schedule.log or /tmp/schedule_[self.subarray_name].log) so we can see this '-'.
 
+        # Attempt to read from spawned task pwr_cycle.ant_toggle() queue.  Reads up to 10
+        # items at a time unless queue is empty.
+        for i in range(10):
+            try:
+                msg = pwr_cycle.q.get_nowait()
+                print t.iso,msg
+            except:
+                break
+            
         # If this schedule is running the second subarray, confirm that Subarray1 is running; if it is not,
         # print a warning message to the log file.
         if self.subarray_name != 'Subarray1':
@@ -1784,6 +1798,48 @@ class App():
             except:
                 pass
             
+    def interpret_pcycle(self, ctlline):
+        ''' Interprets the control line containing a $PCYCLE command, of the
+            form $PCYCLE <device> <antlist>, where <cevice> is one of 'ant',
+            'fem', 'frontend', 'crio', and <antlist> is the usual antenna list.
+            This is all NOT case-sensitive.  Note that only the first three
+            characters of the device name are examined.  If the device is 'ant',
+            then the device name is optional, i.e.
+               $PCYCLE ant1 ant2-4 ant7
+            will work.
+            
+            The device and antenna list are returned.  If line cannot be
+            interpreted, device is None
+        '''
+        valid = {'ANT':'ANT','FEM':'FRONTEND','FRO':'FRONTEND','CRI':'CRIO','OTH':'OTHER'}
+        tokens = ctlline.upper().split()
+        # First token is just the command.  Check whether the second token is valid:
+        if len(tokens) == 1:
+            return None, None
+        try:
+            # Check that first three characters of second token matches valid
+            # devices, and set device to full spelling.
+            device = valid[tokens[1][:3]]
+        except KeyError:
+            return None, None
+        if device != 'ANT': tokens = tokens[1:]
+        # Now check remaining tokens for antenna number
+        ants = []
+        for token in tokens[1:]:
+            try:
+                # Try to interpret ANTn where n is an integer
+                junk, num = token.split('ANT')
+                if num != '': ants.append(int(num))
+            except:
+                try:
+                    # Try to interpret ANTm-n, where m and n are integers
+                    a1, a2 = num.split('-')
+                    for i in range(int(a1),int(a2)+1):
+                        ants.append(i)
+                except:
+                    return None, None
+        return device, ants
+        
     #============================
     def execute_ctlline(self,ctlline,mjd1=None,mjd2=None):
         # Send line to ACC.  Lines that start with '$' will be entered
@@ -1986,6 +2042,26 @@ class App():
                     self.wait = dur
                     print 'Initializing wait for',dur,'seconds'
                     #break
+                #==== PCYCLE ====
+                elif ctlline.split(' ')[0].upper() == '$PCYCLE':
+                    # Cycle the power of some device (antenna controller, fem, or crio)
+                    # for a given antenna.
+                    device, ants = self.interpret_pcycle(ctlline)
+                    if device is None:
+                        print 'Error interpreting $PCYCLE command',ctlline
+                    else:
+                        # Since device is not None, interpreting tokens succeeded.
+                        if device == 'ANT':
+                            # Turn off all antennas that are to be power cycled
+                            antstr = ''
+                            for antnum in ants:
+                                antstr += ' ant'+str(antnum)
+                            self.sendctlline('powerswitch 0 '+antstr)
+                        # Spawn tasks to perform power cycle (each takes awhile)
+                        for antnum in ants:
+                            t = threading.Thread(target=pwr_cycle.ant_toggle, args=(antnum, device))
+                            t.daemon = True
+                            t.start()
                 #==== KATADC_GET ====
                 elif ctlline.split(' ')[0].upper() == '$KATADC_GET':
                     # Get the standard deviation for each KatADC (assumes frequency tuning is static)

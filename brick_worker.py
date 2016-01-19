@@ -415,8 +415,13 @@ class BrickWorker(i_worker.IWorker):
         for monitor_point in response:
             parsed_response.append(self.__str2float(monitor_point))
 
-        return parsed_response
+        return parsed_response, response
 
+    # Expose direct information from Brick, for debugging
+    def brickmonitor_query(self):
+        parsed_response, response = self.__brickmonitor_query()
+        return parsed_response, response
+        
     def __str2float(self, str_val):
         num = 0
         try:
@@ -490,7 +495,7 @@ class BrickWorker(i_worker.IWorker):
         stateframe_data = {'AXIS1': {},
                            'AXIS3': {},
                            'AXIS4': {}}
-        fetched_data = self.__brickmonitor_query()
+        fetched_data, junk = self.__brickmonitor_query()
         # Check if fetched_data is truncated, and zero-fill if so
         if len(fetched_data) < 24:
             fetched_data += [0.0]*(24-len(fetched_data))

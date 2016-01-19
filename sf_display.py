@@ -49,6 +49,8 @@
 #     Changed LNA output to print LNA name instead of number.
 #   2015-Dec-30  DG
 #     Changed Outlet heading to include outlet number.
+#   2016-Jan-15  DG
+#     Update expected STOW position for 27-m antennas to +20 Dec
 #
 
 from Tkinter import *
@@ -1052,7 +1054,7 @@ class App():
         # Expected STOW coordinates for the different types of antenna.  If/when Ant 12 is changed to
         # the old mount, its values must be changed.
         azstow = np.array([180,180,180,180,180,180,180,180,0,0,0,180,0,0,0])
-        elstow = np.array([88,88,88,88,88,88,88,88,37,37,37,88,37,37,37])
+        elstow = np.array([88,88,88,88,88,88,88,88,37,37,37,88,37,20,20])
 
         azel = stf.azel_from_stateframe(sf,data)
         antindex = self.antlist - 1
