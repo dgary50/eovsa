@@ -23,6 +23,9 @@
 #   Added analyze_stars() routine, to automatically upload image files to
 #   Astrometry.net, get the solutions, and create the starsolutions file.
 #   Really cool!
+# 2016-Jan-26  DG
+#   Changed analyze_stars() to skip submission of image if wcs file already
+#   exists in the directory.
 #
 # Must be run from Dropbox/PythonCode/Current directory
 
@@ -459,6 +462,7 @@ def analyze_stars(yr, mo, da, radius=3):
     times = Time(array(times))
     # Read image file list
     filelist = sort(glob.glob('*.fts'))
+    wcslist = array(sort(glob.glob('*.fits')))
     idxlist = []   # List of indexes into table that were processed
     ftimes = []    # List of times for files that were processed
     for file in filelist:
@@ -475,20 +479,31 @@ def analyze_stars(yr, mo, da, radius=3):
             print f_time.iso,'is before first time in file...skipping'
             skip = True
         if not skip:
-            # Submit this image to Astrometry.net, and wait for processing
-            # to complete.
-            command = ['python','/common/python/current/astronet.py','--apikey='+apikey,'--upload='+file,
+            # First check if this star is already done (indicated by existing wcs file)
+            wcsfound = False
+            for wcsfile in wcslist:
+                if (wcsfile == 'wcs_'+file.split('.fts')[0]+'.fits'):
+                    wcsfound = True
+                    print 'Star already done.'
+                    idxlist.append(idx)
+                    ftimes.append(f_timestr)
+                    break
+            if not wcsfound:
+                # Submit this image to Astrometry.net, and wait for processing
+                # to complete.
+                command = ['python','/common/python/current/astronet.py','--apikey='+apikey,'--upload='+file,
                        '--ra='+str(RA_J2000[idx].radians*radeg),'--dec='+str(Dec_J2000[idx].radians*radeg),
+                       #'--scale-lower=0.3','--scale-upper=1','--downsample=1',
                        '--radius='+str(radius),'--wcs=wcs_'+file[:-3]+'fits']
-            # print 'Sending:',command
-            p = subprocess.Popen(command,stdout=subprocess.PIPE)
-            tstart = time.time()
-            lines = p.stdout.readlines()
-            print 'Result is',lines[-1].strip()
-            print 'Took',time.time() - tstart,'seconds.'
-            if lines[-1][:12] == 'Wrote to wcs': 
-                idxlist.append(idx)
-                ftimes.append(f_timestr)
+                # print 'Sending:',command
+                p = subprocess.Popen(command,stdout=subprocess.PIPE)
+                tstart = time.time()
+                lines = p.stdout.readlines()
+                print 'Result is',lines[-1].strip()
+                print 'Took',time.time() - tstart,'seconds.'
+                if lines[-1][:12] == 'Wrote to wcs': 
+                    idxlist.append(idx)
+                    ftimes.append(f_timestr)
     # Write output file
     f = open(fileloc+'starsolutions-'+datestr+'.txt','w')
     f.write('Num   Name        RA(J2000)    Dec(J2000)    RA(Meas)      Dec(Meas)  Time(Meas)\n')
@@ -500,7 +515,6 @@ def analyze_stars(yr, mo, da, radius=3):
         dec = Dec_Angle(hdulist[0].header['crval2']/radeg)
         outline = table[idxlist[i]][:41]+'  '+ra.get('hms')[:-1]+'  '+dec.get('dms')[:-2]+'    '+ftimes[i]
         f.write(outline+'\n')
-    f.write('\n')
     f.close()
          
         

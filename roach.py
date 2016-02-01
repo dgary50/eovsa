@@ -37,6 +37,9 @@
 #      Added setup of multiplicative "equalization" coefficients for
 #      registers eq_x0_coeff, in 16-antenna design (skipped if nbds
 #      is not 8).
+#   2016-Jan-22  DG
+#      Changed "pcycle" wait time to 90 s if more than 6 roaches are
+#      being rebooted (60 s was not quite long enough).
 #
 
 import corr, struct, numpy, time, copy, sys
@@ -179,6 +182,7 @@ class Roach():
                 self.boffile = None
                 return
             try:
+                status = 'Progdev failed.'
                 status = self.fpga.progdev(boffile)
                 self.boffile = boffile
                 if status is 'ok':
@@ -532,6 +536,10 @@ class Roach():
         if nbds == 8:
             coefficients = numpy.ones(2**13, dtype='>I') << (10 + 6)
             for i in range(4): self.fpga.write('eq_x'+str(i)+'_coeffs',coefficients.tostring())
+            # Test--blank first 128 channels of ROACH1, X0
+            if self.roach_ip[5:6] == '1':
+                coefficients[0:128] = 0
+                self.fpga.write('eq_x0_coeffs',coefficients.tostring())
 
         self.msg = 'Success'
 
@@ -877,9 +885,14 @@ def reload(roach_list=None,pcycle=False):
                 print 'Connection timed out. Try again.'
                 return
         # All ROACH boards have been power cycled.
-        # Wait 60 s for bootup before proceeding
-        print 'Sleeping 60 seconds while ROACH(es) bootup completes'
-        time.sleep(60)
+        if len(roach_list) < 7:
+            # Wait 60 s for bootup before proceeding
+            print 'Sleeping 60 seconds while ROACH(es) bootup completes'
+            time.sleep(60)
+        else:
+            # Wait 90 s for bootup before proceeding
+            print 'Sleeping 90 seconds while ROACH(es) bootup completes'
+            time.sleep(90)
 
     # If ips is True, create ROACH objects from ip addresses
     if ips:

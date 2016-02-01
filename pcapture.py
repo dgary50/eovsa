@@ -262,10 +262,10 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
             xaccum = h['AccumNum']
             pktnum = h['PacketNum']
             t0 = a  # Initial X packet timestamp
-
+    t1 = a #Final packet timestamp
             
     naccum = nPpkt / 256 / nboards
-    nsec = naccum / 50 + 1
+    nsec = int(t1 - t0) + 1
     if ptype is 'P':
         outarr = np.zeros([nsec,50,4096,8],'float')
         p1x = np.zeros(4096,'float')
@@ -392,6 +392,10 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
                             if h['AccumNum'] == 0: 
                                 # Beginning of a new second
                                 isec += 1
+                                if isec == nsec:
+                                    sout = outarr.shape
+                                    outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
+                                    return outarr                    
                     a = h['AccumNum']
                     xdata = struct.unpack(xfmt,buf[130:])
                     a12x_,a12y_,a13x_,a13y_,a14x_,a14y_,a23x_,a23y_,a24x_,a24y_,a34x_,a34y_ = xspectra(xdata)
@@ -423,6 +427,10 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
                 a = int(t*100 - 2) / 2 % 50  # This is calculated AccumNum
                 if a == 0 and aprev == 49:
                     isec += 1
+                    if isec == nsec:
+                        sout = outarr.shape
+                        outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
+                        return outarr                    
                 iFreq = h['iFreq']
                 xdata = np.array(struct.unpack(xfmt,buf[x0:x1]))
                 outarr[isec,a,iFreq,:] = (xdata[::2] + 1j*xdata[1::2]).astype('complex64')

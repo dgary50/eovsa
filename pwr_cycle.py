@@ -7,6 +7,11 @@
 #   2016-Jan-19  DG
 #     Added Queue use to ant_toggle so that calling program (schedule.py)
 #     can receive messages when spawned by threading module.
+#   2016-Jan-22  DG
+#     Changed the __main__ code to accept a couple of command-line args.
+#   2016-Jan-27  DG
+#     In an attempt to make ant_toggle() more reliable, it tries to login
+#     three times before each of the two toggle commands.
 
 import requests
 from requests.auth import HTTPDigestAuth
@@ -41,16 +46,72 @@ def ant_toggle(antnum, device=None, wait=None, cycle=True):
         except:
             q.put('Ant'+str(antnum)+' Error interpreting device '+device)
             return
+
+    url = 'http://vik'+str(antnum)+'.solar.pvt/protect/'+'relays.cgi?relay='+str(relay)+'&state=toggle'
+    dur = 15  # Default duration to wait
+    if wait:
+        if type(wait) != int:
+            q.put('Ant'+str(antnum)+' Warning: Could not interpret wait duration',wait,'.  Must be an integer type.  Will use 15 s')
+            dur = 15
+        else:
+            dur = wait
+            
+    # See if we can connect and toggle the relay
+    try:
+        stat_code = vik_login(antnum)
+        if stat_code != 200:
+            return
+            
+        # Actually send the request to toggle the relay
+        r = requests.get(url,auth=HTTPDigestAuth('admin','pwr4me'))
         
+        # Write the result of the request to the output queue.
+        #    The if statement fixes the peculiarity that the relay is off 
+        #    when power is on and vice versa.  The "result" gives the state 
+        #    of the power, not the relay
+        if r.text[-3:] == 'off':
+            q.put('Ant'+str(antnum)+' '+r.text.replace('off','on'))
+        else:
+            q.put('Ant'+str(antnum)+' '+r.text.replace('on','off'))
+
+        # If we are supposed to cycle the power, send the request again after a wait
+        if cycle == True:
+            if r.text == devstr[relay]+' now on':
+                # Request to turn relay on (to turn device off) worked,
+                # so wait for requested length of time and then toggle
+                # again to turn device back on.
+                time.sleep(dur)
+                stat_code = vik_login(antnum)
+                if stat_code != 200:
+                    return
+
+                # Actually send the request to toggle the relay
+                r = requests.get(url,auth=HTTPDigestAuth('admin','pwr4me'))
+
+                # Write the result of the request to the output queue.
+                if r.text[-3:] == 'off':
+                    q.put('Ant'+str(antnum)+' '+r.text.replace('off','on'))
+                else:
+                    q.put('Ant'+str(antnum)+' '+r.text.replace('on','off'))
+        # Close the connection
+        r.close()
+        return
+    except:
+        q.put('Ant'+str(antnum)+' Error communicating with Viking Relay '+devstr)
+        return
+
+def vik_login(antnum):
+    ''' Try 3 times to log in with authentication information
+    '''
+    url = 'http://vik'+str(antnum)+'.solar.pvt/protect/'
     # Try to log in 3 times, with 1 s delay between each
     for i in range(3):
-        url = 'http://vik'+str(antnum)+'.solar.pvt/protect/'
         try:
-            q.put('Attempt '+str(i+1)+' to login.')
+            q.put('Ant'+str(antnum)+' attempt #'+str(i+1)+' to login.')
             test = requests.get(url,auth=HTTPDigestAuth('admin','pwr4me'))
         except requests.ConnectionError as e:
             q.put('Ant'+str(antnum)+' Error could not connect to '+url+'.  Message: '+e.message.message)
-            return
+            return None
         if test.status_code == 200:
             q.put('Ant'+str(antnum)+' Login successful.')
             break
@@ -59,37 +120,8 @@ def ant_toggle(antnum, device=None, wait=None, cycle=True):
         time.sleep(1)
     if test.status_code != 200:
         q.put('Ant'+str(antnum)+' Error HTML status code: '+str(test.status_code))
-        return
+    return test.status_code
         
-    url = 'http://vik'+str(antnum)+'.solar.pvt/protect/relays.cgi?relay='+str(relay)+'&state=toggle'
-    dur = 15
-    if wait:
-        if type(wait) != int:
-            q.put('Ant'+str(antnum)+' Warning: Could not interpret wait duration',wait,'.  Must be an integer type.  Will use 15 s')
-            dur = 15
-        else:
-            dur = wait
-    try:
-        r = requests.get(url,auth=HTTPDigestAuth('admin','pwr4me'))
-        if cycle == True:
-            if r.text == devstr[relay]+' now on':
-                # Request to turn relay on (to turn device off) worked,
-                # so wait for requested length of time and then toggle
-                # again to turn device back on.
-                time.sleep(dur)
-                r = requests.get(url,auth=HTTPDigestAuth('admin','pwr4me'))
-        # Close the connection
-        r.close()
-        # This fixes the peculiarity that the relay is off when power is on
-        # and vice versa.  The "result" gives the state of the power, not the relay
-        if r.text[-3:] == 'off':
-            q.put('Ant'+str(antnum)+' '+r.text.replace('off','on'))
-        else:
-            q.put('Ant'+str(antnum)+' '+r.text.replace('off','on'))
-        return
-    except:
-        q.put('Ant'+str(antnum)+' Error communicating with Viking Relay '+devstr)
-        return
 
 def pwr_cycle(host,loadn,user='admin',passwd='pwr4me',wait=None):
     ''' Connect to a Tripp Lite PDU (Power Distribution Unit) and power cycle one of the loads.
@@ -164,5 +196,11 @@ def pwr_off(host,user,passwd,loadn):
     return True
 
 if __name__ == "__main__":
-    pwr_cycle('pdudigital.solar.pvt',14)
+    import sys
+    host = 'pdudigital.solar.pvt'
+    port = 14
+    if len(sys.argv) == 3:
+        host = sys.argv[1]
+        port = sys.argv[2]
+    pwr_cycle(host,port)
 
