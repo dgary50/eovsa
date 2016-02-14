@@ -140,7 +140,7 @@ def xdata_display(t,ax=None):
     '''
     import time
     import dump_tsys
-    import get_X_data as gd
+    import get_X_data2 as gd
     import spectrogram_fit as sp
 
     fdb = dump_tsys.rd_fdb(t)
@@ -194,7 +194,7 @@ def xdata_display(t,ax=None):
                 ax.set_xlabel('Time [UT on '+datstr+']')
                 ax.set_ylabel('Frequency [GHz]')
                 ax.set_title('EOVSA Summed Cross-Correlation Amplitude for '+datstr)
-            sp.plot_spectrogram(fghz, times, sum(sum(abs(data[:,:]),1),0), 
+            sp.plot_spectrogram(fghz, times, sum(sum(abs(data[0:11,:]),1),0), 
                                 ax=ax, logsample=None, xdata=True, cbar=True)
             tlevel, bflag = flaremeter(data)
         else:

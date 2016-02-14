@@ -20,6 +20,9 @@
 #    Fixed an off-by-one error in times returned by readXdata().
 # 
 #  2015-10-25 JMM temp version with antennalist
+#  2016-02-07  DG
+#    Fixed an indexing error in ibl array in readXdata(), when antennas are out
+#    of order.  When first antenna has a higher number, swap i,j indices in ibl lookup.
 import aipy
 import os
 from util import Time
@@ -43,7 +46,8 @@ def readXdata(filename):
        [0,0,0,0,0,0,0,0,0,0,0,0],
        [0,0,0,0,0,0,0,0,0,12,13,14],
        [0,0,0,0,0,0,0,0,0,0,15,16],
-       [0,0,0,0,0,0,0,0,0,0,0,17]])
+       [0,0,0,0,0,0,0,0,0,0,0,17],
+       [0,0,0,0,0,0,0,0,0,0,0,0]])
     # Open uv file for reading
     uv = aipy.miriad.UV(filename)
     # Read one record to get number of good frequencies
@@ -70,6 +74,10 @@ def readXdata(filename):
         uvw, t, (i0,j0) = preamble
         i = antlist.index(i0+1)
         j = antlist.index(j0+1)
+        if i > j:
+            # Reverse order of indices
+            j = antlist.index(i0+1)
+            i = antlist.index(j0+1)
 #        if j == 13: 
 #            j = 3 # Ant 14 in Ant 4 slot for now
 #        if j == 8:

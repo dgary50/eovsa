@@ -40,9 +40,16 @@
 #   2016-Jan-22  DG
 #      Changed "pcycle" wait time to 90 s if more than 6 roaches are
 #      being rebooted (60 s was not quite long enough).
+#   2016-Feb-10  DG
+#      Added import of qdr, and calibration of QDR memory.  The design
+#      uses three of them, so this adds about 2 minutes to the startup
+#      time.  Probably I should spawn tasks so that the calibration step
+#      will run in parallel.
+#   2016-Feb-14  DG
+#      Added tvg_state() function to turn test-vector generator on/off.
 #
 
-import corr, struct, numpy, time, copy, sys
+import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
 from katcp import Message
 from pwr_cycle import pwr_cycle, pwr_off
@@ -217,6 +224,7 @@ class Roach():
         self.ants,self.msg = self.get_ants(self.boffile)
         if self.msg != 'Success':
             return
+            
         bpow = 2**numpy.array([24,16,8,0])
         cfg = self.cfg
 #        try:
@@ -540,6 +548,16 @@ class Roach():
             if self.roach_ip[5:6] == '1':
                 coefficients[0:128] = 0
                 self.fpga.write('eq_x0_coeffs',coefficients.tostring())
+            # Calibrate qdrs
+            devs = self.fpga.listdev()
+            # Look for string 'qdr' in list of devs
+            qdrs = [s for s in devs if 'qdr' in s]
+            if qdrs != []:
+                for qdrstr in qdrs:
+                    if qdrstr[5:] == 'ctrl':
+                        q = qdr.Qdr(self.fpga,qdrstr[:4])
+                        print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal()
+                
 
         self.msg = 'Success'
 
@@ -802,6 +820,29 @@ class Roach():
         xdata = xdata/8.
         self.xdata = xdata
 
+#======= Roach.get_xdata ========
+    def tvg_state(self,state='on',verbose=False):
+        ''' Turn test-vector generator on or off.
+        '''
+        current_val = self.fpga.read_uint('swreg_ctrl')
+        if verbose: print 'Initial state :',binary_repr(2**32+current_val)[1:]
+        if state == 'on':
+            # Set test-vector-generator bit to 1
+            current_val = current_val | (2**32 >> 9)
+        else:
+            # Set test-vector-generator bit to 0
+            current_val -= current_val & (2**32 >> 9)
+        self.fpga.write_int('swreg_ctrl', current_val)
+        if verbose: print 'After tvg set :',binary_repr(2**32+current_val)[1:]
+        # Toggle tvg enable, ensuring that it starts at 0
+        current_val -= current_val & (2**32 >> 12)  # Zeros the tvg enable bit
+        self.fpga.write_int('swreg_ctrl', current_val)
+        if verbose: print 'TVG enable off:',binary_repr(2**32+current_val)[1:]
+        time.sleep(0.1)
+        current_val |= (2**32 >> 12)
+        self.fpga.write_int('swreg_ctrl', current_val)
+        if verbose: print 'TVG enable on :',binary_repr(2**32+current_val)[1:]
+        
 #======= arm ========
 def arm(roach_list=None):
         ''' Arm all ROACH boards as simultaneously as possible, just
