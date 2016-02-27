@@ -176,6 +176,24 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 lines.append(line)
     return lines
 
+def reorder_glitch():
+    '''Returns an index array to fix channel reorder glitch for 16-ant 
+       correlator circa 2016 Feb 13.
+    '''
+    kern = range(8)
+    kern += (np.array(kern)+128).tolist()
+    kern += (np.array(kern)+2048).tolist()
+    kern1 = np.rollaxis(np.array(kern).reshape(4,8),1).reshape(32).tolist()
+    ad = range(0,128,8)
+    ad += (np.array(ad)+1024).tolist()
+    ad += (np.array(ad)+256).tolist()
+    ad += (np.array(ad)+512).tolist()
+    chan = []
+    for val in ad:
+        chan += (np.array(kern1) + val).tolist()
+    chan = np.array(chan)
+    return chan
+
 def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
     ''' Read all spectra in a packet capture file according to ptype and board ID.
         If ptype = 'P', read P and P^2 packets only, and returns a float
@@ -235,23 +253,6 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
         a34y = x[idx+42]+x[idx+43]*1j
         return a12x,a12y,a13x,a13y,a14x,a14y,a23x,a23y,a24x,a24y,a34x,a34y
     
-    def reorder_glitch(arr):
-        '''Fixes channel reorder glitch for 16-ant correlator circa 2016 Feb 13
-        '''
-        kern = range(8)
-        kern += (np.array(kern)+128).tolist()
-        kern += (np.array(kern)+2048).tolist()
-        kern1 = np.rollaxis(np.array(kern).reshape(4,8),1).reshape(32).tolist()
-        ad = range(0,128,8)
-        ad += (np.array(ad)+1024).tolist()
-        ad += (np.array(ad)+256).tolist()
-        ad += (np.array(ad)+512).tolist()
-        chan = []
-        for val in ad:
-            chan += (np.array(kern1) + val).tolist()
-        chan = np.array(chan)
-        return arr[:,chan,:]
-        
     f = open(filename,'rb')
     pcap = dpkt.pcap.Reader(f)
     hdr = '<HHHHIHHHHHHHHHHHHHH4I4Q'

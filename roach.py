@@ -47,6 +47,13 @@
 #      will run in parallel.
 #   2016-Feb-14  DG
 #      Added tvg_state() function to turn test-vector generator on/off.
+#   2016-Feb-20  DG
+#      Added do_plot keyword to adc_levels(), and return of adc_levels
+#      (standard deviation) for 4 channels in each roach.
+#   2016-Feb-26  DG
+#      Fix adc_levels() plotting bug, when only one roach is used.  Also
+#      added "helper" routine to ROACH object, self.set_eq() to set
+#      the equalizer coefficients.
 #
 
 import corr, qdr, struct, numpy, time, copy, sys
@@ -843,6 +850,84 @@ class Roach():
         self.fpga.write_int('swreg_ctrl', current_val)
         if verbose: print 'TVG enable on :',binary_repr(2**32+current_val)[1:]
         
+#======= Equalizer Gain ========
+    def set_eq(self,file=None,xn=0,ifb=None,coeff=1.0+0j,update=False):
+        ''' Given a list of roach objects, and optionally a source of gains,
+            set the equalizer gains.
+            
+            file    If not None, is the name of a file that contains 
+                      34 x 128 x 4 complex gains, as one set of 128 values
+                      for each of the 34 IF bands, for each of x0, x1, x2, x3.  
+                      If not None, the other keywords, if present, are
+                      ignored.
+            xn      The equalizer to set, either 0, 1, 2 or 3
+            ifb     The IF band to set, ranging from 1 to 34. If None,
+                       all IF bands are set to the same values
+            coeff   The complex value(s) to set the coefficients to.  If an array,
+                       it should have length 128.  If not, all 128 values
+                       for target IF band are set to the same value.
+            update  A boolean value--if True, multiplies coefficient to
+                       what is there, otherwise overwrites (default)
+        '''
+
+        if file is None:
+            eqname = 'eq_x'+str(xn)+'_coeffs'
+            # Read equalizer coefficients buffer from ROACH
+            buf = self.fpga.read(eqname,8192*4)
+            # Unpack coefficients to an array of 16-bit integers.
+            vals = numpy.array(struct.unpack('>16384H',buf),dtype='>H')
+            # Complex representation as numpy complex array (length 8192)
+            cvals = vals[::2] + 1j*vals[1::2]
+            # Convert supplied coeff to complex value(s) scaled by 2**6
+            coeff *= 64+0j
+            if type(coeff) == complex:
+                # Single value given, so set all 128 values for the band
+                # to the same value
+                newvals = numpy.ones(128)*(int(numpy.real(coeff)) + 1j*int(numpy.imag(coeff)))
+            elif type(coeff) == numpy.ndarray:
+                if len(coeff) == 128:
+                    newvals = numpy.real(coeff).astype('int') + 1j*numpy.imag(coeff).astype('int')
+                else:
+                    print 'Error in length of coeff parameter. Must be scalar or length 128.'
+                    print 'No update performed.'
+                    self.msg = 'Error in length of coeff parameter'
+                    return
+            else:
+                    print 'Error in type of coeff parameter. Must be scalar numpy.ndarray.'
+                    print 'No update performed.'
+                    self.msg = 'Error in type of coeff parameter'
+                    return
+            # At this point, I have current coefficients cvals, and new coefficients newvals,
+            # both in complex form.
+            if ifb is None:
+                # Apply to all IF bands
+                if update:
+                    # Interpret supplied coeff as multiplicative factor
+                    for i in range(64):
+                        cvals[i*128:(i+1)*128] *= newvals
+                else:
+                    # Interpret supplied coeff as new values to replace existing
+                    for i in range(64):
+                        cvals[i*128:(i+1)*128] = newvals
+            else:
+                # Apply only to given IF band
+                if update:
+                    # Interpret supplied coeff as multiplicative factor
+                    cvals[(ifb-1)*128:ifb*128] *= newvals
+                else:
+                    # Interpret supplied coeff as new values to replace existing
+                    cvals[(ifb-1)*128:ifb*128] = newvals
+        else:
+            print 'File not yet implemented'
+            self.msg = 'File not yet implemented'
+            return
+        # Convert complex values in cvals to packed buffer, and write to ROACH
+        coefficients = numpy.zeros(16384,dtype='>H')
+        coefficients[::2] = numpy.real(cvals).astype('>H')
+        coefficients[1::2] = numpy.imag(cvals).astype('>H')        
+        self.fpga.write(eqname,coefficients.tostring())
+        self.msg = 'Success'
+   
 #======= arm ========
 def arm(roach_list=None):
         ''' Arm all ROACH boards as simultaneously as possible, just
@@ -1071,32 +1156,53 @@ def mac2int(mac_string):
     return (bpow*intar).sum()
 
 #======= ADC_Levels ========
-def adc_levels(ro):
+def adc_levels(ro,do_plot=False):
     ''' Given a list of roach objects, grab and display the current
-        ADC level on each.
+        ADC level on each, optionally plotting the result.
     '''
     import matplotlib.pylab as plt
     n = len(ro)
-    f, ax = plt.subplots(n,4)
-    f.set_size_inches(10,2.5*n, forward=True)
+    if do_plot:
+        f, ax = plt.subplots(n,4)
+        f.set_size_inches(10,2.5*n, forward=True)
     chans = ['X','Y']
     # Loop over roaches in list
     for j,rn in enumerate(ro):
+        rn.adc_levels = []  # Clear any existing ADC level for this ROACH
         # Loop over the four channels on each roach
         for i in range(4):
             ant = rn.ants[i / 2]
             chan = chans[i % 2]
-            ax[j,i].cla()
             rn.get_attn(grab=i)
-            ax[j,i].plot(rn.data,'.')
-            ax[j,i].tick_params(axis='both',which='major',labelsize=10)
-            ax[j,i].set_ylim([-128,128])
-            ax[j,i].set_xlim([0,4096])
-            ax[j,i].xaxis.set_ticks([0, 2048, 4096])
-            ax[j,i].text(100,100,'Roach'+rn.roach_ip[5:6]+' Ant '+str(ant)+chan+':',fontsize=10)
-            ax[j,i].text(4000,100,str((rn.data).std())[:5],fontsize=10,horizontalalignment='right')
-    plt.show()
+            rn.adc_levels.append(int((rn.data).std()*10000. + 0.5)/10000.) # Append ADC level to list, with 0.0001 resolution
+            if do_plot:
+                if n == 1:
+                    ax[i].cla()
+                    ax[i].plot(rn.data,'.')
+                    ax[i].tick_params(axis='both',which='major',labelsize=10)
+                    ax[i].set_ylim([-128,128])
+                    ax[i].set_xlim([0,4096])
+                    ax[i].xaxis.set_ticks([0, 2048, 4096])
+                    ax[i].text(100,100,'Roach'+rn.roach_ip[5:6]+' Ant '+str(ant)+chan+':',fontsize=10)
+                    ax[i].text(4000,100,str((rn.data).std())[:5],fontsize=10,horizontalalignment='right')
+                else:
+                    ax[j,i].cla()
+                    ax[j,i].plot(rn.data,'.')
+                    ax[j,i].tick_params(axis='both',which='major',labelsize=10)
+                    ax[j,i].set_ylim([-128,128])
+                    ax[j,i].set_xlim([0,4096])
+                    ax[j,i].xaxis.set_ticks([0, 2048, 4096])
+                    ax[j,i].text(100,100,'Roach'+rn.roach_ip[5:6]+' Ant '+str(ant)+chan+':',fontsize=10)
+                    ax[j,i].text(4000,100,str((rn.data).std())[:5],fontsize=10,horizontalalignment='right')
+        rn.adc_levels = numpy.array(rn.adc_levels)  # Convert ADC levels to numpy array
+    if do_plot: 
+        plt.show()
+        plt.tight_layout()
             
+
+ 
+    
+
 #======= rmon =======
 def rmon():
     ''' Read contents of DPP_PACKET_TEST file, which is output once per

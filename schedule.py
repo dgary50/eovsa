@@ -239,7 +239,6 @@ def init_scanheader_dict(version=37.0):
     except:
         print t.iso,'ACC connection for eovsa_corr.ini (ROACH antenna assignments) timed out.'
         antlist = numpy.arange(16)   # Assume [bad assumption!] that antennas are assigned in order
-    antlist[8:] = 0   # Hard code last eight assignments as 0  [for prototype]
     print t.iso, 'Antlist is:', antlist
     
     sh_dict = {'timestamp': timestamp,
@@ -710,7 +709,8 @@ class App():
         
         if self.subarray_name == 'Subarray1': # MASTER SCHEDULE ONLY: connect to OVSA ROACHs
             roachModule = roach
-            roach_ips = ('roach1.solar.pvt','roach2.solar.pvt','roach3.solar.pvt','roach4.solar.pvt')
+            roach_ips = ('roach1.solar.pvt','roach2.solar.pvt','roach3.solar.pvt','roach4.solar.pvt',
+                         'roach5.solar.pvt','roach6.solar.pvt','roach7.solar.pvt','roach8.solar.pvt')
             boffile_name = self.accini['boffile']
             self.brd_clk_freq = 200
             #self.brd_clk_freq = 200
