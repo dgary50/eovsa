@@ -406,7 +406,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     #     0: Not used
     # Zero-filled list of 4
     # Default is RR, LL
-    item = sh_dict.get('pol',[-1, -2, 0, 0])
+    item = sh_dict.get('pol',[-5,-6,-7,-8])
     fmt += '4i'
     buf = ''
     for i in range(4):

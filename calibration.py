@@ -210,7 +210,8 @@ def sp_write_calfac(x, y, calfac, offsun):
     buf = struct.pack(str(nf)+'f',*fghz)
     buf += struct.pack(str(siz)+'f',*calfac.reshape(siz))
     buf += struct.pack(str(siz)+'f',*offsun.reshape(siz))
-    filename = '/data1/TPCAL/TPCAL'+datstr+'_'+str(dims[0])+'_'+str(dims[1])+'_'+str(dims[2])+'.dat'
+    filename = '/common/tmp/TPCAL'+datstr+'_'+str(dims[0])+'_'+str(dims[1])+'_'+str(dims[2])+'.dat'
+    #filename = '/data1/TPCAL/TPCAL'+datstr+'_'+str(dims[0])+'_'+str(dims[1])+'_'+str(dims[2])+'.dat'
     f = open(filename,'wb')
     f.write(buf)
     f.close()

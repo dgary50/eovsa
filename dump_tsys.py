@@ -26,6 +26,8 @@
 #  2015-Jun-28  DG
 #    Added common_val_idx() from solpnt, so that I do not have to include
 #    the entire solpnt just for this!
+#  2016-Apr-04  DG
+#    Changed to work with tawa and pipeline data in /data1/eovsa... dir
 #
 import subprocess, time, sys, glob
 import numpy as np
@@ -68,6 +70,9 @@ def file_list(trange,udb=False):
         folder = '/data1/IDB'
         if glob.glob(folder) == []:
             folder = '/dppdata1/IDB'
+        if glob.glob(folder) == []:
+            datdir = trange[0].iso[:10].replace('-','')
+            folder = '/data1/eovsa/fits/IDB/'+datdir
         files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
         files.sort()
         # Check if second time has different date
@@ -179,6 +184,83 @@ def rd_miriad_tsys(trange,udb=False):
                 ut = preamble[1]
                 xtsys.append(uv['xtsys'])
                 ytsys.append(uv['ytsys'])
+                utd.append(ut - 2400000.5)
+    utd = np.array(utd)
+    xtsys = np.array(xtsys)
+    xtsys.shape = (len(utd),len(fghz),nants)
+    ytsys = np.array(ytsys)
+    ytsys.shape = (len(utd),len(fghz),nants)
+    tsys = np.array((xtsys,ytsys))
+    tsys = np.swapaxes(tsys,1,3)  # Order is now npol, nants, nf, nt
+    tsys = np.swapaxes(tsys,0,1)  # Order is now nants, npol, nf, nt, as desired
+    good, = np.where(tsys.sum(0).sum(0).sum(1) != 0.0)
+    tsys = tsys[:,:,good,:]
+    fghz = fghz[good]
+    return {'source':src, 'fghz':fghz, 'ut_mjd':utd, 'tsys':tsys}
+
+def rd_miriad_tsamp(trange,udb=False):
+    ''' Read total power data (TSYS) directly from Miriad files for time range
+        given by d1, d2.
+        
+        Major change to standardize output to ut_mdj, fghz, and order
+        of indices of tsys as (npol, nant, nf, ntimes)
+    '''
+    import aipy
+
+    # Find files corresponding to times
+    filelist = file_list(trange,udb=udb)
+    if filelist == []:
+        print 'No files find between',trange[0].iso,'and',trange[1].iso
+        return None
+    # Open first file and check that it has correct form
+    uv = aipy.miriad.UV(filelist[0])
+    uvok = True
+    if 'source' in uv.vartable:
+        src = uv['source']
+    else: uvok = False
+    if 'sfreq' in uv.vartable:
+        fghz = uv['sfreq']
+    else: uvok = False
+    if 'nants' in uv.vartable:
+        nants = uv['nants']
+    else: uvok = False
+    if 'ut' in uv.vartable:
+        pass
+    else: uvok = False
+    if 'xsampler' in uv.vartable:
+        pass
+    else: uvok = False
+    if 'ysampler' in uv.vartable:
+        pass
+    else: uvok = False
+    if not uvok:
+        print 'Miriad file has bad format'
+        return None
+
+    utd = []
+    xtsys = []
+    ytsys = []
+    # Loop over filenames
+    for filename in filelist:
+        uv = aipy.miriad.UV(filename)
+        if uv['source'] != src:
+            print 'Source name:',uv['source'],'is different from initial source name:',src
+            print 'Will stop reading files.'
+            break
+        #uv.select('antennae',0,1,include=True)
+        # Read first record of data
+        preamble, data = uv.read()
+        ut = preamble[1]
+        utd.append(ut - 2400000.5)
+        xtsys.append(uv['xsampler'])
+        ytsys.append(uv['ysampler'])
+        for preamble, data in uv.all():
+            # Look for time change
+            if preamble[1] != ut:
+                # Time has changed, so read new xtsys and ytsys
+                ut = preamble[1]
+                xtsys.append(uv['xsampler'])
+                ytsys.append(uv['ysampler'])
                 utd.append(ut - 2400000.5)
     utd = np.array(utd)
     xtsys = np.array(xtsys)

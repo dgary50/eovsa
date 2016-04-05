@@ -1,3 +1,8 @@
+# History:
+#   2016-Mar-08  DG
+#      Started this history log.  Made maximum delay 16000, to reflect
+#      new maximum in the 16-ant correlator design.
+#
 import struct
 import numpy as np
 
@@ -654,17 +659,21 @@ def gen_schedule_sf(sf_dict,mk_xml=False):
         else:
             # Not empty, so add delays
             # Default is zero
-            item = delays[i].get('dx0',0.0)
+            item = delays[i].get('dx0',0.0) 
             fmt += 'I'
+            item = np.clip(item,0,16000)
             buf += struct.pack('I',item)
             item = delays[i].get('dy0',0.0)
             fmt += 'I'
+            item = np.clip(item,0,16000)
             buf += struct.pack('I',item)
             item = delays[i].get('dx1',0.0)
             fmt += 'I'
+            item = np.clip(item,0,16000)
             buf += struct.pack('I',item)
             item = delays[i].get('dy1',0.0)
             fmt += 'I'
+            item = np.clip(item,0,16000)
             buf += struct.pack('I',item)
         
     if mk_xml:

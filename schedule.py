@@ -141,6 +141,25 @@
 #      (antenna, crio, or fem) using the new Viking relay controllers
 #   2016-Jan-19  DG
 #      Added attempt to read pwr_cycle queue
+#   2016-Feb-27  DG
+#      This time I really did add sending of DCM.TXT before DCMAUTO-ON
+#   2016-Feb-28  DG
+#      Changed printing of elapsed time to print only if more than 10 ms
+#      early or late (should mean shorter log file...).  Also fixed a not 
+#      very important bug in dlasweep.
+#   2016-Feb-29  DG
+#      Added $SCAN-RESTART command, to just turn on the scan state
+#   2016-Mar-08  DG
+#      Changed delay offset from 5000 to 8000, to reflect new range of
+#      16-ant correlator (0-16000 steps).
+#   2016-Mar-15  JRV
+#      Added function check_27m_sun, which is called once per second (by
+#      inc_time) to make sure 27-m's do not go w/in 10 degrees of Sun 
+#   2016-Mar-17  DG
+#      Changed delay offset from 8000 to 9000, to reflect new range of
+#      16-ant correlator (0-16000 steps).
+#   2016-Mar-30  DG
+#      I discovered that I was writing the wrong polarizations.
 #
 
 import os, signal
@@ -169,6 +188,7 @@ import ephem
 import eovsa_cat
 from eovsa_visibility import scan_visible
 import starburst
+from matplotlib.mlab import find
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
@@ -259,7 +279,7 @@ def init_scanheader_dict(version=37.0):
                'epoch':'DATE',
                'dra': 0.0, 'ddec': 0.0, 'ha': 0.0, 'dha': 0.0,
                'sun_info': mjd0,    # Solar P-angle, B0-angle, and radius will be calculated for this date
-               'pol': [-1,-2,0,0],  # Default RR, LL polarization
+               'pol': [-5,-6,-7,-8],  # Default XX, YY, XY, YX polarization
                'max_file_size':100, # MB, max IDB file size
                'intval': 20,
                'nintval': 50,
@@ -1279,7 +1299,150 @@ class App():
             self.TodayBtn.configure(state = DISABLED)
             self.status.configure(state = DISABLED)
                     
+    #============================
+    def check_27m_sun(self,sf,data):
+        # For each 27m, check whether it is too close to Sun (min_dist: 10 degrees);
+        # if it is, use 'position' command to send to stow position (HA = 0, dec = 29)
+        #
+        # If ant is in runmode TRACK or POSITION, then trigger if Requested position
+        #   is within min_dist of Sun OR if Actual position is within min_dist of Sun
+        #   for 3 seconds (it should take < 2 sec to slew across Sun, which is okay)
+        #   - timer restarts if this function sends a position command for the antenna
+        # If ant is in runmode STOP or VELOCITY, then trigger only if Actual position
+        #   is within min_dist of Sun for 3 seconds (do not trigger based on Requested
+        #   position because Requested position is not accurate in these modes)
+        #
+        # If all Controller monitor data from antenna is zero, does not make check
+        #
+        # Stow position (0 29) can be 6 degrees from Sun in summer.  Code does not trigger
+        #   position command if antenna is already within 0.5 degrees of stow position.
+        #
+        # Input params: sf is accini['sf'], data is from get_stateframe (which was just run by inc_time)
+        
+        global sf_dict
+        global sun_timer
+        global trigger_timer
+        
+        try:
+            k = sun_timer.keys()
+        except:
+            sun_timer = {}
+        try:
+            k = trigger_timer.keys()
+        except:
+            trigger_timer = {}
+        
+        min_dist = 10.    # minimum_distance from Sun
+        max_time = 2.     # maximum time near Sun (to allow slewing)
+        safe_pos = [0,29] # safe position to send antenna to - stow position
+        trigger_cadence = 20 # minimum time between sending command in response to trigger
+        test_mode = False  # prints a bunch of diagnostic info to log if this is True
 
+        # define dict to convert runmode ID# from controller to meaning
+        runmode_map = {0: 'stop', 1: 'position', 2: 'velocity', 4: 'track'}
+        
+        # get coords of Sun
+        sun = self.aa.cat['Sun']
+#        sun = self.aa.cat['AMC-8 (GE-8)'] # for testing purposes can put name of geosat to avoid
+        self.aa.set_jultime() # set to present time
+        sun.compute(self.aa)
+        sun_coords = (sun.ra,sun.dec)
+        lst = self.aa.sidereal_time() # current LST
+        
+        # calc RA,dec of safe pos (to avoid triggering when within 0.5 deg of safe pos)
+        safe_coords = (lst-safe_pos[0]*pi/180.,safe_pos[1]*pi/180.)
+        
+        for antnum in [14]:
+            # augment trigger_timer and skip this antenna if it's less than trigger_cadence since last trigger
+            try:
+                trigger_timer[antnum] = trigger_timer[antnum] + 1
+            except KeyError:
+                trigger_timer[antnum] = 1000   # start high so that it won't wait 20s before the first trigger
+            if trigger_timer[antnum] < trigger_cadence:
+                if test_mode: print 'Skipping ant '+ str(antnum) + ' because <' +str(trigger_cadence)+' sec since last trigger'
+                continue
+            
+            # skip this antenna if all crio monitor data for this ant is zero
+            c = sf['Antenna'][antnum-1]['Controller']
+            sflist = array([stateframe.extract(data,c[k]) for k in c.keys()])
+            if len(find(sflist != 0)) == 0:
+                if test_mode: print 'Skipping ant '+ str(antnum)+' because no stateframe data from controller'
+                continue
+            
+            trigger = False  # set this to True if too close to Sun
+            
+            # get runmode from stateframe data passed to me
+            rm = stateframe.extract(data,c['RunMode'])
+            runmode = runmode_map[rm]
+            
+            if test_mode:
+                print '-----------'
+                print 'LST:', lst, '- Sun coords:', sun_coords
+                print 'Antnum:', antnum
+                print 'Runmode:', rm, runmode
+            
+            # determine whether to trigger moving to safe position
+            
+            # all runmodes: trigger if Actual pos near Sun for > max_time (2 sec)
+            # check distance of Actual position from Sun
+            HA_actual = sf_dict['ActualAzimuth'][antnum-1] * pi/180.
+            dec_actual = sf_dict['ActualElevation'][antnum-1] * pi/180.
+            actual_coords = (lst-HA_actual,dec_actual)
+            actual_dist = ephem.separation(actual_coords,sun_coords)*180./pi
+            if actual_dist > min_dist:
+                # if Actual position is not too near Sun, reset timer to zero
+                sun_timer[antnum] = 0.
+            else:
+                try:
+                    t = sun_timer[antnum]
+                except KeyError:
+                    if test_mode: print 'KeyError! setting suntimer to 0'
+                    sun_timer[antnum] = 0.
+                # if Actual position is too close to Sun, increment timer by one second
+                sun_timer[antnum] = sun_timer[antnum] + 1.
+            if sun_timer[antnum] > max_time:
+                # trigger if Actual position has been close to Sun for more than max_time
+                # (and not within 0.5 degrees of safe_pos)
+                safe_actual_dist = ephem.separation(actual_coords,safe_coords)
+                if test_mode: print 'Dist between stow and actual position:', safe_actual_dist
+                if safe_actual_dist > 0.5:
+                    trigger = True
+
+            if test_mode:
+                print 'Actual coords:', actual_coords, '- Actual dist:', actual_dist
+                print 'Sun timer:', sun_timer[antnum]
+                print 'Trigger based on Sun timer:', trigger
+                
+            # runmodes POSITION and TRACK: trigger if Requested pos too near Sun
+            if runmode in ['track','position']:
+                HA_requested = sf_dict['RequestedAzimuth'][antnum-1] * pi/180.
+                dec_requested = sf_dict['RequestedElevation'][antnum-1] * pi/180.
+                requested_coords = (lst-HA_requested,dec_requested)
+                requested_dist = ephem.separation(requested_coords,sun_coords)*180./pi
+                if test_mode: print 'Requested coords:', requested_coords, '- Requested dist:', requested_dist
+                if requested_dist < min_dist:
+                    # trigger if Requested position is too close to Sun and not within 0.5 degrees of stow
+                    safe_requested_dist = ephem.separation(requested_coords,safe_coords)
+                    if test_mode: print 'Dist between stow and requested position:', safe_requested_dist
+                    if safe_requested_dist > 0.5:
+                        trigger = True
+            if test_mode: print 'Trigger:', trigger
+            
+            if trigger:
+                trigger_timer[antnum] = 0. # reset timer so antenna has time to process command and slew off Sun
+                # position command causes antenna to go to safe_pos, enter 'position'
+                #  runmode, but it will not lose its tracktable
+                safe_str = str(safe_pos[0]) + ' ' + str(safe_pos[1])
+                stop_cmd = 'stop ant' + str(antnum)
+                pos_cmd = 'position ' + safe_str + ' ant' + str(antnum)
+                self.sendctlline(stop_cmd)
+                self.sendctlline(pos_cmd)
+                print 'Antenna ' + str(antnum) + ' actual or requested position too close to Sun, sending to safe position: ' + safe_str
+                print stop_cmd
+                print pos_cmd
+            
+        sys.stdout.flush()
+                
     #============================
     def inc_time(self):
         global sf_dict, sh_dict
@@ -1300,10 +1463,10 @@ class App():
         self.telapsed = tnow - self.prev
         self.prev = tnow
         telapsed = int(self.telapsed*1000)
-        if telapsed == 999 or telapsed == 1000:
+        if telapsed > 990 and telapsed < 1010:
             pass
         else:
-            # If elapsed time is not nominal (e.g. 999 or 1000), write it to log file.
+            # If elapsed time is not nominal (e.g. 990 or 1010), write it to log file.
             print t.iso,str(int(self.telapsed*1000))
             sys.stdout.flush() # Flush stdout (/tmp/schedule.log or /tmp/schedule_[self.subarray_name].log) so we can see this '-'.
 
@@ -1442,11 +1605,14 @@ class App():
             sf_dict.update(stateframe.azel_from_stateframe(sf,data))
             # Flag unused antennas as not tracking (no!  this is just the ROACH assignments)
             # sf_dict['TrackFlag'] = (sf_dict['TrackFlag']) & (sh_dict['antlist'] != 0)
+            
+            # Check that 27-m antennas are not too close to Sun, and if they are, send them to stow position (using 'position' command)
+            self.check_27m_sun(sf,data)
         else:
             self.error = msg
-        
+                
         # If we are connected to the SQL database, send converted stateframe (only master schedule is connected)
-        if self.sql['cnxn']:
+        if msg == 'No Error' and self.sql['cnxn']:
             bufout = stateframedef.transmogrify(data, self.sql['sfbrange'])
             try:
                 self.sql['cursor'].execute('insert into fBin (Bin) values (?)', 
@@ -1544,9 +1710,9 @@ class App():
     #============================
     def dla2roach(self):
         '''Set integer delays and send to all ROACHes for next second, to be
-           ready for next 1 PPS.  Ant 1 delay is fixed at 5000 steps (delay
+           ready for next 1 PPS.  Ant 1 delay is fixed at 9000 steps (delay
            depends on step size), and all other antennas are set to
-           5000 + t_cen[i] + t_geom[i]/step_size, the latter being calculated
+           9000 + t_cen[i] + t_geom[i]/step_size, the latter being calculated
            from sf_dict['delay1'][i] (nsec).  The step_size is 1/f_ADC,
            where f_ADC is ADC clock frequency, in GHz.
         '''
@@ -1554,13 +1720,13 @@ class App():
         # Delay centers.  These are read from file 'delay_centers.txt' in the
         # ACC parm directory by init_scan_dict().
         # The 0.800 is because current clock frequency is 800 MHz.  This should be a
-        # parameter. The 5000.5 is to center delays mid-range (ROACHes have a range
-        # of 10,000), and provide integer delay.  The 0.5 is to make the astype(int) act
+        # parameter. The 9000.5 is to center delays mid-range (ROACHes have a range
+        # of 16,000), and provide integer delay.  The 0.5 is to make the astype(int) act
         # as a round().
         # ****** Send delay0, which is actually the delay for the next upcoming second ******
         adc_clk = self.brd_clk_freq*4./1000.
-        dlax = ((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 5000.5).astype(int)
-        dlay = ((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 5000.5).astype(int)
+        dlax = ((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 9000.5).astype(int)
+        dlay = ((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 9000.5).astype(int)
         
         for r in self.roaches:
             if r.fpga:
@@ -1581,15 +1747,16 @@ class App():
                             # by setting dictionary to None
                             dla = 0
                             r.dlasweep = None
-                        if r.dlasweep['pol'] == 'X':
-                            r.set_delays([dlax[a1-1]+dla,dlay[a1-1],dlax[a2-1],dlay[a2-1]])
-                            print 'DLASWEEP Ant',a1,'X delay',dla
-                        elif r.dlasweep['pol'] == 'Y':
-                            r.set_delays([dlax[a1-1],dlay[a1-1]+dla,dlax[a2-1],dlay[a2-1]])
-                            print 'DLASWEEP Ant',a1,'Y delay',dla
                         else:
-                            r.set_delays([dlax[a1-1]+dla,dlay[a1-1]+dla,dlax[a2-1],dlay[a2-1]])
-                            print 'DLASWEEP Ant',a1,'X and Y delay',dla
+                            if r.dlasweep['pol'] == 'X':
+                                r.set_delays([dlax[a1-1]+dla,dlay[a1-1],dlax[a2-1],dlay[a2-1]])
+                                print 'DLASWEEP Ant',a1,'X delay',dla
+                            elif r.dlasweep['pol'] == 'Y':
+                                r.set_delays([dlax[a1-1],dlay[a1-1]+dla,dlax[a2-1],dlay[a2-1]])
+                                print 'DLASWEEP Ant',a1,'Y delay',dla
+                            else:
+                                r.set_delays([dlax[a1-1]+dla,dlay[a1-1]+dla,dlax[a2-1],dlay[a2-1]])
+                                print 'DLASWEEP Ant',a1,'X and Y delay',dla
                     elif r.dlasweep['ant'] == a2:
                         # Increment delay by one
                         r.dlasweep['dla'] += 1
@@ -1789,14 +1956,14 @@ class App():
                 break
 
     def sendctlline(self,ctlline):
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.connect((self.accini['host'],self.accini['scdport']))
-                s.send(ctlline)
-                time.sleep(0.01)
-                s.close()
-            except:
-                pass
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((self.accini['host'],self.accini['scdport']))
+            s.send(ctlline)
+            time.sleep(0.01)
+            s.close()
+        except:
+            pass
             
     def interpret_pcycle(self, ctlline):
         ''' Interprets the control line containing a $PCYCLE command, of the
@@ -1849,6 +2016,8 @@ class App():
         if ctlline[0] == '#':
             pass
         else:
+            if ctlline.strip().upper() == 'DCMAUTO-ON':
+                self.sendctlline('DCMTABLE DCM.TXT')
             self.sendctlline(ctlline)
 #            try:
 #                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1994,6 +2163,12 @@ class App():
                             sys.stdout.flush()
                             self.error = 'Err: Cannot write scan header to SQL'
                     
+                    # Set scan state to on
+                    sf_dict['scan_state'] = 1
+                #==== SCAN-RESTART ====
+                elif ctlline.split(' ')[0].upper() == '$SCAN-RESTART':
+                    # This command is for restarting a scan with the same setup as the
+                    # previously running scan, where only the scan state must be turned on
                     # Set scan state to on
                     sf_dict['scan_state'] = 1
                 #==== SCAN-STOP ====

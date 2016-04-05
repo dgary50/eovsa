@@ -23,7 +23,7 @@ global nschan, ifbw, gifbw, nschanx, nsavg
 # global parameters
 # nschan: number of spectral channels
 # ifbw: IF bandwidth in MHz
-# gifbw: usable IF bandwidth in MHz
+# gifbw: usable IF bandwidth in MHz, now excluding 50 MHz at the IF edge on one side (the other side is folded over for now) 
 # nschanx: channels to skip at the beginning of each IF
 # nsavg: number of spectral channels to average for each science channel
 nschan = 4096
@@ -33,69 +33,42 @@ nschanx = 0
 #ifbw = 600.
 #gifbw = 500.
 #nschanx = 341
-nsavg = [64,97,131,162,200,227,262]+[284]*27
+#nsavg = [64,97,131,162,200,227,262]+[284]*27
+#nsavg = [64,97,131,162,200,20,262]+[568]*27 #temporally increase the number of science channels on band 6
+nsavg = [64,97,131,162,200,227,262]+[568]*15+[20]+[568]*21 #temporally increase the number of science channels on band 23 
 
-#update each value in nsavg in order to cover all the good if bandwidth
-new_nsavg=[]
-for i in range(34):
-    n=nsavg[i]
-    df=ifbw/nschan
-    nscichan=int(gifbw/(n*df))
-    new_nscichan=[]
-    for j in range(3):
-        new_nscichan.append(nscichan-j)
-    new_ns=[]
-    new_fgaps=[]
-    for nn in new_nscichan:
-        new_n=int(gifbw/nn/df)
-        new_ns.append(new_n)
-        new_scibw=new_n*df
-        new_fgap=gifbw-new_scibw*nn
-        new_fgaps.append(new_fgap)
-    new_ns=np.array(new_ns)
-    new_fgaps=np.array(new_fgaps)
-    ind=np.argmin(new_fgaps)
-    new_nsavg.append(new_ns[ind])
+def update_nsavg():
+    #update each value in nsavg in order to cover all the good if bandwidth
+    new_nsavg=[]
+    for i in range(34):
+        n=nsavg[i]
+        df=ifbw/nschan
+        nscichan=int(gifbw/(n*df))
+        new_nscichan=[]
+        for j in range(3):
+            new_nscichan.append(nscichan-j)
+        new_ns=[]
+        new_fgaps=[]
+        for nn in new_nscichan:
+            new_n=int(gifbw/nn/df)
+            new_ns.append(new_n)
+            new_scibw=new_n*df
+            new_fgap=gifbw-new_scibw*nn
+            new_fgaps.append(new_fgap)
+        new_ns=np.array(new_ns)
+        new_fgaps=np.array(new_fgaps)
+        ind=np.argmin(new_fgaps)
+        new_nsavg.append(new_ns[ind])
+    return new_nsavg
 
-#print 'original channels to average: ', 
-#print nsavg
-#nscichan=[]
-#for n in nsavg:
-#    nscichan.append(int(gifbw/(n*df)))
-#print 'originial number of science channels: '
-#print nscichan
-#print 'original gap: '
-#fgap=[]
-#for n in nsavg:
-#    nscichan=int(gifbw/(n*df))
-#    scibw=n*df
-#    fgap.append(gifbw-scibw*nscichan)
-#print fgap
-#print 'new channels to average: '
-#print new_nsavg
-#new_nscichan=[]
-#for n in new_nsavg:
-#    new_nscichan.append(int(gifbw/(n*df)))
-#print 'new number of science channels: '
-#print new_nscichan
-#print 'new total sci channels: '
-#print sum(new_nscichan)
-#print 'new gap: '
-#new_fgap=[]
-#for n in new_nsavg:
-#    nscichan=int(gifbw/(n*df))
-#    new_scibw=n*df
-#    new_fgap.append(gifbw-new_scibw*nscichan)
-#print new_fgap
-
-#replace the original nsavg
-nsavg=new_nsavg
+nsavg=update_nsavg()
 
 def tot_scichan():
     nscichan=[]
     for n in nsavg:
         df=ifbw/nschan
         nscichan.append(int(gifbw/(n*df)))
+    print nscichan
     return sum(nscichan)
 
 def chan_asmt(bnd):

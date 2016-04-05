@@ -253,7 +253,7 @@ def rd_stateframe(s,sf_num,n_expected):
         #sys.stdout.write('.')
         #sys.stdout.flush()  # Flush stdout (/tmp/schedule.log) so we can see the output.
         while totlen < n_expected:
-            data = s.recv(8192)
+            data = s.recv(n_expected)
             totdata.append(data)
             totlen = sum([len(i) for i in totdata])
         #sys.stdout.write('-')

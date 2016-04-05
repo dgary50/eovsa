@@ -45,9 +45,44 @@
 #      combined ovfl value.
 #   2016-Jan-18  DG
 #      Added code to handle data from 16-antenna "production" correlator.
-#
+#   2016-Feb-26 BC
+#      Updated routine capture() to reflect the new 16-antenna correlator design. Changed the
+#      output to a dictionary {p, p^2} for ptype 'P', or {auto-corr, x-corr} for ptype 'X'
+#      Slightly modified rd_spec() to fix the time dimension
+#   2016-Mar-01  DG
+#      Added rd_jspec() routine to read a 1-s packet dump file from Jim McT
+#   2016-Mar-01 BC
+#      Added get_spec() routine as a wrapper of capture() and rd_jspec()
+#      Added bl_mapper() to find out baseline indices for selected antenna in the x-corr output
+#      Added plot_auto_corr() to show auto correlation results
+#      Added plot_x_corr() to show cross correlation results
+#   2016-Mar-06  DG
+#      Added bl_list() routine to return bl2ord lookup table
+#      Added summary_plot() routine to create an overview plot of cross-correlations
+#   2016-Mar-16  DG
+#      Added get_bl_order() from the corr.sim module, so that it is not necessary to
+#      import the entire, complex corr module!
+#   2016-Apr-01  DG
+#      Added ant_str2list()
 
 import numpy as np
+import pdb
+
+def ant_str2list(ant_str):
+    ant_list = []
+    try:
+        grps = ant_str.split()
+        for grp in grps:
+            antrange = grp[3:].split('-')
+            if len(antrange) == 1:
+                if antrange != '':
+                    ant_list.append(int(antrange[0])-1)
+            elif len(antrange) == 2:
+                ant_list += range(int(antrange[0])-1,int(antrange[1]))
+    except:
+        print 'Error: cannot interpret ant_str',ant_str
+        return None
+    return np.array(ant_list)
 
 def sudo(command, password=None, prompt="Enter password "):
     ''' Issues <command> string as sudo, and prompts for password
@@ -176,25 +211,7 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 lines.append(line)
     return lines
 
-def reorder_glitch():
-    '''Returns an index array to fix channel reorder glitch for 16-ant 
-       correlator circa 2016 Feb 13.
-    '''
-    kern = range(8)
-    kern += (np.array(kern)+128).tolist()
-    kern += (np.array(kern)+2048).tolist()
-    kern1 = np.rollaxis(np.array(kern).reshape(4,8),1).reshape(32).tolist()
-    ad = range(0,128,8)
-    ad += (np.array(ad)+1024).tolist()
-    ad += (np.array(ad)+256).tolist()
-    ad += (np.array(ad)+512).tolist()
-    chan = []
-    for val in ad:
-        chan += (np.array(kern1) + val).tolist()
-    chan = np.array(chan)
-    return chan
-
-def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
+def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
     ''' Read all spectra in a packet capture file according to ptype and board ID.
         If ptype = 'P', read P and P^2 packets only, and returns a float
         array of size [nsec, 50, 4096, 8], where nsec is one more than
@@ -231,28 +248,6 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
         P2y = p[idx+14]/(2.**44)
         return p1x,p1y,p2x,p2y,P1x,P1y,P2x,P2y
 
-    def xspectra(xdata):
-        # Case of prototype X spectra
-        x = np.array(xdata)
-        # idx is array([0,44,88,132,176,220,264,308,352,396,440,484,528,572,616,660])
-        idx = np.arange(0,704,44)
-        # Distribute 16 channels of complex correlation data into their spectra
-        #idx += 4   # Uncomment this to read xy and yx data
-        a12x = x[idx]+x[idx+1]*1j
-        a12y = x[idx+2]+x[idx+3]*1j
-        a13x = x[idx+8]+x[idx+9]*1j
-        a13y = x[idx+10]+x[idx+11]*1j
-        a14x = x[idx+16]+x[idx+17]*1j
-        a14y = x[idx+18]+x[idx+19]*1j
-        a23x = x[idx+24]+x[idx+25]*1j
-        a23y = x[idx+26]+x[idx+27]*1j
-        a24x = x[idx+32]+x[idx+33]*1j
-        a24y = x[idx+34]+x[idx+35]*1j
-        #idx -= 4   # Uncomment this to read xy and yx data
-        a34x = x[idx+40]+x[idx+41]*1j
-        a34y = x[idx+42]+x[idx+43]*1j
-        return a12x,a12y,a13x,a13y,a14x,a14y,a23x,a23y,a24x,a24y,a34x,a34y
-    
     f = open(filename,'rb')
     pcap = dpkt.pcap.Reader(f)
     hdr = '<HHHHIHHHHHHHHHHHHHH4I4Q'
@@ -265,6 +260,11 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
     # Start reading records
     out = pcap.readpkts()
     npkt = len(out)
+    # Find number of P packets, and use it to determine how many accumulations were
+    # captured in the file.
+    t0 = out[0][0]  # initial X packet timestamp
+    t1 = out[-1][0] # final packet timestamp
+    nsec = int(t1) - int(t0) + 1
     # Find number of P packets, and use it to determine how many accumulations were
     # captured in the file.
     nPpkt = 0
@@ -280,10 +280,6 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
             xaccum = h['AccumNum']
             pktnum = h['PacketNum']
             t0 = a  # Initial X packet timestamp
-    t1 = a #Final packet timestamp
-            
-    naccum = nPpkt / 256 / nboards
-    nsec = int(t1 - t0) + 1
     if ptype is 'P':
         outarr = np.zeros([nsec,50,4096,8],'float')
         p1x = np.zeros(4096,'float')
@@ -294,20 +290,6 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
         P1y = np.zeros(4096,'float')
         P2x = np.zeros(4096,'float')
         P2y = np.zeros(4096,'float')
-    elif ptype is 'X' and proto:
-        outarr = np.zeros([nsec,50,4096,12],'complex')
-        a12x = np.zeros(4096,'complex')
-        a12y = np.zeros(4096,'complex')
-        a13x = np.zeros(4096,'complex')
-        a13y = np.zeros(4096,'complex')
-        a14x = np.zeros(4096,'complex')
-        a14y = np.zeros(4096,'complex')
-        a23x = np.zeros(4096,'complex')
-        a23y = np.zeros(4096,'complex')
-        a24x = np.zeros(4096,'complex')
-        a24y = np.zeros(4096,'complex')
-        a34x = np.zeros(4096,'complex')
-        a34y = np.zeros(4096,'complex')
     elif ptype is 'X':
         # In case of short capture packets, create the proper xfmt string.
         # The 130 is the 42-byte tcp packet header + 88 byte CASPER header.
@@ -316,7 +298,7 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
         nx = (xlen-130)/8
         x0 = 130  # Start location in packet buffer
         x1 = 130 + nx*8  # End location in packet buffer
-        xfmt = str(2*nx)+'i'  # Read buffer as 32-bit signed integers
+        xfmt = '>'+str(2*nx)+'i'  # Read buffer as 32-bit signed integers
         # The format is all baselines, all poln products, for one channel
         outarr = np.zeros([nsec,50,4096,nx],'complex')
     else:
@@ -371,99 +353,186 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False,proto=True):
                 P2x[n*16:(n+1)*16] = P2x_ 
                 P2y[n*16:(n+1)*16] = P2y_
         elif ptype is 'X' and len(buf) > 898:
-            if proto:
-                # This is an X packet from the prototype
-                header = struct.unpack(hdr,buf[42:130])
-                h = dict(zip(khdr,header))
-                n = h['PacketNum']
-                # Case of prototype packets
-                if  h['BoardID'] == boardID:
-                    if n == 0:
-                        # Beginning of accumulation sample, so save the old one
-                        # unless this is the first time through, indicated when a 
-                        # is an impossible number (-1)
-                        if a != -1:
-                            outarr[isec,a,:,0] = a12x
-                            outarr[isec,a,:,1] = a12y
-                            outarr[isec,a,:,2] = a13x
-                            outarr[isec,a,:,3] = a13y
-                            outarr[isec,a,:,4] = a14x
-                            outarr[isec,a,:,5] = a14y
-                            outarr[isec,a,:,6] = a23x
-                            outarr[isec,a,:,7] = a23y
-                            outarr[isec,a,:,8] = a24x
-                            outarr[isec,a,:,9] = a24y
-                            outarr[isec,a,:,10] = a34x
-                            outarr[isec,a,:,11] = a34y
-                            a12x = np.zeros(4096,'complex')
-                            a12y = np.zeros(4096,'complex')
-                            a13x = np.zeros(4096,'complex')
-                            a13y = np.zeros(4096,'complex')
-                            a14x = np.zeros(4096,'complex')
-                            a14y = np.zeros(4096,'complex')
-                            a23x = np.zeros(4096,'complex')
-                            a23y = np.zeros(4096,'complex')
-                            a24x = np.zeros(4096,'complex')
-                            a24y = np.zeros(4096,'complex')
-                            a34x = np.zeros(4096,'complex')
-                            a34y = np.zeros(4096,'complex')
-                            if h['AccumNum'] == 0: 
-                                # Beginning of a new second
-                                isec += 1
-                                if isec == nsec:
-                                    sout = outarr.shape
-                                    outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
-                                    return outarr                    
-                    a = h['AccumNum']
-                    xdata = struct.unpack(xfmt,buf[130:])
-                    a12x_,a12y_,a13x_,a13y_,a14x_,a14y_,a23x_,a23y_,a24x_,a24y_,a34x_,a34y_ = xspectra(xdata)
-                    bid = h['BoardID'] % 2
-                    ns = n*16 + bid*2048
-                    ne = (n+1)*16 + bid*2048
-                    a12x[ns:ne] = a12x_ 
-                    a12y[ns:ne] = a12y_ 
-                    a13x[ns:ne] = a13x_ 
-                    a13y[ns:ne] = a13y_ 
-                    a14x[ns:ne] = a14x_ 
-                    a14y[ns:ne] = a14y_ 
-                    a23x[ns:ne] = a23x_ 
-                    a23y[ns:ne] = a23y_ 
-                    a24x[ns:ne] = a24x_ 
-                    a24y[ns:ne] = a24y_ 
-                    a34x[ns:ne] = a34x_ 
-                    a34y[ns:ne] = a34y_ 
-            else:
-                # This is an X packet from the production correlator
-                header = struct.unpack(hdr,buf[42:130])
-                h = dict(zip(khdr,header))
-                n = h['PacketNum']
-                # Override AccumNum with value based on packet timestamp, since
-                # AccumNum is currently messed up.
-                # This assumes packets coming out at 1-s mark were accumulated in
-                # previous 20 ms (hence -2)
-                aprev = a
-                a = int(t*100 - 2) / 2 % 50  # This is calculated AccumNum
-                if a == 0 and aprev == 49:
-                    isec += 1
-                    if isec == nsec:
-                        sout = outarr.shape
-                        outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
-                        return outarr                    
-                iFreq = h['iFreq']
-                xdata = np.array(struct.unpack(xfmt,buf[x0:x1]))
-                outarr[isec,a,iFreq,:] = (xdata[::2] + 1j*xdata[1::2]).astype('complex64')
+            # This is an X packet from the production correlator
+            header = struct.unpack(hdr,buf[42:130])
+            h = dict(zip(khdr,header))
+            n = h['PacketNum']
+            # Override AccumNum with value based on packet timestamp, since
+            # AccumNum is currently messed up.
+            # This assumes packets coming out at 1-s mark were accumulated in
+            # previous 20 ms (hence -2)
+            aprev = a
+            a = int(t*100 - 2) / 2 % 50  # This is calculated AccumNum
+            if a == 0 and aprev == 49:
+                isec += 1
+                if isec == nsec:
+                    sout = outarr.shape
+                    outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
+                    return outarr                    
+            iFreq = h['iFreq']
+            xdata = np.array(struct.unpack(xfmt,buf[x0:x1]))
+            outarr[isec,a,iFreq,:] = (xdata[::2] + 1j*xdata[1::2]).astype('complex64')
         else:
             # Some unknown packet?
             pass
     if verbose: print '\n'
     sout = outarr.shape
     outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
-    #if ptype == 'X' and not proto:
-    #    return reorder_glitch(outarr)
-    #else:
     return outarr
-  
-def capture(filename='dump',nsec=1,ptype='P',overwrite=True):
+
+def rd_jspec(filename):
+    ''' Read all spectra in a Jim McT capture file
+    
+        Returns a dictionary with keys:
+                                               ants pol chan slots
+          'p': total power in p-packets, size [ 16,  2, 4096, 50  ]
+          'p2': power-squared in p-packets,   [ 16,  2, 4096, 50  ]
+          'a': auto-correlations in x-pkts,   [ 16,  4, 4096, 50  ]
+                                              blines pol chan slots
+          'x': cross-correlations in x-pkts, [ 120,   4, 4096, 50 ]
+    '''
+    import struct, os
+    bl_order = get_bl_order(16)
+    iauto = []
+    icross = np.zeros((16,16),dtype='I')
+    for i, bl in enumerate(bl_order):
+        if bl[0] == bl[1]:
+            iauto.append(i*4)
+        else:
+            icross[bl[0],bl[1]] = i*4
+    iauto = np.array(iauto)
+    icross = icross[icross.nonzero()]
+    
+    def pspectra(power):
+        p = np.array(power)
+        # idx is array([0,1, 16,17, 32,33, 48,49, 64,65, 80,81, 96,97, 112,113])
+        idx = np.array(zip(np.arange(0,128,16),np.arange(1,128,16))).flatten()
+        # Distribute P, P2 into their spectra
+        p1x = p[idx]/(2.**14)
+        p1y = p[idx+2]/(2.**14)
+        p2x = p[idx+4]/(2.**14)
+        p2y = p[idx+6]/(2.**14)
+        P1x = p[idx+8]/(2.**44)
+        P1y = p[idx+10]/(2.**44)
+        P2x = p[idx+12]/(2.**44)
+        P2y = p[idx+14]/(2.**44)
+        return p1x,p1y,p2x,p2y,P1x,P1y,P2x,P2y
+
+    hdr = '<HHHHIHHHHHHHHHHHHHH4I4Q'
+    pp2 = '8I8Q8I8Q8I8Q8I8Q8I8Q8I8Q8I8Q8I8Q'
+    # Read buffer as 136 channels of 4 polns, both real & imaginary 32-bit signed integers
+    reclen = 136*4*2
+    xfmt = '>'+str(reclen)+'i'
+    khdr = ['HeaderLength','PacketNum','FFTShift','AccumLength','GlobalAccumNum',
+            'BoardID','AccumNum','DataType','PolType','Ai','Aj','ADCOverflow',
+            'QuantClipNum','NSubbands','iFreq','Delay0','Delay1','Delay2','Delay3',
+            'PX0','PY0','PX1','PY1','P2X0','P2Y0','P2X1','P2Y1']
+    # Get number of packets from file size
+    npkt = os.stat(filename).st_size/4440
+    outauto  = np.zeros(( 16, 4, 4096, 50),dtype='complex64')
+    outcross = np.zeros((120, 4, 4096, 50),dtype='complex64')
+    outp     = np.zeros(( 16, 2, 4096, 50),dtype='float'    )
+    outp2    = np.zeros(( 16, 2, 4096, 50),dtype='float'    )
+    # Start reading records
+    with open(filename,'rb') as f:
+        for i in range(npkt):
+            buf = f.read(reclen*4+88)
+            header = struct.unpack(hdr,buf[:88])
+            h = dict(zip(khdr,header))
+            if h['DataType'] == 0:
+                # This is a P packet
+                n = h['PacketNum']
+                bid = h['BoardID']
+                a = h['AccumNum']
+                power = struct.unpack(pp2,buf[88:88+768])
+                p1x,p1y,p2x,p2y,P1x,P1y,P2x,P2y = pspectra(power)
+                outp[ bid*2,   0, n*16:(n+1)*16, a] = p1x
+                outp[ bid*2,   1, n*16:(n+1)*16, a] = p1y
+                outp[ bid*2+1, 0, n*16:(n+1)*16, a] = p2x
+                outp[ bid*2+1, 1, n*16:(n+1)*16, a] = p2y
+                outp2[bid*2,   0, n*16:(n+1)*16, a] = P1x
+                outp2[bid*2,   1, n*16:(n+1)*16, a] = P1y
+                outp2[bid*2+1, 0, n*16:(n+1)*16, a] = P2x
+                outp2[bid*2+1, 1, n*16:(n+1)*16, a] = P2y
+            elif h['DataType'] == 1:
+                # This is an X packet
+                a = h['AccumNum']
+                iFreq = h['iFreq']
+                xdata = np.array(struct.unpack(xfmt,buf[88:]))
+                cxdata = (xdata[::2] + 1j*xdata[1::2]).astype('complex64')
+                outauto[ :, 0, iFreq, a] = cxdata[iauto]
+                outauto[ :, 1, iFreq, a] = cxdata[iauto+1]
+                outauto[ :, 2, iFreq, a] = cxdata[iauto+2]
+                outauto[ :, 3, iFreq, a] = cxdata[iauto+3]
+                outcross[:, 0, iFreq, a] = cxdata[icross]
+                outcross[:, 1, iFreq, a] = cxdata[icross+1]
+                outcross[:, 2, iFreq, a] = cxdata[icross+2]
+                outcross[:, 3, iFreq, a] = cxdata[icross+3]
+            else:
+                # Some unknown packet?
+                pass
+        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross}
+    return out
+
+def get_bl_order(n_ants):
+    """Return the order of baseline data output by a CASPER correlator
+    X engine."""
+    order1, order2 = [], []
+    for i in range(n_ants):
+        for j in range(int(n_ants/2),-1,-1):
+            k = (i-j) % n_ants
+            if i >= k: order1.append((k, i))
+            else: order2.append((i, k))
+    order2 = [o for o in order2 if o not in order1]
+    return tuple([o for o in order1 + order2])
+
+def bl_list(nant=16):
+    ''' Returns a two-dimensional array bl2ord that will translate
+        a pair of antenna indexes (antenna number - 1) to the ordinal
+        number of the baseline in the 'x' key.  Note bl2ord(i,j) = bl2ord(j,i),
+        and bl2ord(i,i) = -1.
+    '''
+    bl2ord = np.ones((nant,nant),dtype='int')*(-1)
+    k = 0
+    for i in range(nant-1):
+        for j in range(i+1,nant):
+            bl2ord[i,j] = k
+            bl2ord[j,i] = k
+            k+=1
+    return bl2ord
+    
+def summary_plot(out,ant_str='ant1-13',ptype='phase'):
+    ''' Makes a summary amplitude or phase plot for all antennas from 0:nant
+        in out dictionary.
+    '''
+    import matplotlib.pyplot as plt
+    ant_list = ant_str2list(ant_str)
+    nant = len(ant_list)
+    if ptype != 'amp' and ptype != 'phase':
+        print "Invalid plot type.  Must be 'amp' or 'phase'."
+        return
+    f, ax = plt.subplots(nant,nant)
+    f.subplots_adjust(hspace=0,wspace=0)
+    bl2ord = bl_list()
+    for axrow in ax:
+        for a in axrow:
+            a.xaxis.set_visible(False)
+            a.yaxis.set_visible(False)
+    for i in range(nant-1):
+        ai = ant_list[i]
+        for j in range(i+1,nant):
+            aj = ant_list[j]
+            if ptype == 'phase':
+                ax[i,j].imshow(np.angle(out['x'][bl2ord[ai,aj],0].reshape(64,64,10,5).sum(1).sum(2)/(64*5)))
+                ax[j,i].imshow(np.angle(out['x'][bl2ord[ai,aj],1].reshape(64,64,10,5).sum(1).sum(2)/(64*5)))
+            elif ptype == 'amp':
+                ax[i,j].imshow(np.abs(out['x'][bl2ord[ai,aj],0].reshape(64,64,10,5).sum(1).sum(2)/(64*5)))
+                ax[j,i].imshow(np.abs(out['x'][bl2ord[ai,aj],1].reshape(64,64,10,5).sum(1).sum(2)/(64*5)))
+    for i in range(nant):
+        ai = ant_list[i]
+        ax[i,i].text(0.5,0.5,str(ai+1),ha='center',va='center',transform=ax[i,i].transAxes,fontsize=14)
+
+def capture(filename='dump',nsec=1,ptype='P',snaplen=5000,overwrite=True):
     ''' All-in-one command to capture a given number of seconds of packets on
         both interfaces and return the result in a single array.  
         Arguments: filename   create or read a file "eth<n>_<filename>.pcap"
@@ -473,40 +542,244 @@ def capture(filename='dump',nsec=1,ptype='P',overwrite=True):
                    ptype      either 'P' (default) or 'X'
                    overwrite  if True (default), new packets will be grabbed,
                                 otherwise an existing file will be read.
-        Returns:   out        a numpy array whose size depends of ptype
-                                ptype = 'P' => (nant,npol,nf,nt) = (8,2,4096,50*(nsec+1))
-                                ptype = 'X' => (nbl,npol,nf,nt) = (12,2,4096,50*(nsec+1))
+        Returns:   out        a directionary that contains two numpy arrays whose size depends of ptype
+                                ptype = 'P'   P packages
+                    'p': total power with dimension (nant,npol,nt,nf) = (16,2,50*(nsec+1),4096)
+                    'p2': total power square with same dimension as above
+                                ptype = 'X'   X packets
+                    'a': auto-correlation (nant,npol,nt,nf) = (16,4,50*(nsec+2),4096)
+                    'x': cross-correlation (nbl,npol,nt,nf) = (120,4,50*(nsec+2),4096)
     '''
     import glob
+    if ptype == 'P': snaplen = 1000
     if overwrite or glob.glob('eth2_'+filename+'.pcap') == []:
-        command = 'tcpdump -i eth2 -c '+str(38400*nsec)+' -w eth2_'+filename+'.pcap -s 2000'
+        command = 'tcpdump -i eth2 -c '+str(153600*nsec)+' -w eth2_'+filename+'.pcap -s '+str(snaplen)
         sendcmd(command)
     if overwrite or glob.glob('eth3_'+filename+'.pcap') == []:
-        command = 'tcpdump -i eth3 -c '+str(38400*nsec)+' -w eth3_'+filename+'.pcap -s 2000'
+        command = 'tcpdump -i eth3 -c '+str(153600*nsec)+' -w eth3_'+filename+'.pcap -s '+str(snaplen)
         sendcmd(command)
     if ptype == 'P':
         out1 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype,boardID=0)
         out2 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype,boardID=1)
+        out5 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype,boardID=4)
+        out6 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype,boardID=5)
         out3 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype,boardID=2)
         out4 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype,boardID=3)
-        out1[:,:,4:] = out2[:,:,:4]
-        out3[:,:,4:] = out4[:,:,:4]
-        del out2,out4
-        out = np.concatenate((out1,out3),2)
+        out7 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype,boardID=6)
+        out8 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype,boardID=7)
+        outall=[out1,out2,out3,out4,out5,out6,out7,out8]
+        nt2, nf, nif = out2.shape #captured package dimensions for interface eth2
+        nt3, nf, nif = out3.shape #captured package dimensions for interface eth3
+        if nt2 == nt3:
+            print 'packets from eth2 and eth3 have the same size '+str(nt2)+', happily proceeding...'
+        if nt2 < nt3:
+            print 'packets from eth2 have less time points '+str(nt2)+', resizing to that from eth3 '+str(nt3)+'...' 
+            out1.resize((nt3,nf,nif),refcheck=False)
+            out2.resize((nt3,nf,nif),refcheck=False)
+            out5.resize((nt3,nf,nif),refcheck=False)
+            out6.resize((nt3,nf,nif),refcheck=False)
+        if nt2 > nt3:
+            print 'packets from eth3 have less time points '+str(nt3)+', resizing to that from eth2 '+str(nt2)+'...'
+            out3.resize((nt2,nf,nif),refcheck=False)
+            out4.resize((nt2,nf,nif),refcheck=False)
+            out7.resize((nt2,nf,nif),refcheck=False)
+            out8.resize((nt2,nf,nif),refcheck=False)
+        for i in range(8):
+            outall[i] = np.rollaxis(outall[i],2,0)
+            #out = np.rollaxis(out,2,1)
+            nif, nt, nf = outall[i].shape
+            outall[i].shape = (2,nif/4,2,nt,nf)
+        out = np.concatenate(outall,1)
+        outp=out[0,:,:,:,:]
+        outp2=out[1,:,:,:,:]
+        return {'p':outp,'p2':outp2}
+    if ptype == 'X':
+        out2 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype)
+        out3 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype)
+        nt2, nf, nch = out2.shape
+        nt3, nf, nch = out3.shape
+        if nt2 == nt3:
+            print 'packets from eth2 and eth3 have the same size '+str(nt2)+', happily proceeding...'
+        if nt2 < nt3:
+            print 'packets from eth2 have less time points '+str(nt2)+', resizing to that from eth3 '+str(nt3)+'...' 
+            out2.resize((nt3,nf,nch),refcheck=False)
+        if nt2 > nt3:
+            print 'packets from eth3 have less time points '+str(nt3)+', resizing to that from eth2 '+str(nt2)+'...'
+            out3.resize((nt2,nf,nch),refcheck=False)
+        out = out2+out3
+        out = np.rollaxis(out,2,0)
+        #out = np.rollaxis(out,2,1)
+        nch, nt, nf = out.shape
+        nbl=nch/4
+        out.shape = (nbl,4,nt,nf)
+        #find out which ones are auto-correlation and cross-correlation
+        idxa=[]
+        bls=get_bl_order(16)   
+        for (i,bl) in enumerate(bls):
+            if bl[0] == bl[1]:
+                idxa.append(i) #all indices for auto-correlation
+        #find out which indices are actually in the range of the captured data
+        idxa=np.array(idxa)
+        ix=np.where(idxa < (nbl-1))
+        outa=out[idxa[ix],:,:,:]
+        outx=np.delete(out,idxa[ix],0)
+        return {'a':outa,'x':outx}
+
+def get_spec(capfile=None, mode='jcap'):
+    '''basic wrapper for capture and rd_jspec to read existing capture/Jim capture files and get unified output
+        OUTPUT: po     total power
+                ac     auto correlation
+                xc     cross correlation
+        example: (po, ac, xc) = get_spec(capfile=capfile, mode='jcap')
+    '''
+    po=[]
+    ac=[]
+    xc=[]
+    if not isinstance(capfile,list):
+        print 'capfile is required to be a list of file names'
+        return
+    nfile=len(capfile)
+    if nfile < 1:
+        print 'capfile has 0 element'
+        return
+    for n in range(nfile):
+        if mode=='cap':
+            outp=capture(filename=capfile[n], ptype='P', overwrite=False)
+            outx=capture(filename=capfile[n], ptype='X', snaplen=1000, overwrite=False)
+            po.append(outp['p'])
+            ac.append(outx['a'])
+            xc.append(outx['x'])
+        if mode=='jcap':
+            out=rd_jspec(capfile[n])
+            po.append(out['p']) #power
+            ac.append(out['a']) #auto-correlation
+            xc.append(out['x']) #auto-correlation
+    return po, ac, xc
+
+def bl_mapper(nant=16, refant=1, show=False, exclude_auto=True):
+    '''For selected antenna, calculate baseline index and return baseline pair name in the x-correlation output 
+    '''
+    nbl=nant*(nant-1)/2
+    blprs=[]
+    if exclude_auto:
+        ncks=[nant-1-i for i in range(nant-1)]
+        for ant in range(nant-1):
+            for i in range(ncks[ant]):
+                blprs.append([ant+1,ant+2+i])
     else:
-        out1 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype,boardID=0)
-        out2 = rd_spec('eth2_'+filename+'.pcap',ptype=ptype,boardID=1)
-        out3 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype,boardID=2)
-        out4 = rd_spec('eth3_'+filename+'.pcap',ptype=ptype,boardID=3)
-        out1[:,2048:,:] = out2[:,2048:,:]
-        out3[:,2048:,:] = out4[:,2048:,:]
-        del out2,out4
-        out = np.concatenate((out1,out3),2)
-    out = np.rollaxis(out,2,0)
-    out = np.rollaxis(out,2,1)
-    nif, nf, nt = out.shape
-    out.shape = (nif/2,2,nf,nt)
-    return out
+        ncks=[nant-i for i in range(nant)]
+        for ant in range(nant):
+            for i in range(ncks[ant]):
+                blprs.append([ant+1,ant+1+i])
+
+    bl_idx=[]
+    bl_list=[]
+    for i in range(nbl):
+        blpr=blprs[i]
+        if refant in blpr:
+            bl_idx.append(i)
+            bl_list.append(str(blpr[0])+' & '+str(blpr[1]))
+            if show:
+                print blpr
+    return {'idx':bl_idx, 'name':bl_list}
+
+def plot_auto_corr(ac=None, nant=16, nx=2, chran='0-4095'):
+    '''Reads the outputs from get_spec and plot auto correlations on selected antenna
+    '''
+    import matplotlib.pyplot as plt
+    nfile=len(ac) 
+    if isinstance(chran, basestring):
+        (ch1,ch2) = (int(s) for s in chran.split('-'))
+        if ch1 > ch2 or ch1 < 0 or ch2 > 4095:
+            print 'start channel no must be less than end channel #'
+            print 'start and end channel must be >= 0 and <= 4096'
+            print 'use the default range 0-4095 instead'
+            ch1 = 0
+            ch2 = 4095
+    else:
+        print 'chran has to be a string'
+        return
+    for n in range(nfile):
+        ac_=ac[n]
+        nbl_,nx_,nch,nt=ac_.shape
+        #calculate the baseline numbers for all antennas
+        f,ax=plt.subplots(nx,nant)
+        for j in range(nx):
+            for i in range(nant): 
+                ax[j,i].imshow(abs(ac_[i,j,ch1:ch2,:]),extent=[0,nt-1,ch1,ch2])
+                ax[j,i].set_title('ant '+str(i+1))
+                if i > 0:
+                    ax[j,i].get_yaxis().set_ticks([])
+
+def plot_x_corr(xc=None, plot_type='pha', nbl=15, nx=2, refant=1, chran='2048-4095',lineplot=False,tidx=25):
+    '''Read the outputs from get_spec and plot cross-correlated phases or amplitudes on selected antenna
+        REQUIRED INPUTS: xc           x-correlation output from get_spec
+        OPTIONAL INPUTS: plot_type    'pha' or 'amp' for phase or amplitude display
+                         nbl          number of baselines to display
+                         nx           number of polarizations to display
+                         refant       which antenna to plot? refant=1 means antenna 1, etc.
+                         chran        channel range to display (within the 4096 raw channels)
+                         lineplot     do you wish to do a lineplot (amp/phase vs channel)?
+                         tidx         time index for the time plot, default to 25
+    '''
+    import matplotlib.pyplot as plt
+    if isinstance(chran, basestring):
+        (ch1,ch2) = (int(s) for s in chran.split('-'))
+        if ch1 > ch2 or ch1 < 0 or ch2 > 4095:
+            print 'start channel no must be less than end channel #'
+            print 'start and end channel must be >= 0 and <= 4096'
+            print 'use the default range 2048-4095 instead'
+            ch1 = 2048
+            ch2 = 4095
+    else:
+        print 'chran has to be a string'
+        return
+    if not xc:
+        print 'please provide a cross-power spectrum file'
+        print "by (po,ac,xc)=get_spec(capfile,'jcap')"
+    nfile=len(xc) 
+    bl=bl_mapper(refant=refant)
+    bli=bl['idx']
+    bln=bl['name']
+    for n in range(nfile):
+        xc_=xc[n]
+        nbl_,nx_,nch,nt=xc_.shape
+        #calculate the baseline numbers for all antennas
+        f,ax=plt.subplots(nx,nbl)
+        for j in range(nx):
+            for i in range(nbl): 
+                if plot_type=='pha':
+                    ax[j,i].imshow(np.angle(xc_[bli[i],j,ch1:ch2,:]),vmin=-np.pi,vmax=np.pi,
+                                   extent=[0,nt-1,ch1,ch2])
+                    ax[j,i].set_title(bln[i])
+                    if i > 0:
+                        ax[j,i].get_yaxis().set_ticks([])
+                if plot_type=='amp':
+                    ax[j,i].imshow(abs(xc_[bli[i],j,ch1:ch2,:]),
+                                   extent=[0,nt-1,ch1,ch2])
+                    ax[j,i].set_title(bln[i])
+                    if i > 0:
+                        ax[j,i].get_yaxis().set_ticks([])
+
+        if lineplot:
+            f,ax=plt.subplots(nx,nbl)
+            chan=np.arange(4096)[ch1:ch2]
+            for j in range(nx):
+                for i in range(nbl): 
+                    if plot_type=='pha':
+                        ax[j,i].plot(np.angle(xc_[bli[i],j,ch1:ch2,tidx]),chan,'.')
+                        ax[j,i].set_xlim([-np.pi,np.pi])
+                        ax[j,i].set_ylim([ch1,ch2])
+                        ax[j,i].set_title(bln[i])
+                        if i > 0:
+                            ax[j,i].get_yaxis().set_ticks([])
+                    if plot_type=='amp':
+                        ax[j,i].plot(abs(xc_[bli[i],j,ch1:ch2,tidx]),chan,'.')
+                        ax[j,i].set_ylim([ch1,ch2])
+                        ax[j,i].set_title(bln[i])
+                        if i > 0:
+                            ax[j,i].get_yaxis().set_ticks([])
+
    
 def capture_fig(useroach=[1,2],print_attn=False):
 
@@ -730,4 +1003,3 @@ if __name__ == "__main__":
         t1,out1,ovfl1 = capture_fig(useroach=[1,2,5])
         t2,out2,ovfl2 = capture_fig(useroach=[3,4,6])
         plt.close(plot_fig(t1,out1,out2,ovfl1,ovfl2))
-    

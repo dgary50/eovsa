@@ -51,6 +51,10 @@
 #     Changed Outlet heading to include outlet number.
 #   2016-Jan-15  DG
 #     Update expected STOW position for 27-m antennas to +20 Dec
+#   2016-Mar-02  DG
+#     Added code to read and display last CRIO command (and error)
+#   2016-Mar-17  DG
+#     Changed display of FEM voltage to FEM power
 #
 
 from Tkinter import *
@@ -749,8 +753,8 @@ class App():
 
     def inc_time(self):
 
-#	pos7 = self.S7.get()
-#	pos8 = self.S8.get()
+#   pos7 = self.S7.get()
+#   pos8 = self.S8.get()
         data, msg = stf.get_stateframe(self.accini)
 
         if msg != 'No Error':
@@ -993,7 +997,7 @@ class App():
 
         # Fill in Trip text boxes if the antenna indicates a trip
 
-	#for i in range(len(self.antlist)):
+    #for i in range(len(self.antlist)):
         #    self.L[i].yview_moveto(pos[0])
 
     def update_display(self,data):
@@ -1023,17 +1027,17 @@ class App():
             self.L3.itemconfig(END,bg=self.colors['error'])
 
         weather = sf['Schedule']['Data']['Weather']
-	new_line = 'Weather>>'
-	new_line += ' Wind: ' + str(int(stf.extract(data,weather['Wind']))) + ' mph ' + '<'+str(int(stf.extract(data,weather['AvgWind'])))+'>'
+        new_line = 'Weather>>'
+        new_line += ' Wind: ' + str(int(stf.extract(data,weather['Wind']))) + ' mph ' + '<'+str(int(stf.extract(data,weather['AvgWind'])))+'>'
         dirs = ['N ','NE','E ','SE','S ','SW','W ','NW']
         direction = stf.extract(data,weather['WindDirection'])/dtor
         # Convert compass reading to cardinal direction
         idir = int(fmod(direction+22.5,360.)/45.)
         new_line += ' from ' + dirs[idir]
-	new_line += '  Temp: ' + str(stf.extract(data,weather['Temperature']))[:4] + ' F'
+        new_line += '  Temp: ' + str(stf.extract(data,weather['Temperature']))[:4] + ' F'
         pressure = stf.extract(data,weather['Pressure'])
-	new_line += '  Pressure: ' + str(pressure)[:6] + ' mbar'
-	self.L3.insert(END,new_line)
+        new_line += '  Pressure: ' + str(pressure)[:6] + ' mbar'
+        self.L3.insert(END,new_line)
         if pressure == 0.0:
             self.L3.itemconfig(END,bg=self.colors['error'])
 
@@ -1323,8 +1327,8 @@ class App():
             if subarray1[i]:
                 nsubarray += 1
                 fe = sf['Antenna'][i]['Frontend']['FEM']
-                hpv = stf.extract(data,fe['HPol']['Voltage'])
-                vpv = stf.extract(data,fe['VPol']['Voltage'])
+                hpv = stf.extract(data,fe['HPol']['Power'])
+                vpv = stf.extract(data,fe['VPol']['Power'])
                 if hpv == 0.0 or vpv == 0.0: nfbad += 1
                 be = sf['DCM'][i]
                 hpv = stf.extract(data,be['HPol']['Voltage'])
@@ -1345,14 +1349,14 @@ class App():
             head = '     Frontend:  --H-Channel---  --V-Channel---   Backend:  --H-Channel---  --V-Channel---'
             self.L3.insert(END,head)
             self.L3.itemconfig(END,bg=self.colors['colhead'])
-            head = 'a#              -Volts- -Attn-  -Volts- -Attn-             -Volts- -Attn-  -Volts- -Attn-'
+            head = 'a#              --dBm-- -Attn-  --dBm-- -Attn-             -Volts- -Attn-  -Volts- -Attn-'
             self.L3.insert(END,head)
             self.L3.itemconfig(END,bg=self.colors['colhead'])
 
             for i in antindex:
                 fe = sf['Antenna'][i]['Frontend']['FEM']
-                hpv = stf.extract(data,fe['HPol']['Voltage'])
-                vpv = stf.extract(data,fe['VPol']['Voltage'])
+                hpv = stf.extract(data,fe['HPol']['Power'])
+                vpv = stf.extract(data,fe['VPol']['Power'])
                 ndon = ' '
                 if stf.extract(data,fe['ND']) == 1:
                     ndon = '**ND-ON**'
@@ -1481,6 +1485,9 @@ class App():
                     # For some reason, a good ROACH reports '0xc00000' for status
                     self.L3.itemconfig(END,bg=self.colors['error'])
 
+        for i in antindex:
+            parser = sf['Antenna'][i]['Parser']
+            self.L3.insert(END,'Ant'+str(i+1)+' Last Command:'+stf.extract(data,parser['Command'])+' '+str(stf.extract(data,parser['CommErr'])))
 
     def cryo_display(self,data):
         ''' Creates the CryoRX page to display Cryo Receiver information

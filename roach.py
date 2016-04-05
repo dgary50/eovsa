@@ -549,12 +549,9 @@ class Roach():
 
         # Set nominal values for multiplicative coefficients, in the case of the 16-antenna correlator
         if nbds == 8:
-            coefficients = numpy.ones(2**13, dtype='>I') << (10 + 6)
-            for i in range(4): self.fpga.write('eq_x'+str(i)+'_coeffs',coefficients.tostring())
-            # Test--blank first 128 channels of ROACH1, X0
-            if self.roach_ip[5:6] == '1':
-                coefficients[0:128] = 0
-                self.fpga.write('eq_x0_coeffs',coefficients.tostring())
+            for i in range(4): self.set_eq(xn=i,coeff=10)
+#            coefficients = numpy.ones(2**13, dtype='>I') << (10 + 6)
+#            for i in range(4): self.fpga.write('eq_x'+str(i)+'_coeffs',coefficients.tostring())
             # Calibrate qdrs
             devs = self.fpga.listdev()
             # Look for string 'qdr' in list of devs

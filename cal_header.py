@@ -24,10 +24,10 @@ def cal_types():
         A new type can be added at the end--there is no significance to
         the type number--it is just a unique ordinal.
     '''
-    return {'1':['Total power calibration (output of SOLPNTCAL)','TPcal2xml'],
-            '2':['DCM master base attenuation table [units=dB]','DCM_master_base_attn2xml'],
-            '3':['DCM base attenuation table [units=dB]','DCM_base_attn2xml'],
-            '4':['Delay centers [units=ns]','dlacen2xml']}
+    return {1:['Total power calibration (output of SOLPNTCAL)','TPcal2xml'],
+            2:['DCM master base attenuation table [units=dB]','DCM_master_base_attn2xml'],
+            3:['DCM base attenuation table [units=dB]','DCM_base_attn2xml'],
+            4:['Delay centers [units=ns]','dlacen2xml']}
 
 def str2bin(string):
     return struct.pack(str(len(string)+1)+'s',string+'\n')
@@ -261,12 +261,15 @@ def dlacen2xml():
 
     return buf
 
-def send_xml2sql():
+def send_xml2sql(test=False):
     ''' Routine to send any changed calibration xml definitions to the 
         SQL Server.  The latest definition (if any) for a given type is
         checked to see if the version matches.  If not, an update is 
         stored.  This routine will typically be run whenever a definition
         is added or changed.
+        
+        As a debugging tool, if test is True, this routine goes through the
+        motions but does not write to the abin table.
     '''
     import dbutil, read_xml2, sys
     t = util.Time.now()
@@ -285,7 +288,7 @@ def send_xml2sql():
         mydict, xmlver = read_xml2.xml_ptrs('/tmp/tmp.xml')
         defn_version = float(key)+xmlver/10.  # Version number expected
         # Retrieve most recent key.0 record and check its version against the expected one
-        query = 'select top 1 * from abin where Version = '+key+'.0 order by Timestamp desc'
+        query = 'select top 1 * from abin where Version = '+str(key)+'.0 order by Timestamp desc'
         #print 'Executing query'
         outdict, msg = dbutil.do_query(cursor,query)
         #print msg
@@ -315,9 +318,12 @@ def send_xml2sql():
             # to the database
             #print 'Trying to add',typdict[key][0]
             try:
-                cursor.execute('insert into aBin (Timestamp,Version,Description,Bin) values (?,?,?,?)',
-                   timestamp, float(key), typdict[key][0], dbutil.stateframedef.pyodbc.Binary(buf))
-                print typdict[key][0],'successfully added/updated to version',defn_version
+                if test:
+                    print 'Would have updated',typdict[key][0],'to version',defn_version
+                else:
+                    cursor.execute('insert into aBin (Timestamp,Version,Description,Bin) values (?,?,?,?)',
+                   timestamp, key, typdict[key][0], dbutil.stateframedef.pyodbc.Binary(buf))
+                    print typdict[key][0],'successfully added/updated to version',defn_version
             except:
                 print 'Unknown error occurred in adding',typdict[key][0]
                 print sys.exc_info()[1]
@@ -326,6 +332,48 @@ def send_xml2sql():
     cursor.commit()
     cursor.close()
             
-            
-            
-            
+def read_cal(type,t=None):
+    ''' Read the calibration data of the given type, for the given time (as a Time() object),
+        or for the current time if None.
+        
+        Returns a dictionary of look-up information and a binary buffer containing the 
+        calibration record.
+    '''
+    import dbutil, read_xml2, sys
+    if t is None:
+        t = util.Time.now()
+    timestamp = t.lv  # Current time as LabVIEW timestamp
+    typdict = cal_types()
+    try:
+        typinfo = typdict[type]
+    except:
+        print 'Type',type,'not found in type definition dictionary.'
+        return {}
+    cursor = dbutil.get_cursor()
+    # Read type definition XML from abin table
+    query = 'select top 1 * from abin where Version = '+str(type)+'.0'
+    #print 'Executing query'
+    outdict, msg = dbutil.do_query(cursor,query)
+    if msg == 'Success':
+        if len(outdict) == 0:
+            # This type of xml file does not yet exist in the database, so mark it for adding
+            print 'Type',type,'not defined in abin table.'
+            cursor.close()
+            return {}
+        else:
+            # There is one, so read it and the corresponding binary data
+            buf = outdict['Bin'][0]   # Binary representation of xml file
+            f = open('/tmp/tmp.xml','wb')
+            f.write(buf)
+            f.close()
+            mydict, thisver = read_xml2.xml_ptrs('/tmp/tmp.xml')
+            query = 'select top 1 * from abin where Version > '+str(type)+'.0 and Version < '+str(type+1)+'.0 and Timestamp <= '+str(t.lv)
+            outdict,msg = dbutil.do_query(cursor,query)
+            cursor.close()
+            if msg == 'Success':
+                buf = outdict['Bin'][0]   # Binary representation of data
+                return mydict, buf
+            else:
+                print 'Unknown error occurred reading',typdict[type][0]
+                print sys.exc_info()[1]
+                return {}

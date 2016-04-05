@@ -5,6 +5,12 @@
 # History:
 #   2015-May-29  DG
 #      Converted from using datime() to using Time() based on astropy.
+#   2016-Mar-17  DG
+#      Added bl_cor() routine to add baseline corrections in X, Y, Z
+#   2016-Mar-20  DG
+#      Updated antenna coordinates
+#   2016-Mar-30  DG
+#      Another update of antenna coordinates
 #
 
 import aipy, ephem, numpy
@@ -47,7 +53,9 @@ def eovsa_array():
     for i in range(16):
         enu = Vector([ante[i], antn[i], antu[i]])
         x, y, z = enu.rotate(latrot).get()
-        ants.append(aipy.phs.Antenna(x,y,z,beam))
+        # Apply (add) any baseline corrections
+        xp, yp, zp = bl_cor(x,y,z,i) 
+        ants.append(aipy.phs.Antenna(xp,yp,zp,beam))
 
     aa = aipy.phs.AntennaArray(ants=ants,location=(lat, lng, elev))
     aa.horizon='10:30:00'
@@ -62,6 +70,21 @@ def eovsa_array():
     aa.cat = cat
     return aa
 
+def bl_cor(x, y, z, iant):
+
+    # Initial baseline corrections (based on Satellite obs. on 2016 Mar 20)
+    dx = numpy.array([ 0.00, 0.08, 0.30, 0.67, 0.35, -0.13, -0.09, 0.94, -6.37, 6.51, 1.15,-12.50, 13.31,  0.0, 0.0, 0.0])
+    dy = numpy.array([ 0.00,-0.45, 0.17,-0.39, 0.18, -0.79, -0.64, 1.47,-23.56,21.54,-2.50,-38.75, 65.38,  0.0, 0.0, 0.0])
+    dz = numpy.array([ 0.00, 0.00, 0.00, 0.00, 0.00,  0.00,  0.00, 0.00,  0.00, 0.00, 0.00,  0.00,  0.00,  0.0, 0.0, 0.0])
+    # Update based on Satellite obs. on 2016 Mar 29 (adds Ant14)
+    dx += numpy.array([0.00, 0.61,-0.22, 0.14,-0.06, -0.19,  0.28,-0.19,  2.38,-1.84,-0.91,  4.58, -7.61,-2.44, 0.0, 0.0])
+    dy += numpy.array([0.00, 0.22, 0.29, 0.44, 0.00,  0.38,  0.17,-0.29,  1.72,-2.97, 1.64,  5.10, -8.89, 3.56, 0.0, 0.0])
+    # Corrections are subtracted from nominal positions.
+    xp = x - dx[iant]
+    yp = y - dy[iant]
+    zp = z - dz[iant]
+    return xp, yp, zp
+    
 def suntimes(t=None,out=None):
     '''Returns the rise and set times of the Sun for EOVSA (10.5-degree
        horizon) for the day of the given Time() object, or today, 

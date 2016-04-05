@@ -40,7 +40,8 @@ def read_calfac(t):
     ''' Read the contents of a SOLPNT calibration file and return
         fghz, calfac, offsun arrays
     '''
-    files = glob.glob('/data1/TPCAL/*')
+    #files = glob.glob('/data1/TPCAL/*')
+    files = glob.glob('/common/tmp/TPCAL*')
     for file in files:
         if file.find(t.iso.replace('-','')[:8]) != -1:
             npol,nf,nant = file.replace('.dat','').split('_')[1:]

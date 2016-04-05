@@ -1,28 +1,11 @@
-
-#June 20, 2015
-#RG
-
-#Updated June 28, 2015
-#RG
-#Now updated, this file has functions that can pull the vital information from 
-#  IDBfiles, whether get_X_data(data) is given the filenames or the timerange.
-#  There is now only one plotting function. It has the capability of plotting
-#  angle or abs for all 12 baselines on 12 subplots, or plotting u vs v 
-#  for all 12 baselines(+ and -) on one figure. 
+''' Main routine to read the auto- and cross-correlation data from IDB files.
+'''
 #
-#  2015-07-03  DG
-#    Added check for source name, and stop reading when source name changes.
-#    Also now returns times as Time() object array.
-#  2015-07-04  DG
-#    Throws out any "short" files that have too few frequencies in get_X_data().
-#    Also fixed bug where out was not truncated in readXdata() to actual number of times.
-#  2015-07-26  DG
-#    Fixed an off-by-one error in times returned by readXdata().
-# 
-#  2015-10-25 JMM temp version with antennalist
-#  2016-02-07  DG
-#    Fixed an indexing error in ibl array in readXdata(), when antennas are out
-#    of order.  When first antenna has a higher number, swap i,j indices in ibl lookup.
+#  2016-03-30  DG
+#    Began writing the code, adapted from get_X_data2.py
+#  2016-04-01  DG
+#    Added summary_plot()
+
 import aipy
 import os
 from util import Time
@@ -30,11 +13,11 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import spectrogram_fit as sp
+import pcapture2 as p
 import copy
 
 def readXdata(filename):
-    #This routine reads the vital information from a single IDBfile.
-    #  It is used in get_X_data(data).
+    #This routine reads the data from a single IDBfile.
     
     # the IDB array sorts basline pairs into correct order for an output
     # array that just has 18 baselines (2 sets of 4 antennas correlated separately
@@ -45,15 +28,32 @@ def readXdata(filename):
 
     # Open uv file for reading
     uv = aipy.miriad.UV(filename)
-    # Read one record to get number of good frequencies
-    preamble, data = uv.read()
+    good_idx = []
+    # Read a bunch of records to get number of good frequencies, i.e. those with at least 
+    # some non-zero data.  Read 20 records for baseline 1-2, XX pol
+    uv.select('antennae',0,2,include=True)
+    uv.select('polarization',-5,-5,include=True)
+    for i in range(20):
+        preamble, data = uv.read()
+        idx, = data.nonzero()
+        if len(idx) > len(good_idx):
+            good_idx = copy.copy(idx)
     if 'source' in uv.vartable:
         src = uv['source']
+    uv.select('clear',0,0)
     uv.rewind()
-    nf = len(data.nonzero()[0])
-    freq = uv['sfreq'][data.nonzero()[0]]
-    out = np.zeros((136,nf,600,2),dtype=np.complex64)
-    uvwfile = []
+    nf = len(good_idx)
+    freq = uv['sfreq'][good_idx]
+    npol = uv['npol']
+    nants = uv['nants']
+    nbl = nants*(nants-1)/2
+    bl2ord = p.bl_list(nants)
+    outa = np.zeros((nants,npol,nf,600),dtype=np.complex64)  # Auto-correlations
+    outx = np.zeros((nbl,npol,nf,600),dtype=np.complex64)  # Cross-correlations
+    outp = np.zeros((nants,2,nf,600),dtype=np.float)
+    outp2 = np.zeros((nants,2,nf,600),dtype=np.float)
+    outm = np.zeros((nants,2,nf,600),dtype=np.int)
+    uvwarray = []
     timearray = []
     l = -1
     tprev = 0
@@ -72,57 +72,65 @@ def readXdata(filename):
             # Reverse order of indices
             j = antlist.index(i0+1)
             i = antlist.index(j0+1)
-        if uv['pol'] == -2: 
-            k = 1
-            uvwfile.append(uvw)
-        else:
-            k = 0
-        if len(data.nonzero()[0]) == nf:
-            if t != tprev:
-                # New time 
-                l += 1
-                if l == 600:
-                    break
-                tprev = t
-                timearray.append(t)
-            # j>i so index into baselines using IDB array
-            out[ibl[i]+j-i,:,l,k] = data[data.nonzero()]
-    return out[:,:,:l+1,:], np.array(uvwfile), freq, np.array(timearray), src
+        # Assumes uv['pol'] is one of -5, -6, -7, -8
+        k = -5 - uv['pol']
+        if k == 3:
+            uvwarray.append(uvw)
+        if t != tprev:
+            # New time 
+            l += 1
+            if l == 600:
+                break
+            tprev = t
+            timearray.append(t)
+            xdata = uv['xsampler'].reshape(500,nants,3)
+            ydata = uv['ysampler'].reshape(500,nants,3)
+            outp[:,0,:,l] = np.swapaxes(xdata[good_idx,:,0],0,1)
+            outp[:,1,:,l] = np.swapaxes(ydata[good_idx,:,0],0,1)
+            outp2[:,0,:,l] = np.swapaxes(xdata[good_idx,:,1],0,1)
+            outp2[:,1,:,l] = np.swapaxes(ydata[good_idx,:,1],0,1)
+            outm[:,0,:,l] = np.swapaxes(xdata[good_idx,:,2],0,1)
+            outm[:,1,:,l] = np.swapaxes(ydata[good_idx,:,2],0,1)
 
-def show_IDBdatainfo(IDBdata, datatype=None, minchannel=0, maxchannel=None, polarization=0):
-    #This function will show 12 subplot. It can show either phase or absolute power,
-    #  depending on the inputs.
-    #
-    #To make a uvw plot, put uvw in for IDBdata, and None for datatype.
-    #  The minchannel and maxchannel do not matter for a UVW plot.
-    p = polarization
-    if maxchannel == None:
-        m =(minchannel +1)
-    else: 
-        m =maxchannel
-    if datatype == np.angle:
-        type = 'Phases'
-    else:
-        if datatype == abs:
-            type = 'Abs'
-    baselines = [' 1 and 2 ', ' 1 and 3 ', ' 1 and 4 ', ' 2 and 3 ', ' 2 and 4 ', ' 3 and 4 ', ' 5 and 6 ', ' 5 and 7 ', ' 5 and 8 ', ' 6 and 7 ', ' 6 and 8 ', ' 7 and 8 ']
-    polarizations = [' x', ' y']
-    if datatype == None:   
-       uvw = IDBdata
-       for i in range(uvw.shape[0]):
-            plt.plot(-uvw[i][:, 0], -uvw[i][:, 1], '.')
-            plt.suptitle('uv plot', fontsize=18, fontweight='bold', color='green')
-    else:
-       f, ax = plt.subplots(2, 6, figsize=(21,10))
-       for i in range(12): 
-           ax[i/6, i % 6].plot(np.transpose(datatype(IDBdata[i, p, minchannel:m, :])), '.')
-           ax[i/6, i % 6].set_title('Antennas ' + baselines[i] + polarizations[p], color='blue')
-           if datatype == np.angle:
-               ax[i/6, i % 6].set_ylim([-np.pi, np.pi])
-           else: pass
-       plt.subplots_adjust(left=0.03, bottom=0.05, right=0.97)
-       plt.suptitle(type + ' for the 12 Baselines', fontsize=18, fontweight='bold', color='red')
-       
+        if i0 == j0:
+            # This is an auto-correlation
+            outa[i0,k,:,l] = data[good_idx]
+        else:
+            outx[bl2ord[i,j],k,:,l] = data[good_idx]
+    out = {'a':outa, 'x':outx, 'uvw':np.array(uvwarray), 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
+    return out
+
+def summary_plot(out,ant_str='ant1-13',ptype='phase'):
+    ''' Makes a summary amplitude or phase plot for all baselines from ants in ant_str
+        in out dictionary.
+    '''
+    import matplotlib.pyplot as plt
+    
+    ant_list = p.ant_str2list(ant_str)
+    nant = len(ant_list)
+    if ptype != 'amp' and ptype != 'phase':
+        print "Invalid plot type.  Must be 'amp' or 'phase'."
+        return
+    f, ax = plt.subplots(nant,nant)
+    f.subplots_adjust(hspace=0,wspace=0)
+    bl2ord = p.bl_list()
+    for axrow in ax:
+        for a in axrow:
+            a.xaxis.set_visible(False)
+            a.yaxis.set_visible(False)
+    for i in range(nant-1):
+        ai = ant_list[i]
+        for j in range(i+1,nant):
+            aj = ant_list[j]
+            if ptype == 'phase':
+                ax[i,j].imshow(np.angle(out['x'][bl2ord[ai,aj],0]))
+                ax[j,i].imshow(np.angle(out['x'][bl2ord[ai,aj],1]))
+            elif ptype == 'amp':
+                ax[i,j].imshow(np.abs(out['x'][bl2ord[ai,aj],0]))
+                ax[j,i].imshow(np.abs(out['x'][bl2ord[ai,aj],1]))
+    for i in range(nant):
+        ai = ant_list[i]
+        ax[i,i].text(0.5,0.5,str(ai+1),ha='center',va='center',transform=ax[i,i].transAxes,fontsize=14)
 
 def get_IDBfiles(showthelast=10):
     #This will return the most recent IDB files saved to the 
@@ -131,76 +139,83 @@ def get_IDBfiles(showthelast=10):
     #  We can adjust the number of files shown with 'showthelast' optional variable.
     #  It will not show the file being written currently
     s = showthelast
-    IDBfiles = os.listdir('/data1/IDB/')
+    IDBfiles = os.listdir('/dppdata1/IDB/')
     IDBfiles.sort()
     IDBfiles = IDBfiles[-(s+2):-2]
     for i in range(len(IDBfiles)):
-        IDBfiles[i] = '/data1/IDB/'+IDBfiles[i] 
+        IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
     return IDBfiles
     
-def get_X_data(data):
-    #This takes a list of IDB files (as given by get_IDBfiles() or get_trange_files(trange) ) and concatenates
-    #  the abs and angle data they contain into a single IDBdata variable. It also returns the uvw coordinates, the
-    #  frequencies, and the time array for the files.
-    if type(data) == Time:
-        data = get_trange_files(data)
-    else:
-        pass
-    IDBdatalist = []
-    uvw = []
-    times = []
+def read_idb(trange):
+    #  This finds the IDB files within a given time range and concatenates the times into a single dictionary
+    files = get_trange_files(trange)
+    datalist = []
     src = ''
-    for files in data:
+    for file in files:
         #This will skip any files which give us errors.
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            IDBdata, uvwdata, freq, timearray, src0 = readXdata(files)
+            out = readXdata(file)
             if src == '':
                 # This is the first file so set source name and frequency list
-                src = copy.copy(src0)
-                fghz = freq
-            if src != src0:
-                print 'Source name:',src0,'is different from initial source name:',src
+                src = out['source']
+            if src != out['source']:
+                print 'Source name:',out['source'],'is different from initial source name:',src
                 print 'Will stop reading files.'
                 break
-            IDBdatalist.append(IDBdata)
-            uvw.append(uvwdata)
-            times.append(timearray)
+            datalist.append(out)
         except:
-            print 'The problematic file is: ' + files
+            print 'The problematic file is:',file
     # Sometimes an IDB file will be truncated early and have a number of frequencies
     # that is incompatible with the others, so make a list of the number of frequencies 
     # in each IDBdata and keep only those with the most common number.
-    nfs = []
+    nflist = []
     # Find the maximum number of frequencies
-    for i in range(len(IDBdatalist)):
-        nbl,nf,nt,npol = IDBdatalist[i].shape
-        nfs.append(nf)
-    nfs = np.array(nfs)
-    nfgood = np.median(nfs)
-    badidx, = np.where(nfs != nfgood)
-    if len(badidx) != 0 and len(nfs) < 3:
+    for out in datalist:
+        nflist.append(len(out['fghz']))
+    nflist = np.array(nflist)
+    nfgood = np.median(nflist)
+    badidx, = np.where(nflist != nfgood)
+    if len(badidx) != 0 and len(nflist) < 3:
         print 'Files have different numbers of frequencies, and result is ambiguous.'
         print 'Will take the file with the higher number of frequencies'
-        nfgood = nfs.max()
+        nfgood = nflist.max()
     # Make a list, nfbad, of entries with fewer than the max number of frequencies
-    nfbad = []
-    for i in range(len(nfs)):
-        if nfs[i] != nfgood: nfbad.append(i)
+    nfbad, = np.where(nfgood != nflist)
+    for i in range(len(nflist)):
+        if nflist[i] != nfgood: nfbad.append(i)
     # This loop will run only if length of nfbad > 0
+    mybad = np.array(nfbad)
     for i in range(len(nfbad)):
-        # Eliminate some entries in the list with too few frequencies
-        IDBdatalist.pop(nfbad[i])
-        times.pop(nfbad[i])
-        uvw.pop(nfbad[i])
-        print 'File',data[nfbad[i]],'eliminated due to too few frequencies.'
-    IDBdata = np.concatenate(IDBdatalist,2)
-    times = Time(np.array(np.concatenate(times)).astype('float'),format='jd')
-    uvw = np.concatenate(uvw,0)
-    IDBdata = np.swapaxes(np.swapaxes(IDBdata, 3, 1), 2, 3)
-    #IDBdata is (baselines, polarizations, frequency, time)
-    return IDBdata, uvw, fghz, times
+        # Eliminate the entries in the list with too few frequencies
+        datalist.pop(mybad[i])
+        mybad -= 1
+        print 'File',files[nfbad[i]],'eliminated due to too few frequencies.'
+    # Have to concatenate outa, outx, uvw, and time arrays
+    outa = []
+    outx = []
+    outp = []
+    outp2 = []
+    outm = []
+    uvw = []
+    time = []
+    for out in datalist:
+        outa.append(out['a'])
+        outx.append(out['x'])
+        outp.append(out['p'])
+        outp2.append(out['p2'])
+        outm.append(out['m'])
+        uvw.append(out['uvw'])
+        time.append(out['time'])
+    out['a'] = np.concatenate(outa,3)
+    out['x'] = np.concatenate(outx,3)
+    out['p'] = np.concatenate(outp,3)
+    out['p2'] = np.concatenate(outp2,3)
+    out['m'] = np.concatenate(outm,3)
+    out['uvw'] = np.concatenate(uvw)
+    out['time'] = np.concatenate(time)
+    return out
 
 def get_trange_files(trange):
     #Given a timerange, this routine will take all relevant IDBfiles from

@@ -8,6 +8,20 @@
 #    fixed minor glitch is log2sql(), which was looking for stateframe.dt,
 #    which no longer exists.  Instead, this routine now imports datetime 
 #    directly.
+#  2016-Apr-02  DG
+#    The v64 stateframe caused problems due to putting a string (byte array)
+#    inside an array.  The problem became really hard to fix due to an
+#    unrelated bug in the code in sfdef().  After fixing that bug, a
+#    special case for Parser Command string had to be added that actually
+#    overrides the stateframe dictionary to include the string size as a
+#    separate item.  Now I have to go back and recreate the v64 table, and
+#    upload all of the stateframe data recorded in the log files for the
+#    past month...
+#  2016-Apr-05  DG
+#    Added new routine drop_deftable(), to drop an existing table definition
+#    and delete all tables associated with it.  This is a dangerous command,
+#    so it requests confirmation from the user via the keyboard.  Also fixed
+#    bug in sfdef() that occurred when the passed-in dictionary is a scan header.
 #
 
 import stateframe, struct, numpy, pyodbc, datetime
@@ -189,23 +203,37 @@ def sfdef(sf=None):
         lists += [sublist]            
         return lists
 
-    def rd_sfdef(sf=None):
+    def rd_sfdef(sf):
         ''' Create initial list of dictionaries representing each variable
             in the given dictionary sf.  This routine works with either
             a stateframe dictionary or a scan_header dictionary.  However,
             if sf is not given, sf is obtained from the current stateframe
             version, and that only works for the stateframe.  
         '''
-        if sf is None:
-            accini = stateframe.rd_ACCfile()
-            sf = accini['sf']
-
         mylist = walk_keys(sf,'Stateframe')
         return mylist
 
+    if sf is None:
+        accini = stateframe.rd_ACCfile()
+        sf = accini['sf']
+
+    # This is something needed if the dictionary is a stateframe--will fail
+    # gracefully and skip this if the dictionary is a scan header
+    try:
+        # This is a major breaking of the scheme, but the Parser string in the Antenna
+        # array requires special handling:
+        for ant in range(15):
+            # For each antenna, add an entry to the stateframe representing the Command string size
+            # located 4 bytes before the Command string
+            t,loc = sf['Antenna'][ant]['Parser']['Command']                     # Get Command string location
+            sf['Antenna'][ant]['Parser'].update({'Command_Size':['i',loc-4]})   # Insert another entry pointing to 4 bytes before
+    except KeyError:
+        # The dictionary is probably a scan header
+        pass
     # First parse the XML file to get a list of dictionaries for
     # stateframedef SQL table
     mylist = rd_sfdef(sf)
+
     # Sort the list of dictionaries by dimension
     newlist = list_sort(mylist,'dimension')
     # Separate sorted list into separate lists according to dimension 
@@ -221,8 +249,8 @@ def sfdef(sf=None):
         # start and end bytes for contiguous byte ranges
         sbyte = slist[0]['startbyte']
         for i,item in enumerate(slist[:-1]):
-            if len(item['pytype']) > 1:
-                # Case of "in-place" array
+            if len(item['pytype']) > 1 and item['datatype'] != 'string':
+                # Case of "in-place" non-string array
                 ebyte = item['startbyte']+item['fieldbytes']*item['dimension']
             else:
                 ebyte = item['startbyte']+item['fieldbytes']
@@ -230,8 +258,8 @@ def sfdef(sf=None):
                 # There is a gap between this and next item, but this might
                 # be due to dimensionality of this section.  Add bytes for
                 # dimensionality and check again.
-                if len(item['pytype']) > 1:
-                    # Case of "in-place" array -- do nothing
+                if len(item['pytype']) > 1 and item['datatype'] != 'string':
+                    # Case of "in-place" non-string array -- do nothing
                     pass
                 else:
                     ebyte = (ebyte - sbyte)*item['dimension'] + sbyte
@@ -240,13 +268,14 @@ def sfdef(sf=None):
                     # new byte range
                     brange.append({'sbyte':sbyte,'ebyte':ebyte})
                     sbyte = slist[i+1]['startbyte']
-        ebyte = slist[-1]['startbyte']+slist[-1]['fieldbytes']
+        item = slist[-1]
+        ebyte = item['startbyte']+item['fieldbytes']
         # Take care of dimensionality of last item
         if len(item['pytype']) > 1:
-            ebyte = (ebyte - slist[-1]['startbyte'])*slist[-1]['dimension'] + slist[-1]['startbyte']
+            ebyte = (ebyte - item['startbyte'])*item['dimension'] + item['startbyte']
             #print '5:',sbyte, (ebyte-slist[-1]['startbyte'])/slist[-1]['dimension'] + slist[-1]['startbyte'], slist[-1]['dimension']
         else:
-            ebyte = (ebyte - sbyte)*slist[-1]['dimension'] + sbyte
+            ebyte = (ebyte - sbyte)*item['dimension'] + sbyte
             #print '5:',sbyte, (ebyte-sbyte)/slist[-1]['dimension'] + sbyte, slist[-1]['dimension']
         brange.append({'sbyte':sbyte,'ebyte':ebyte})
     # At this point, we should have a complete map of the ordered byte
@@ -272,9 +301,16 @@ def startbyte(outlist):
         # Conditions that can mark the end of a block of data
         cond1 = outlist[i]['dimension'] != dim    # current line has a dimension change
         cond2 = outlist[i]['dimoffset'] != offset # current line has a dimoffset change
-        cond3 = ((outlist[i]['origbyte']  - outlist[i-1]['origbyte']) > 
-                 (outlist[i]['startbyte'] - outlist[i-1]['startbyte']))  # Gap in origbyte
-        cond4 = len(outlist[i]['pytype']) > 1      # An array
+        if outlist[i]['datatype'] == 'string':
+            # Requires special handling, because this is formally an array, with an array
+            # dimension in the data, but it does not signify the end of a block of data
+            cond3 = ((outlist[i]['origbyte']  - outlist[i-1]['origbyte']) > 
+                     (outlist[i]['startbyte'] - outlist[i-1]['startbyte'] + 4))  # Gap in origbyte (accounting for string dimension)
+            cond4 = len(outlist[i]['pytype']) > 1 and outlist[i]['datatype'] != 'string'     # A non-string array
+        else:
+            cond3 = ((outlist[i]['origbyte']  - outlist[i-1]['origbyte']) > 
+                     (outlist[i]['startbyte'] - outlist[i-1]['startbyte']))  # Gap in origbyte
+            cond4 = len(outlist[i]['pytype']) > 1 # An array
         if (cond1 or cond2 or cond3 or cond4):
             # Update the current position by n-1 x offset of previous line
             curpos += outlist[i-1]['dimoffset']*(dim-1)
@@ -469,6 +505,52 @@ def load_deftable(xml_file=None,sdict=None,version=None):
         print 'Error: Bad sdict=',sdict,'or version=',version
         return False
     
+def drop_deftable(version):
+    ''' Drops ALL traces of a given version of a stateframe definition.
+        Use with CAUTION!!!
+        
+        Requests confirmation from the keyboard.
+    '''
+    import dbutil as db
+    cursor = db.get_cursor()
+    # Get all table and view names from this version
+    query = 'select * from information_schema.tables where table_name like "fV'+str(int(version))+'%"'
+    result, msg = db.do_query(cursor, query)
+    if msg == 'Success':
+        names = result['TABLE_NAME']
+        print 'You are about to permanently delete the following tables:'
+        for name in names:
+            print '    ',name
+        ans = raw_input('Are you sure? [y/n]: ').upper()
+        if ans != 'Y':
+            print 'Action canceled by user'
+            return False
+        # Delete the version from the stateframedef table
+        query = 'delete from StateFrameDef where Version='+str(int(version))
+        r, msg = db.do_query(cursor, query)
+        if msg != 'Success':
+            print 'Error, could not delete from stateframedef for version:',version
+            print msg
+            return False
+        # Loop over table and view names, dropping each in turn
+        for name in names:
+            query = 'drop table '+name
+            r, msg = db.do_query(cursor, query)
+            if msg != 'Success':
+                print 'Error dropping table',name
+                print msg
+        # Drop Bin Reader procedure
+        query = 'drop proc ov_fBinReader_V'+str(int(version))
+        r, msg = db.do_query(cursor, query)
+        if msg != 'Success':
+            print 'Error, could not delete Bin Reader procedure for version:',version
+            print msg
+            return False
+    else:
+        return False
+    print 'Successfully dropped all existing tables and table definition for version', version
+    return True
+        
 #=============== reload_deftables ===============
 def reload_deftables(tbldir='/data/eovsa/stateframe_logs'):
     ''' Clears the stateframe definition tables and reloads them from the defining xml tables

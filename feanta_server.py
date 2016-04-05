@@ -10,6 +10,9 @@
 #   2016-01-08  DG
 #     Added handling of RX-SELECT, which translates to two different
 #     actions.
+#   2016-03-01  JV
+#     Corrected typo in run() so that "RX-SELECT HI" should now work
+#     and "RX-SELECT" with incorrect args should not crash program
 #
 
 import datetime
@@ -275,24 +278,24 @@ class ServerDaemon():
                     # two translations:
                     #   RX-SELECT LO => OUTLET 1 OFF and FRM-RX-SEL LO
                     #   RX-SELECT HI => OUTLET 1 ON  and FRM-RX-SEL HI
-                    if acc_command[1].upper() == 'LO':
-                        new_acc_command = ['OUTLET','1','OFF']
-                    elif acc_command[2].upper() == 'HI':
-                        new_acc_command = ['OUTLET','1','ON']
+                    band = acc_command[1].upper()
+                    outlet_map = {'LO':'OFF','HI':'ON'}
+                    if band == 'LO' or band == 'HI':
+                        outlet_command = ['OUTLET','1',outlet_map[band]]
+                        brick_command = ['FRM-RX-SEL',band]
+                        self.__log('Attempted to send new command: ' +
+                                    outlet_command[0] + '.')
+                        worker = self.function_map[outlet_command[0]]
+                        worker.execute(outlet_command)
+                        time.sleep(0.1)  #Try giving a little time before the next command
+                        
+                        self.__log('Attempted to send new command: ' +
+                                    brick_command[0] + '.')
+                        worker = self.function_map[brick_command[0]]
+                        worker.execute(brick_command)
                     else:
-                        # If acc_command[1] is not LO or HI, this will
-                        # give the correct KeyError response
-                        new_acc_command = acc_command  # In case of error
-                    self.__log('Attempted to send new_acc_commend: ' +
-                           new_acc_command[0] + '.')
-                    worker = self.function_map[new_acc_command[0]]
-                    worker.execute(new_acc_command)
-                    time.sleep(0.1)  #Try giving a little time before the next command
-                    new_acc_command = ['FRM-RX-SEL',acc_command[1]]
-                    self.__log('Attempted to send new_acc_commend: ' +
-                           new_acc_command[0] + '.')
-                    worker = self.function_map[new_acc_command[0]]
-                    worker.execute(new_acc_command)
+                        # If acc_command[1] is not LO or HI, print error message to log
+                        self.__log('Command ' + acc_command[0] + ' not executed - requires argument LO or HI')  
                 else:
                     worker = self.function_map[acc_command[0]]
                     worker.execute(acc_command)
