@@ -54,7 +54,14 @@
 #      Fix adc_levels() plotting bug, when only one roach is used.  Also
 #      added "helper" routine to ROACH object, self.set_eq() to set
 #      the equalizer coefficients.
-#
+#   2016-May-05  DG
+#      Added a new routine set_eq_array(), to allow setting the equalizer
+#      gains via an array of coefficients, or from the SQL database.
+#   2016-May-06  BC
+#      Added new sets of routine for calibrating the equalizer gains. 
+#      adj_eq_auto() does the job by calling set_eq_all() - set equalizer
+#      gain for all antennas, jcap_data() - capture some data, calc_eq()
+#      - calculate new eq levels, plot_apratio() - plot power/auto-corr ratio
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
@@ -848,7 +855,7 @@ class Roach():
         if verbose: print 'TVG enable on :',binary_repr(2**32+current_val)[1:]
         
 #======= Equalizer Gain ========
-    def set_eq(self,file=None,xn=0,ifb=None,coeff=1.0+0j,update=False):
+    def set_eq(self,xn=0,ifb=None,coeff=1.0+0j,update=False):
         ''' Given a list of roach objects, and optionally a source of gains,
             set the equalizer gains.
             
@@ -867,62 +874,124 @@ class Roach():
                        what is there, otherwise overwrites (default)
         '''
 
-        if file is None:
-            eqname = 'eq_x'+str(xn)+'_coeffs'
-            # Read equalizer coefficients buffer from ROACH
-            buf = self.fpga.read(eqname,8192*4)
-            # Unpack coefficients to an array of 16-bit integers.
-            vals = numpy.array(struct.unpack('>16384H',buf),dtype='>H')
-            # Complex representation as numpy complex array (length 8192)
-            cvals = vals[::2] + 1j*vals[1::2]
-            # Convert supplied coeff to complex value(s) scaled by 2**6
-            coeff *= 64+0j
-            if type(coeff) == complex:
-                # Single value given, so set all 128 values for the band
-                # to the same value
-                newvals = numpy.ones(128)*(int(numpy.real(coeff)) + 1j*int(numpy.imag(coeff)))
-            elif type(coeff) == numpy.ndarray:
-                if len(coeff) == 128:
-                    newvals = numpy.real(coeff).astype('int') + 1j*numpy.imag(coeff).astype('int')
-                else:
-                    print 'Error in length of coeff parameter. Must be scalar or length 128.'
-                    print 'No update performed.'
-                    self.msg = 'Error in length of coeff parameter'
-                    return
+        eqname = 'eq_x'+str(xn)+'_coeffs'
+        # Read equalizer coefficients buffer from ROACH
+        buf = self.fpga.read(eqname,8192*4)
+        # Unpack coefficients to an array of 16-bit integers.
+        vals = numpy.array(struct.unpack('>16384H',buf),dtype='>H')
+        # Complex representation as numpy complex array (length 8192)
+        cvals = vals[::2] + 1j*vals[1::2]
+        # Convert supplied coeff to complex value(s) scaled by 2**6
+        coeff *= 64+0j
+        if type(coeff) == complex:
+            # Single value given, so set all 128 values for the band
+            # to the same value
+            newvals = numpy.ones(128)*(int(numpy.real(coeff)) + 1j*int(numpy.imag(coeff)))
+        elif type(coeff) == numpy.ndarray:
+            if len(coeff) == 128:
+                newvals = numpy.real(coeff).astype('int') + 1j*numpy.imag(coeff).astype('int')
             else:
-                    print 'Error in type of coeff parameter. Must be scalar numpy.ndarray.'
-                    print 'No update performed.'
-                    self.msg = 'Error in type of coeff parameter'
-                    return
-            # At this point, I have current coefficients cvals, and new coefficients newvals,
-            # both in complex form.
-            if ifb is None:
-                # Apply to all IF bands
-                if update:
-                    # Interpret supplied coeff as multiplicative factor
-                    for i in range(64):
-                        cvals[i*128:(i+1)*128] *= newvals
-                else:
-                    # Interpret supplied coeff as new values to replace existing
-                    for i in range(64):
-                        cvals[i*128:(i+1)*128] = newvals
-            else:
-                # Apply only to given IF band
-                if update:
-                    # Interpret supplied coeff as multiplicative factor
-                    cvals[(ifb-1)*128:ifb*128] *= newvals
-                else:
-                    # Interpret supplied coeff as new values to replace existing
-                    cvals[(ifb-1)*128:ifb*128] = newvals
+                print 'Error in length of coeff parameter. Must be scalar or length 128.'
+                print 'No update performed.'
+                self.msg = 'Error in length of coeff parameter'
+                return
         else:
-            print 'File not yet implemented'
-            self.msg = 'File not yet implemented'
-            return
+                print 'Error in type of coeff parameter. Must be scalar numpy.ndarray.'
+                print 'No update performed.'
+                self.msg = 'Error in type of coeff parameter'
+                return
+        # At this point, I have current coefficients cvals, and new coefficients newvals,
+        # both in complex form.
+        if ifb is None:
+            # Apply to all IF bands
+            if update:
+                # Interpret supplied coeff as multiplicative factor
+                for i in range(64):
+                    cvals[i*128:(i+1)*128] *= newvals
+            else:
+                # Interpret supplied coeff as new values to replace existing
+                for i in range(64):
+                    cvals[i*128:(i+1)*128] = newvals
+        else:
+            # Apply only to given IF band
+            if update:
+                # Interpret supplied coeff as multiplicative factor
+                cvals[(ifb-1)*128:ifb*128] *= newvals
+            else:
+                # Interpret supplied coeff as new values to replace existing
+                cvals[(ifb-1)*128:ifb*128] = newvals
         # Convert complex values in cvals to packed buffer, and write to ROACH
         coefficients = numpy.zeros(16384,dtype='>H')
         coefficients[::2] = numpy.real(cvals).astype('>H')
         coefficients[1::2] = numpy.imag(cvals).astype('>H')        
         self.fpga.write(eqname,coefficients.tostring())
+        self.msg = 'Success'
+   
+#======= Equalizer Gain using Array as Input ========
+    def set_eq_array(self,sql_ver=None,coeff=None,update=False):
+        ''' Set the equalizer gains for this ROACH.
+            sql_ver The version of the equalizer gain table to read.  If
+                       None, coeff array must be given.
+            coeff   The array of values to set the coefficients to.
+                       The array dimensions should be given as 
+                       (ant, pol, band)          = (2, 2, 34), or as
+                       (ant, pol, band, subband) = (2, 2, 34, 128), and
+                       can be either float or complex.  The values are
+                       scaled by 2**6, using coeff *= 64 + 0j, which
+                       will convert floats to complex.
+                       If None, sql_ver must be given.
+            update  A boolean value--if True, multiplies coefficient to
+                       what is there, otherwise overwrites (default)
+        '''
+        eqname = numpy.array([['eq_x0_coeffs','eq_x1_coeffs'],['eq_x2_coeffs','eq_x3_coeffs']])
+        if coeff is None:
+            # Will read directly from the SQL database--not yet implemented
+            import cal_header
+            import stateframe
+            # Read latest data for calibration type given by sql_ver
+            sdict, buf = cal_header.read_cal(sql_ver)
+            coeff = stateframe.extract(buf,sdict['EQ_Coeff'])
+            self.msg = 'Coeff None is not yet implemented.'
+            return
+        if len(coeff.shape) == 3:
+            nant, npol, nband = coeff.shape
+            nsubband = 0
+        elif len(coeff.shape) == 4:
+            nant, npol, nband, nsubband = coeff.shape
+        else:
+            self.msg = 'Coeff shape is not understood.'
+            return
+        coeff *= 64+0j
+        for iant in range(nant):
+            for ipol in range(npol):
+                # Read equalizer coefficients buffer from ROACH
+                buf = self.fpga.read(eqname[iant,ipol],8192*4)
+                # Unpack coefficients to an array of 16-bit integers.
+                vals = numpy.array(struct.unpack('>16384H',buf),dtype='>H')
+                # Complex representation as numpy complex array (length 8192)
+                cvals = vals[::2] + 1j*vals[1::2]
+                # Convert supplied coeff to complex value(s) scaled by 2**6
+                for iband in range(nband):
+                    if nsubband == 0:
+                        # Set all 128 values for the band to the same value
+                        c = coeff[iant,ipol,iband]
+                        newvals = numpy.ones(128)*(int(numpy.real(c)) + 1j*int(numpy.imag(c)))
+                    else:
+                        c = coeff[iant,ipol,iband]
+                        newvals = numpy.real(c).astype('int') + 1j*numpy.imag(c).astype('int')
+                    # At this point, I have current coefficients cvals, and new coefficients newvals,
+                    # both in complex form.
+                    if update:
+                        # Interpret supplied coeff as multiplicative factor
+                        cvals[iband*128:(iband+1)*128] *= newvals
+                    else:
+                        # Interpret supplied coeff as new values to replace existing
+                        cvals[iband*128:(iband+1)*128] = newvals
+                # Convert complex values in cvals to packed buffer, and write to ROACH
+                coefficients = numpy.zeros(16384,dtype='>H')
+                coefficients[::2] = numpy.real(cvals).astype('>H')
+                coefficients[1::2] = numpy.imag(cvals).astype('>H')        
+                self.fpga.write(eqname[iant,ipol],coefficients.tostring())
         self.msg = 'Success'
    
 #======= arm ========
@@ -1219,3 +1288,131 @@ def rmon():
     lines = p.stdout.readlines()
     return numpy.append(vals,numpy.array(lines[0].strip().strip('[]').split(',')).astype('int'))
     
+#======== adjust equlizer values ========
+def adj_eq_auto(niter=2,co_in=numpy.zeros((16,2,34))+16.,do_plot=False):
+    import matplotlib.pyplot as plt
+    # initialize equalizer coefficients to 16
+    co0=co_in
+    set_eq_all(co=copy.deepcopy(co0))
+    po0, ac0, fseq0 = jcap_data()
+    if do_plot:
+        plot_apratio(po=po0,ac=ac0,co=co0,fseq=fseq0,lineplot=True)
+        plt.show()
+    for i in range(niter):
+        print 'Iteration: '+str(i+1)
+        # adjust new equalizer coefficients
+        co1 = calc_eq(po=po0, ac=ac0, fseq=fseq0)
+        # apply new equalizer coefficients
+        set_eq_all(co=copy.deepcopy(co1))
+        # check output
+        po1, ac1, fseq1 = jcap_data()
+        if do_plot:
+            plot_apratio(po=po1,ac=ac1,co=co1,fseq=fseq1,lineplot=True)
+            plt.show()
+        co0=copy.deepcopy(co1)
+        po0=copy.deepcopy(po1)
+        ac0=copy.deepcopy(ac1)
+        fseq0=copy.deepcopy(fseq1)
+    co_out=co1
+    return co_out
+
+def set_eq_all(roach_list=[Roach('roach'+str(i+1)) for i in range(8)],co=numpy.zeros((16,2,34))+16.,verbose=False):
+    print 'setting equalizer levels for all 8 ROACHes...'
+    for i in range(8): 
+        if verbose:
+            print 'roach '+str(i+1)+' is connected? ', roach_list[i].fpga.is_connected()
+        roach_list[i].set_eq_array(coeff=co[i*2:i*2+2,:,:])
+
+def jcap_data():
+    import glob,dbutil
+    import pcapture2 as p
+    import os
+    # capture 1-s of data using Jim McK capture
+    p.sendcmd('/home/user/test_svn/Miriad/packet16_dump_test/dpp_packet_frame_dump')
+    # get the newest capture file
+    capfile=max(glob.iglob('/data1/PRT/PRT*.dat'),key=os.path.getctime)
+    print 'Captured data in file: '+capfile
+    # read the frequency sequence
+    cursor = dbutil.get_cursor()
+    query = 'select top 50 * from hV37_vD50 order by Timestamp desc'
+    data,msg=dbutil.do_query(cursor,query)
+    if msg=='Success':
+        fs=(data['FSeqList']-0.45)*2.
+        fseq=numpy.flipud(numpy.round(fs.tolist()).astype(int))
+    else:
+        print 'query from the stateframe failed...'
+        return
+    out=p.rd_jspec(capfile)
+    po=out['p']
+    ac=out['a']
+    return po, ac, fseq
+
+def calc_eq(po=None, ac=None, co=numpy.zeros((16,2,34))+16., fseq=None, rminmax=[0.5,2.]):
+    (nant,nx,nchan,nt)=po.shape
+    nifb=34
+    co_in=co
+    co_out=numpy.zeros((nant,nx,nifb))
+    for i in range(nant): 
+        for j in range(nx):
+            co_tmp=[list([]) for _ in xrange(nifb)]
+            for t in range(nt):
+                ifb=fseq[t]-1
+                co_=co_in[i,j,ifb]
+                po_=po[i,j,2048:,t]
+                ac_=ac[i,j,2048:,t]
+                ratio=abs(ac_)/po_/64./co_**2.
+                rmed=numpy.nanmedian(ratio[ratio.nonzero()])
+                #print 'ant #, pol #, ifb #:', i, j, ifb 
+                #print 'median auto-corr/power ratio: ',rmed
+                # corrected coeff
+                if numpy.isfinite(rmed) and rmed < rminmax[0]:
+                    co_new=co_*2.
+                elif numpy.isfinite(rmed) and rmed > rminmax[1]:
+                    co_new=co_*0.5
+                else:
+                    co_new=co_
+                #print 'corrected coeff: ',co_new
+                co_tmp[ifb].append(co_new)
+                #pdb.set_trace()
+            for n in range(nifb):
+                if len(co_tmp[n]) > 0:
+                    co_out[i,j,n]=numpy.nanmedian(co_tmp[n])
+                else:
+                    co_out[i,j,n]=co_in[i,j,n]
+            co_out[numpy.isnan(co_out)]=16.
+    return co_out
+
+def plot_apratio(po=None,ac=None,co=numpy.zeros((16,2,34))+16.,fseq=None,lineplot=False):
+    import matplotlib.pylab as plt
+    # compare the auto-corr packets with P packets
+    (nant,nx,nchan,nt)=po.shape
+    f,ax=plt.subplots(nx*4,nant,figsize=(12,8))
+    for j in range(nx):
+        for i in range(nant): 
+            co_=co[i,j,:]
+            po_=po[i,j,2048:,:]
+            ac_=ac[i,j,2048:,:]
+            ax[j*4,i].imshow(abs(ac_))
+            ax[j*4+1,i].imshow(abs(po_))
+            r=numpy.zeros((po_.shape))
+            rmed=numpy.zeros((nt))
+            co_t=[]
+            for t in range(nt): 
+                r[:,t]=abs(ac_[:,t])/po_[:,t]/64./co_[fseq[t]-1]**2.
+                co_t.append(co_[fseq[t]-1])
+                rmed[t]=numpy.nanmedian(r[:,t][r[:,t].nonzero()])
+            ax[0,i].set_title('Ant '+str(i+1))
+            if lineplot:
+                ax[j*4+2,i].plot(range(nt),rmed,'.')
+                ax[j*4+2,i].set_ylim([0.1,10.])
+                ax[j*4+2,i].set_yscale('log')
+            else:
+                ax[j*4+2,i].imshow(numpy.log10(r),vmin=-1,vmax=1)
+            ax[j*4+3,i].plot(range(nt),co_t,'.')
+            ax[j*4+3,i].set_ylim([4.,64.])
+            if i > 0:
+                ax[j*4,i].get_yaxis().set_ticks([])
+                ax[j*4+1,i].get_yaxis().set_ticks([])
+                ax[j*4+2,i].get_yaxis().set_ticks([])
+                ax[j*4+3,i].get_yaxis().set_ticks([])
+

@@ -31,6 +31,9 @@
 #    with units hopefully made obvious.  Order of indices will be 
 #          (nant/nbl, npol, nfreq, ntimes).
 #    This required some changes to several of the routines here.
+#   2016-May-05  DG
+#    Add test in solpntanal() for 16-ant correlator data (based on date),
+#    and read with rd_miriad_tsys_16() routine if so.
 #
 
 if __name__ == "__main__":
@@ -63,7 +66,10 @@ def solpntanal(t,udb=False):
     pnt = solpnt.get_solpnt(t)
     proc = solpnt.process_solpnt(pnt)
     trange = Time([pnt['Timestamp'],pnt['Timestamp']+300.],format='lv')
-    otp = dump_tsys.rd_miriad_tsys(trange,udb=udb)
+    if trange[0].mjd < 57450:
+        otp = dump_tsys.rd_miriad_tsys(trange,udb=udb)
+    else:
+        otp = dump_tsys.rd_miriad_tsys_16(trange,udb=udb)
 #    if udb:
 #        fstr = t1.iso
 #        folder = '/data1/UDBTXT/'+fstr[:4]
@@ -210,8 +216,7 @@ def sp_write_calfac(x, y, calfac, offsun):
     buf = struct.pack(str(nf)+'f',*fghz)
     buf += struct.pack(str(siz)+'f',*calfac.reshape(siz))
     buf += struct.pack(str(siz)+'f',*offsun.reshape(siz))
-    filename = '/common/tmp/TPCAL'+datstr+'_'+str(dims[0])+'_'+str(dims[1])+'_'+str(dims[2])+'.dat'
-    #filename = '/data1/TPCAL/TPCAL'+datstr+'_'+str(dims[0])+'_'+str(dims[1])+'_'+str(dims[2])+'.dat'
+    filename = '/data1/TPCAL/TPCAL'+datstr+'_'+str(dims[0])+'_'+str(dims[1])+'_'+str(dims[2])+'.dat'
     f = open(filename,'wb')
     f.write(buf)
     f.close()
@@ -272,104 +277,120 @@ def sp_bg_subtract(out,idx):
     return out
     
 def sp_bsize(x,y):
-    ''' Make nice plots of the beamsize, currently only for the first eight
-        antennas.  This routine will have to be modified to work with more.
+    ''' Make nice plots of the beamsize.
     '''
     import matplotlib.pyplot as plt
 
     nfrq, npnt, nant = x['rao'].shape
-    f, ax = plt.subplots(2, nant/2, sharex='col', sharey='row')
+    nrow = 2
+    ncol = (nant+1)/2
+    f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
     f.set_size_inches(2*nant,7,forward=True)
     t1 = Time(x['ut_mjd'][0],format='mjd')
     f.suptitle('X-feed Beam Widths for SOLPNT scan at '+t1.iso[:19]+' UT',fontsize=18)
     fout,a,aout = disk_conv()
     fgood = np.where(x['fghz'] > 2.48)[0]
     for ant in range(nant):
-        ax[ant % 2, ant/2].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
-        if ant % 4 == 0:
-            ax[ant/4,0].set_ylabel('Beam FWHM [deg]')
-        if ant >= nant/2:
-            ax[1,ant - nant/2].set_xlabel('Frequency [GHz]')
-        ax[ant % 2, ant/2].set_ylim(0.5,5)
-        ax[ant % 2, ant/2].set_xlim(1,20)
-        ax[ant % 2, ant/2].set_yscale('log')
-        ax[ant % 2, ant/2].set_xscale('log')
-        ax[ant % 2, ant/2].plot(x['fghz'][fgood],x['raparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'b.')
-        ax[ant % 2, ant/2].plot(fout,aout,color='black')
-        ax[ant % 2, ant/2].plot(x['fghz'][fgood],x['decparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'r.')
+        ax[ant % nrow, ant/nrow].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
+        if ant % ncol == 0:
+            ax[ant/ncol,0].set_ylabel('Beam FWHM [deg]')
+        if ant >= ncol:
+            ax[1,ant - ncol].set_xlabel('Frequency [GHz]')
+        ax[ant % nrow, ant/nrow].set_ylim(0.5,5)
+        ax[ant % nrow, ant/nrow].set_xlim(1,20)
+        ax[ant % nrow, ant/nrow].set_yscale('log')
+        ax[ant % nrow, ant/nrow].set_xscale('log')
+        ax[ant % nrow, ant/nrow].plot(x['fghz'][fgood],x['raparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'b.')
+        ax[ant % nrow, ant/nrow].plot(fout,aout,color='black')
+        ax[ant % nrow, ant/nrow].plot(x['fghz'][fgood],x['decparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'r.')
     plt.draw()
-    f, ax = plt.subplots(2, nant/2, sharex='col', sharey='row')
+    f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
     f.set_size_inches(2*nant,7,forward=True)
     t1 = Time(x['ut_mjd'][0],format='mjd')
     f.suptitle('Y-feed Beam Widths for SOLPNT scan at '+t1.iso[:19]+' UT',fontsize=18)
     for ant in range(nant):
-        ax[ant % 2, ant/2].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
-        if ant % 4 == 0:
-            ax[ant/4,0].set_ylabel('Beam FWHM [deg]')
-        if ant >= nant/2:
-            ax[1,ant - nant/2].set_xlabel('Frequency [GHz]')
-        ax[ant % 2, ant/2].set_ylim(0.5,5)
-        ax[ant % 2, ant/2].set_xlim(1,20)
-        ax[ant % 2, ant/2].set_yscale('log')
-        ax[ant % 2, ant/2].set_xscale('log')
-        ax[ant % 2, ant/2].plot(y['fghz'][fgood],y['raparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'b.')
-        ax[ant % 2, ant/2].plot(fout,aout,color='black')
-        ax[ant % 2, ant/2].plot(y['fghz'][fgood],y['decparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'r.')
+        ax[ant % nrow, ant/nrow].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
+        if ant % ncol == 0:
+            ax[ant/ncol,0].set_ylabel('Beam FWHM [deg]')
+        if ant >= ncol:
+            ax[1,ant - ncol].set_xlabel('Frequency [GHz]')
+        ax[ant % nrow, ant/nrow].set_ylim(0.5,5)
+        ax[ant % nrow, ant/nrow].set_xlim(1,20)
+        ax[ant % nrow, ant/nrow].set_yscale('log')
+        ax[ant % nrow, ant/nrow].set_xscale('log')
+        ax[ant % nrow, ant/nrow].plot(y['fghz'][fgood],y['raparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'b.')
+        ax[ant % nrow, ant/nrow].plot(fout,aout,color='black')
+        ax[ant % nrow, ant/nrow].plot(y['fghz'][fgood],y['decparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'r.')
     plt.draw()
     
 def sp_offsets(x,y):
     import matplotlib.pyplot as plt
 
     nfrq, npnt, nant = x['rao'].shape
-    f, ax = plt.subplots(nant/2, 2, sharex='col', sharey='row')
+    nrow = (nant+1)/2
+    ncol = 2
+    f, ax = plt.subplots(nrow,ncol, sharex='col', sharey='row')
     f.set_size_inches(16,2*((nant+1)/2),forward=True)
     t1 = Time(x['ut_mjd'][0],format='mjd')
     f.suptitle('X-feed Offsets for SOLPNT scan at '+t1.iso[:19]+' UT',fontsize=18)
     user2rad = np.pi/10000./180.
     cosdec = np.cos(x['dec0'])
     fgood = np.where(x['fghz'] > 2.48)[0]
+    xelx = []
+    elx = []
     for ant in range(nant):
-        ax[ant/2,ant % 2].set_ylim(-0.5,0.5)
-        ax[ant/2,ant % 2].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
+        ax[ant/ncol,ant % ncol].set_ylim(-0.5,0.5)
+        ax[ant/ncol,ant % ncol].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
         if ant >= nant-2:
-            ax[nant/2-1,ant % 2].set_xlabel('Frequency [GHz]')
-        if ant % 2 == 0:
-            ax[ant/2,ant % 2].set_ylabel('Offset [deg]')
+            ax[nant/ncol-1,ant % ncol].set_xlabel('Frequency [GHz]')
+        if ant % ncol == 0:
+            ax[ant/ncol,ant % ncol].set_ylabel('Offset [deg]')
         ramed = np.median(x['raparms'][1,fgood,ant])
-        ax[ant/2,ant % 2].plot(x['fghz'][fgood],x['raparms'][1,fgood,ant]/10000,'b.')
-        ax[ant/2,ant % 2].plot([0,18],np.array([1,1])*ramed/10000,'b')
-        ax[ant/2,ant % 2].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].plot(x['fghz'][fgood],x['raparms'][1,fgood,ant]/10000,'b.')
+        ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*ramed/10000,'b')
+        ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),transform=ax[ant/2,ant % 2].transAxes)
         decmed = np.median(x['decparms'][1,fgood,ant])
-        ax[ant/2,ant % 2].plot(x['fghz'][fgood],x['decparms'][1,fgood,ant]/10000,'r.')
-        ax[ant/2,ant % 2].plot([0,18],np.array([1,1])*decmed/10000,'r')
-        ax[ant/2,ant % 2].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].plot(x['fghz'][fgood],x['decparms'][1,fgood,ant]/10000,'r.')
+        ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*decmed/10000,'r')
+        ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),transform=ax[ant/2,ant % 2].transAxes)
         xel, el = solpnt.dradec2dazel(x['ra0'],x['dec0'],t1,ramed*user2rad/cosdec,decmed*user2rad)
-        ax[ant/2,ant % 2].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
-        ax[ant/2,ant % 2].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
+        xelx.append(xel*180./np.pi)
+        elx.append(el*180./np.pi)
     plt.draw()
-    f, ax = plt.subplots(nant/2, 2, sharex='col', sharey='row')
+    f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
     f.set_size_inches(16,2*((nant+2)/2),forward=True)
     f.suptitle('Y-feed Offsets for SOLPNT scan at '+t1.iso[:19]+' UT',fontsize=18)
     user2rad = np.pi/10000./180.
+    xely = []
+    ely = []
     for ant in range(nant):
-        ax[ant/2,ant % 2].set_ylim(-0.5,0.5)
-        ax[ant/2,ant % 2].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
+        ax[ant/ncol,ant % ncol].set_ylim(-0.5,0.5)
+        ax[ant/ncol,ant % ncol].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
         if ant >= nant-2:
-            ax[nant/2-1,ant % 2].set_xlabel('Frequency [GHz]')
-        if ant % 2 == 0:
-            ax[ant/2,ant % 2].set_ylabel('Offset [deg]')
+            ax[nant/ncol-1,ant % ncol].set_xlabel('Frequency [GHz]')
+        if ant % ncol == 0:
+            ax[ant/ncol,ant % ncol].set_ylabel('Offset [deg]')
         ramed = np.median(y['raparms'][1,fgood,ant])
-        ax[ant/2,ant % 2].plot(y['fghz'][fgood],y['raparms'][1,fgood,ant]/10000,'b.')
-        ax[ant/2,ant % 2].plot([0,18],np.array([1,1])*ramed/10000,'b')
-        ax[ant/2,ant % 2].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].plot(y['fghz'][fgood],y['raparms'][1,fgood,ant]/10000,'b.')
+        ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*ramed/10000,'b')
+        ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),transform=ax[ant/2,ant % 2].transAxes)
         decmed = np.median(y['decparms'][1,fgood,ant])
-        ax[ant/2,ant % 2].plot(y['fghz'][fgood],y['decparms'][1,fgood,ant]/10000,'r.')
-        ax[ant/2,ant % 2].plot([0,18],np.array([1,1])*decmed/10000,'r')
-        ax[ant/2,ant % 2].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].plot(y['fghz'][fgood],y['decparms'][1,fgood,ant]/10000,'r.')
+        ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*decmed/10000,'r')
+        ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),transform=ax[ant/2,ant % 2].transAxes)
         xel, el = solpnt.dradec2dazel(y['ra0'],y['dec0'],t1,ramed*user2rad/cosdec,decmed*user2rad)
-        ax[ant/2,ant % 2].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
-        ax[ant/2,ant % 2].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
+        ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
+        xely.append(xel*180./np.pi)
+        ely.append(el*180./np.pi)
     plt.draw()
+    x = (np.array(xelx) + np.array(xely))/2.
+    y = (np.array(elx) + np.array(ely))/2.
+    dx = abs((np.array(xelx) - np.array(xely)))/2.
+    dy = abs((np.array(elx) - np.array(ely)))/2.
+    return x,y,dx,dy
     
 if __name__ == "__main__":
     ''' Run automatically via cron job, or at command line.

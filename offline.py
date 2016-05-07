@@ -28,6 +28,8 @@
 #     with units hopefully made obvious.  Order of indices will be 
 #          (nant/nbl, npol, nfreq, ntimes).
 #     This required some changes to several of the routines here.
+#   2016-May-01  DG
+#     Added read_dbcalfac() routine to read calibration data from SQL database.
 #
 
 import numpy as np
@@ -56,6 +58,30 @@ def read_calfac(t):
             return fghz, calfac, offsun
     print 'Calibration file not found for date',t.iso
     return None, None, None
+
+def read_dbcalfac(t):
+    ''' Read the contents of a SOLPNT calibration file from the SQL database, and return
+        fghz, calfac, offsun arrays
+    '''
+    import stateframe
+    import cal_header as ch
+    try:
+        tp, buf = ch.read_cal(1,t)
+    except:
+        print 'READ_DBCALFAC: Error reading calibration factors'
+        return None, None, None
+    fghz = stateframe.extract(buf,tp['FGHz'])
+    poln = stateframe.extract(buf,tp['Poln'])
+    nf = len(fghz)
+    npol = len(poln)
+    nant = len(tp['Antenna'])
+    calfac = np.zeros((npol,nf,nant),'float')
+    offsun = np.zeros((npol,nf,nant),'float')
+    for i,ant in enumerate(tp['Antenna']):
+        calfac[:,:,i] = stateframe.extract(buf,ant['Calfac'])
+        offsun[:,:,i] = stateframe.extract(buf,ant['Offsun'])
+    idx = np.isfinite(calfac[0,:,0])
+    return fghz[idx], calfac[:,idx,:], offsun[:,idx,:]
 
 def apply_cal(out,fghz,calfac,offsun):
     ''' Given "standard" output of tp_display.rd_tsys_multi(),

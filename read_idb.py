@@ -16,7 +16,7 @@ import spectrogram_fit as sp
 import pcapture2 as p
 import copy
 
-def readXdata(filename):
+def readXdata(filename,filter=True):
     #This routine reads the data from a single IDBfile.
     
     # the IDB array sorts basline pairs into correct order for an output
@@ -28,20 +28,23 @@ def readXdata(filename):
 
     # Open uv file for reading
     uv = aipy.miriad.UV(filename)
-    good_idx = []
-    # Read a bunch of records to get number of good frequencies, i.e. those with at least 
-    # some non-zero data.  Read 20 records for baseline 1-2, XX pol
-    uv.select('antennae',0,2,include=True)
-    uv.select('polarization',-5,-5,include=True)
-    for i in range(20):
-        preamble, data = uv.read()
-        idx, = data.nonzero()
-        if len(idx) > len(good_idx):
-            good_idx = copy.copy(idx)
+    good_idx = np.arange(len(uv['sfreq']))
+    if filter:
+        good_idx = []
+        # Read a bunch of records to get number of good frequencies, i.e. those with at least 
+        # some non-zero data.  Read 20 records for baseline 1-2, XX pol
+        uv.select('antennae',0,2,include=True)
+        uv.select('polarization',-5,-5,include=True)
+        for i in range(20):
+            preamble, data = uv.read()
+            idx, = data.nonzero()
+            if len(idx) > len(good_idx):
+                good_idx = copy.copy(idx)
+        uv.select('clear',0,0)
+        uv.rewind()
+
     if 'source' in uv.vartable:
         src = uv['source']
-    uv.select('clear',0,0)
-    uv.rewind()
     nf = len(good_idx)
     freq = uv['sfreq'][good_idx]
     npol = uv['npol']
@@ -76,30 +79,151 @@ def readXdata(filename):
         k = -5 - uv['pol']
         if k == 3:
             uvwarray.append(uvw)
-        if t != tprev:
-            # New time 
-            l += 1
-            if l == 600:
-                break
-            tprev = t
-            timearray.append(t)
-            xdata = uv['xsampler'].reshape(500,nants,3)
-            ydata = uv['ysampler'].reshape(500,nants,3)
-            outp[:,0,:,l] = np.swapaxes(xdata[good_idx,:,0],0,1)
-            outp[:,1,:,l] = np.swapaxes(ydata[good_idx,:,0],0,1)
-            outp2[:,0,:,l] = np.swapaxes(xdata[good_idx,:,1],0,1)
-            outp2[:,1,:,l] = np.swapaxes(ydata[good_idx,:,1],0,1)
-            outm[:,0,:,l] = np.swapaxes(xdata[good_idx,:,2],0,1)
-            outm[:,1,:,l] = np.swapaxes(ydata[good_idx,:,2],0,1)
-
-        if i0 == j0:
-            # This is an auto-correlation
-            outa[i0,k,:,l] = data[good_idx]
+        if filter:
+            if len(data.nonzero()[0]) == nf:
+                if t != tprev:
+                    # New time 
+                    l += 1
+                    if l == 600:
+                        break
+                    tprev = t
+                    timearray.append(t)
+                    xdata = uv['xsampler'].reshape(500,nants,3)
+                    ydata = uv['ysampler'].reshape(500,nants,3)
+                    outp[:,0,:,l] = np.swapaxes(xdata[good_idx,:,0],0,1)
+                    outp[:,1,:,l] = np.swapaxes(ydata[good_idx,:,0],0,1)
+                    outp2[:,0,:,l] = np.swapaxes(xdata[good_idx,:,1],0,1)
+                    outp2[:,1,:,l] = np.swapaxes(ydata[good_idx,:,1],0,1)
+                    outm[:,0,:,l] = np.swapaxes(xdata[good_idx,:,2],0,1)
+                    outm[:,1,:,l] = np.swapaxes(ydata[good_idx,:,2],0,1)
+    
+                if i0 == j0:
+                    # This is an auto-correlation
+                    outa[i0,k,:,l] = data[data.nonzero()]
+                else:
+                    outx[bl2ord[i,j],k,:,l] = data[data.nonzero()]
         else:
-            outx[bl2ord[i,j],k,:,l] = data[good_idx]
+            if t != tprev:
+                # New time 
+                l += 1
+                if l == 600:
+                    break
+                tprev = t
+                timearray.append(t)
+                xdata = uv['xsampler'].reshape(500,nants,3)
+                ydata = uv['ysampler'].reshape(500,nants,3)
+                outp[:,0,:,l] = np.swapaxes(xdata[:,:,0],0,1)
+                outp[:,1,:,l] = np.swapaxes(ydata[:,:,0],0,1)
+                outp2[:,0,:,l] = np.swapaxes(xdata[:,:,1],0,1)
+                outp2[:,1,:,l] = np.swapaxes(ydata[:,:,1],0,1)
+                outm[:,0,:,l] = np.swapaxes(xdata[:,:,2],0,1)
+                outm[:,1,:,l] = np.swapaxes(ydata[:,:,2],0,1)
+            if i0 == j0:
+                # This is an auto-correlation
+                outa[i0,k,:,l] = data
+            else:
+                outx[bl2ord[i,j],k,:,l] = data
+
     out = {'a':outa, 'x':outx, 'uvw':np.array(uvwarray), 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
     return out
 
+def readXdatmp(filename):
+    # This temporary routine reads the data from a single IDBfile where the
+    # polarization was written incorrectly. (-1,-2,0,0) instead of (-5,-6,-7,-8)
+    
+    # the IDB array sorts basline pairs into correct order for an output
+    # array that just has 18 baselines (2 sets of 4 antennas correlated separately
+    # now just need to convert i,j into slot in 136-slot array: 15*16/2 corrs +16 auto
+    # this array corresponds to the first index (auto corr) for each antenna
+    # 16*(iant-1)-(iant-1)(iant-2)/2
+    ibl = np.array( [ 0,16,31,45,58,70,81,91,100,108,115,121,126,130,133,135 ])
+
+    # Open uv file for reading
+    uv = aipy.miriad.UV(filename)
+    good_idx = []
+    # Read a bunch of records to get number of good frequencies, i.e. those with at least 
+    # some non-zero data.  Read 20 records for baseline 1-2, XX pol
+    uv.select('antennae',0,2,include=True)
+    uv.select('polarization',-1,-1,include=True)
+    for i in range(20):
+        preamble, data = uv.read()
+        idx, = data.nonzero()
+        if len(idx) > len(good_idx):
+            good_idx = copy.copy(idx)
+    if 'source' in uv.vartable:
+        src = uv['source']
+    uv.select('clear',0,0)
+    uv.rewind()
+    nf = len(good_idx)
+    freq = uv['sfreq'][good_idx]
+    npol = uv['npol']
+    nants = uv['nants']
+    nbl = nants*(nants-1)/2
+    bl2ord = p.bl_list(nants)
+    outa = np.zeros((nants,npol,nf,600),dtype=np.complex64)  # Auto-correlations
+    outx = np.zeros((nbl,npol,nf,600),dtype=np.complex64)  # Cross-correlations
+    outp = np.zeros((nants,2,nf,600),dtype=np.float)
+    outp2 = np.zeros((nants,2,nf,600),dtype=np.float)
+    outm = np.zeros((nants,2,nf,600),dtype=np.int)
+    uvwarray = []
+    timearray = []
+    l = -1
+    tprev = 0
+    # Use antennalist if available
+    if 'antlist' in uv.vartable:
+        ants = uv['antlist']
+        antlist = map(int, ants.split())
+    else:
+        antlist = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    kp = 0
+    for preamble, data in uv.all():
+        uvw, t, (i0,j0) = preamble
+        i = antlist.index(i0+1)
+        j = antlist.index(j0+1)
+        if i > j:
+            # Reverse order of indices
+            j = antlist.index(i0+1)
+            i = antlist.index(j0+1)
+        # Assumes uv['pol'] is -1, -2, 0, 0
+        if i == 0 and j == 0:
+            if uv['pol'] == -1:
+                k = 0
+            elif uv['pol'] == -2:
+                k = 1
+            elif uv['pol'] == 0:
+                if kp == 1: 
+                    k = 2
+                    kp = 0
+                else:
+                    k = 3
+                    kp = 1
+        if k == 3:
+            uvwarray.append(uvw)
+        if len(data.nonzero()[0]) == nf:
+            if t != tprev:
+                # New time 
+                l += 1
+                if l == 600:
+                    break
+                tprev = t
+                timearray.append(t)
+                xdata = uv['xsampler'].reshape(500,nants,3)
+                ydata = uv['ysampler'].reshape(500,nants,3)
+                outp[:,0,:,l] = np.swapaxes(xdata[good_idx,:,0],0,1)
+                outp[:,1,:,l] = np.swapaxes(ydata[good_idx,:,0],0,1)
+                outp2[:,0,:,l] = np.swapaxes(xdata[good_idx,:,1],0,1)
+                outp2[:,1,:,l] = np.swapaxes(ydata[good_idx,:,1],0,1)
+                outm[:,0,:,l] = np.swapaxes(xdata[good_idx,:,2],0,1)
+                outm[:,1,:,l] = np.swapaxes(ydata[good_idx,:,2],0,1)
+
+            if i0 == j0:
+                # This is an auto-correlation
+                outa[i0,k,:,l] = data[data.nonzero()]
+            else:
+                outx[bl2ord[i,j],k,:,l] = data[data.nonzero()]
+    out = {'a':outa, 'x':outx, 'uvw':np.array(uvwarray), 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
+    return out
+    
 def summary_plot(out,ant_str='ant1-13',ptype='phase'):
     ''' Makes a summary amplitude or phase plot for all baselines from ants in ant_str
         in out dictionary.
@@ -146,7 +270,7 @@ def get_IDBfiles(showthelast=10):
         IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
     return IDBfiles
     
-def read_idb(trange):
+def read_idb(trange,filter=True):
     #  This finds the IDB files within a given time range and concatenates the times into a single dictionary
     files = get_trange_files(trange)
     datalist = []
@@ -156,7 +280,7 @@ def read_idb(trange):
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            out = readXdata(file)
+            out = readXdata(file,filter)
             if src == '':
                 # This is the first file so set source name and frequency list
                 src = out['source']
@@ -223,6 +347,10 @@ def get_trange_files(trange):
     #  This function is used in get_X_data(data).
     fstr = trange[0].iso
     folder = '/dppdata1/IDB'
+    try:
+        os.listdir(folder)
+    except:
+        folder = '/data1/IDB'
     files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
     files.sort()
     mjd1, mjd2 = trange.mjd.astype('int')

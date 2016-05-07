@@ -160,6 +160,10 @@
 #      16-ant correlator (0-16000 steps).
 #   2016-Mar-30  DG
 #      I discovered that I was writing the wrong polarizations.
+#   2016-May-04  DG
+#      Implemented writing of DCM table to sql server as well as to ACC.
+#      Also added $FEM-INIT command to reset the FEM attenuations to
+#      their optimal value (for power level 3 dBm)
 #
 
 import os, signal
@@ -189,6 +193,8 @@ import eovsa_cat
 from eovsa_visibility import scan_visible
 import starburst
 from matplotlib.mlab import find
+import cal_header
+import adc_cal2
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
@@ -1819,22 +1825,24 @@ class App():
         '''
         # Convert from comma-separated variables to zero-based band numbers
         bands = numpy.array(sequence.split(',')).astype('int')-1
-        f = open('DCM_master_table.txt','r')
-        lines = np.array(f.readlines()[3:])
-        f.close()
-        out = lines[bands]
-        f = open('DCM_table.txt','w')
-        for line in out:
-            f.write(line[6:])
-        f.close()
-        time.sleep(0.01)
+        dcm, buf = cal_header.read_cal(2)
+        dcm_m_attn = stateframe.extract(buf,dcm['Attenuation'])
+        dcm_attn = dcm_m_attn[bands]
+        lines = []
+        g = open('DCM_table.txt','w')
+        for line in dcm_attn:
+            l = ' '.join(map(str,line))
+            lines.append(l)
+            g.write(l+'\n')
+        g.close()
+        cal_header.dcm_table2sql(lines)
         # Connect to ACC /parm directory and transfer scan_header files
         try:
+            g = open('DCM_table.txt','r')
             acc = FTP('acc.solar.pvt')
             acc.login('admin','observer')
             acc.cwd('parm')
-            # Send DCM_table.txt file to ACC
-            g = open('DCM_table.txt','r')
+            # Send DCM table lines to ACC
             print acc.storlines('STOR dcm.txt',g)
             g.close()
             print 'Successfully wrote dcm.txt to ACC'
@@ -2067,6 +2075,12 @@ class App():
                     if tbl != tbl_echo:
                         print 'Error: Transfer of track table',fname,'failed!'
                         print tbl,'not equal\n',tbl_echo
+                #==== FEM-INIT ====
+                elif ctlline.split(' ')[0].upper() == '$FEM-INIT':
+                    ant_str = 'ant1-13'
+                    t = threading.Thread(target=adc_cal2.set_fem_attn, kwargs={'ant_str':ant_str})
+                    t.daemon = True
+                    t.start()
                 #==== SCAN-START ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-START':
                     # Do any tasks here that are required to start a new scan

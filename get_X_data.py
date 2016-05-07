@@ -18,7 +18,8 @@
 #    Also fixed bug where out was not truncated in readXdata() to actual number of times.
 #  2015-07-26  DG
 #    Fixed an off-by-one error in times returned by readXdata().
-# 
+#  2015-04-26  Shaheda
+#    Added the path for the 2015 data in /data1/eovsa/fits/IDB/directory on tawa#    machine.
 
 import aipy
 import os
@@ -197,6 +198,11 @@ def get_trange_files(trange):
     #  This function is used in get_X_data(data).
     fstr = trange[0].iso
     folder = '/data1/IDB'
+    if glob.glob(folder) == []:
+        folder = '/dppdata1/IDB'
+    if glob.glob(folder) == []:
+        datdir = trange[0].iso[:10].replace('-','')
+        folder = '/data1/eovsa/fits/IDB/'+datdir
     files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
     files.sort()
     mjd1, mjd2 = trange.mjd.astype('int')

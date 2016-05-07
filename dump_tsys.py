@@ -28,6 +28,8 @@
 #    the entire solpnt just for this!
 #  2016-Apr-04  DG
 #    Changed to work with tawa and pipeline data in /data1/eovsa... dir
+#  2016-May-05  DG
+#    Add rd_miriad_tsys_16() routine to read 16-ant correlator data.
 #
 import subprocess, time, sys, glob
 import numpy as np
@@ -81,6 +83,9 @@ def file_list(trange,udb=False):
             if (mjd2 - 1) != mjd1:
                 usage('Second date must differ from first by at most 1 day')
             else:
+                if folder[:22] == '/data1/eovsa/fits/IDB/':
+                    datdir = trange[1].iso[:10].replace('-','')
+                    folder = '/data1/eovsa/fits/IDB/'+datdir
                 fstr2 = trange[1].iso
                 files2 = glob.glob(folder+'/IDB'+fstr2.replace('-','').split()[0]+'*')
                 files2.sort()
@@ -197,6 +202,16 @@ def rd_miriad_tsys(trange,udb=False):
     tsys = tsys[:,:,good,:]
     fghz = fghz[good]
     return {'source':src, 'fghz':fghz, 'ut_mjd':utd, 'tsys':tsys}
+
+def rd_miriad_tsys_16(trange,udb=False):
+
+    ''' Read total power data (TSYS) directly from Miriad files for time range
+        given by trange.  This version works only for 16-ant correlator
+        Simply calls read_idb and returns a subset of the data with new dictionary keys.
+    '''
+    import read_idb
+    out = read_idb.read_idb(trange)
+    return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':out['p']}
 
 def rd_miriad_tsamp(trange,udb=False):
     ''' Read total power data (TSYS) directly from Miriad files for time range

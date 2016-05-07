@@ -16,6 +16,12 @@
 #     Complete rewrite of delay_centers() to make it more robust
 #   2016-Mar-29  DG
 #     Fixed a bug with antenna indexes in case of skipped antennas.
+#   2016-Apr-08  DG
+#     Added delay_centers2sql() routine, to write the delay center values
+#     to the SQL table abin
+#   2016-Apr-09  DG
+#     Moved delay_centers2sql() to cal_header.py module, to join other,
+#     similar routines.
 #
 
 import pcapture2 as p
@@ -230,9 +236,11 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
     newdlax = xdla - xdla[0] + dcenx[0]
     newdlay = ydla - ydla[0] + dceny[0] - tau_a
 
+    f = open('/tmp/delay_centers_tmp.txt','w')
     for line in lines:
         if line[0] == '#':
             print line,
+            f.write(line)
         else:
             ant = int(line[:6])
             idx, = np.where((ant-1) == ant_list)
@@ -240,14 +248,19 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
                 # No update for this antenna
                 fmt = '{:4d}*{:12.3f} {:12.3f} {:12.3f} {:12.3f}'
                 print fmt.format(ant,dcenx[ant-1],dceny[ant-1],dcenx[ant-1],dceny[ant-1])
+                fmt = '{:4d} {:12.3f} {:12.3f} {:12.3f} {:12.3f}\n'
+                f.write(fmt.format(ant,dcenx[ant-1],dceny[ant-1],dcenx[ant-1],dceny[ant-1]))
             else:
                 idx = idx[0]
                 fmt = '{:4d} {:12.3f} {:12.3f} {:12.3f} {:12.3f}'
                 print fmt.format(ant,dcenx[ant-1],dceny[ant-1],newdlax[idx],newdlay[idx])
+                fmt = '{:4d} {:12.3f} {:12.3f} {:12.3f} {:12.3f}\n'
+                f.write(fmt.format(ant,dcenx[ant-1],dceny[ant-1],newdlax[idx],newdlay[idx]))
+    f.close()
     fmt = '{:6.2f} '*nants
     for i in range(nants): print fmt.format(*tau_ns[i])
     return tau_ns, xr, yr
-    
+
 def dla_solve(nant=13):
     ''' This routine requests the user to select a file of delay measurements based
         on a set of geosynchronous satellite observations, at taken at different HA

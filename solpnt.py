@@ -58,6 +58,8 @@
 #      of outputs for otp.  Names ut_mjd, fghz, and tsys will be used, with units
 #      hopefully made obvious.  Order of indices will be 
 #          (nant/nbl, npol, nfreq, ntimes). 
+#   2015-May-05  DG
+#      Small change to process_tsys() to use only small antennas (max number is 13)
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -548,6 +550,7 @@ def process_tsys(otp, proc, pol=None):
         nant, nf, nt = otp['tsys'].shape
     else:
         nant, npol, nf, nt = otp['tsys'].shape
+    nant = min(nant,13) # Make sure only small dishes are used
     # nf = len(np.where(otp['sfreq'] != 0)[0])  # Override nf with number of non-zero frequencies
     m = np.transpose(proc['mask'],(1,0,2))[0:nant,idx1,:]  # mask now same number of ants and times as tsys
     print m.shape

@@ -29,6 +29,8 @@
 #   2015-Jul-03  DG
 #     Changes to plot_spectrogram() to handle case of plotting xdata (cross-correlation 
 #     amplitude)
+#   2016-May-01  DG
+#     Changed to call read_dbcalfac(), to read calibration data from SQL database.
 #
 __version__ = '0.2'
 
@@ -173,7 +175,7 @@ class Spectrogram():
         self.time = Time(out['ut_mjd'],format='mjd')
         self.tidx = [0,len(self.time)]
         # Read calibration
-        fghz, self.calfac, self.offsun = offline.read_calfac(trange[0])
+        fghz, self.calfac, self.offsun = offline.read_dbcalfac(trange[0])
         # Make sure frequencies in data and calibration agree
         calidx, dataidx = common_val_idx((fghz*1000).astype('int'),(self.fghz*1000).astype('int'))
         self.bidx = [0,100]
