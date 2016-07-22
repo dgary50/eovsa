@@ -24,8 +24,8 @@ def sat_info(name):
         return None
     lines = f.readlines()
     f.close()
-    satname = lines[2].split('<title>')[1].split(' at ')[0]
     try:
+        satname = lines[2].split('<title>')[1].split(' at ')[0]
         satloc = lines[2].split(' at ')[1].split('\xb0')[0]
         freq = []
         poln = []

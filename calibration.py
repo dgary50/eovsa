@@ -34,6 +34,11 @@
 #   2016-May-05  DG
 #    Add test in solpntanal() for 16-ant correlator data (based on date),
 #    and read with rd_miriad_tsys_16() routine if so.
+#   2016-May-07  DG
+#    Fix some plotting bugs for when number of antennas is odd.
+#   2016-Jun-15  DG
+#    Added new versions sp_apply_cal2() and sp_bg_subtract2() to work
+#    with new data format.
 #
 
 if __name__ == "__main__":
@@ -127,15 +132,17 @@ def sp_get_calfac(x,y, do_plot=True):
     
     if do_plot:
         # Set up summary plot
-        f, ax = plt.subplots(2, nant/2, sharex='col', sharey='row')
+        nrow = 2
+        ncol = (nant+1)/2
+        f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
         f.set_size_inches(2*nant,7,forward=True)
         f.suptitle('Calibration for SOLPNT scan at '+t.iso[:19]+' UT',fontsize=18)
         for ant in range(nant):
-            ax[ant % 2, ant/2].set_title('Ant '+str(ant+1)+' Solar Spectrum')
-            if ant % 4 == 0:
-                ax[ant/4,0].set_ylabel('Solar Flux [sfu]')
-            if ant >= nant/2:
-                ax[1,ant - nant/2].set_xlabel('Frequency [GHz]')
+            ax[ant % nrow, ant/nrow].set_title('Ant '+str(ant+1)+' Solar Spectrum')
+            if ant % ncol == 0:
+                ax[ant/ncol,0].set_ylabel('Solar Flux [sfu]')
+            if ant >= nant/nrow:
+                ax[1,ant - nant/nrow].set_xlabel('Frequency [GHz]')
 
     for ant in range(nant):
         # Do flux calculation for X feed
@@ -168,11 +175,11 @@ def sp_get_calfac(x,y, do_plot=True):
         calfac[1,:,ant] = s/s0       # sfu/unit
         offsun[1,:,ant] = (y['raparms'][3,:,ant] + y['decparms'][3,:,ant])/2  # arb. units
         if do_plot:
-            ax[ant % 2, ant/2].plot(fghz,s1*calfac[1,:,ant],'.',label='Y-RA')
-            ax[ant % 2, ant/2].plot(fghz,s2*calfac[1,:,ant],'.',label='Y-Dec')
-            ax[ant % 2, ant/2].set_ylim(0,600)
-            ax[ant % 2, ant/2].set_xlim(0,19)
-            ax[ant % 2, ant/2].legend(loc='upper left',fontsize='small')
+            ax[ant % nrow, ant/nrow].plot(fghz,s1*calfac[1,:,ant],'.',label='Y-RA')
+            ax[ant % nrow, ant/nrow].plot(fghz,s2*calfac[1,:,ant],'.',label='Y-Dec')
+            ax[ant % nrow, ant/nrow].set_ylim(0,600)
+            ax[ant % nrow, ant/nrow].set_xlim(0,19)
+            ax[ant % nrow, ant/nrow].legend(loc='upper left',fontsize='small')
     return calfac,offsun
 
 def sp_check_qual(x, y):
@@ -241,7 +248,24 @@ def sp_read_calfac(t):
             return fghz, calfac, offsun
     print 'Calibration file not found for date',t.iso
     return None, None, None
-    
+
+def sp_apply_cal2(out,calfac,offsun):
+    ''' Given "standard" output of tp_display.rd_tsys_multi(),
+        and corresponding calibration data from sp_read_calfac(),
+        apply the calibration and return the calibrated output.
+    '''
+    fghz = out['fghz']
+    good = np.where(np.logical_and(fghz != 0,fghz > 2.0))
+    nant, npol, nf, nt = out['p'].shape
+    # Interchange antenna and frequency axes in offsun and calfac
+    osun = np.rollaxis(offsun,2,0)
+    cfac = np.rollaxis(calfac,2,0)
+    nant,npol,nf = cfac.shape
+    for i in range(nt):
+        out['p'][:nant,:,good,i] = (out['p'][:nant,:,good,i]-osun[:,:,good])*cfac[:,:,good]
+#        out['tsys'][:,1,good,i] = (out['tsys'][:,1,good,i]-offsun[1,good,:])*calfac[1,good,:]
+    return out
+        
 def sp_apply_cal(out,fghz,calfac,offsun):
     ''' Given "standard" output of tp_display.rd_tsys_multi(),
         and corresponding calibration data from sp_read_calfac(),
@@ -255,6 +279,25 @@ def sp_apply_cal(out,fghz,calfac,offsun):
     for i in range(nt):
         out['tsys'][:,:,good,i] = (out['tsys'][:,:,good,i]-osun[:,:,good])*cfac[:,:,good]
 #        out['tsys'][:,1,good,i] = (out['tsys'][:,1,good,i]-offsun[1,good,:])*calfac[1,good,:]
+    return out
+    
+def sp_bg_subtract2(out,idx):
+    ''' Given "standard" output of tp_display.rd_tsys_multi(),
+        and a range of time indexes idx into the arrays, use the
+        median of data at times indicated by idx as background.
+        Subtract that background from both xtsys and ytsys
+    '''
+    nant, npol, nf, nt = out['p'].shape
+    # Create the backgrounds (shape nf,nant)
+    if len(idx) == 1:
+        # Only one index in idx, so no median necessary
+        bg = out['p'][:,:,:,idx]
+    else:
+        # Multiple values in idx, so do median
+        bg = np.median(out['p'][:,:,:,idx],3)
+    # Perform the background subtraction
+    for i in range(nt):
+        out['p'][:,:,:,i] -= bg
     return out
     
 def sp_bg_subtract(out,idx):

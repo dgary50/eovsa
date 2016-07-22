@@ -15,6 +15,7 @@
 #      timestamp.  Added routine find_table_version() to accomplish it.
 
 import stateframedef
+from util import Time
 
 def get_cursor():
     ''' Connect to the SQL database and return a cursor for access to it
@@ -112,3 +113,32 @@ def do_query(cursor,query):
         msg = 'Error: '+str(sys.exc_info()[1])
     return result,msg
     
+def a14_wscram(trange):
+    ''' Get the Antenna 14 windscram state for a given time range
+        (returns times and wsram state, 0 = not in wind scram, 1 = in windscram)
+    '''
+    tstart,tend = [str(i) for i in trange.lv]
+    cursor = get_cursor()
+    query = 'select Timestamp,Ante_Fron_Wind_State from fV65_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
+    data, msg = do_query(cursor, query)
+    cursor.close()
+    if msg == 'Success':
+        times = Time(data['Timestamp'].astype('int'),format='lv')
+        wscram = data['Ante_Fron_Wind_State']
+    return times,wscram
+    
+def get_chi(trange):
+    ''' Get the parallactic angle for all antennas (ntimes x 16) for a
+        given time range (returns times and parallactice angle--radians)
+    '''
+    tstart,tend = [str(i) for i in trange.lv]
+    cursor = get_cursor()
+    query = 'select Timestamp,I16,Sche_Data_Chi from fV65_vD16 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+    data, msg = do_query(cursor, query)
+    cursor.close()
+    if msg == 'Success':
+        times = Time(data['Timestamp'].astype('int'),format='lv')[::16]
+        chi = data['Sche_Data_Chi']
+        nt = len(chi)/16
+        chi.shape = (nt,16)
+        return times,chi

@@ -10,9 +10,11 @@
 #     to a passable parameter, so that Subarray2 can write to a different
 #     file location. (Default is still '/tmp/scan_header.dat' if not specified.)
 #   2015-May-29  DG
-#      Converted from using datime() to using Time() based on astropy.
+#     Converted from using datime() to using Time() based on astropy.
 #   2015-Jun-16  DG
-#      FTP to ACC now requires a username and password
+#     FTP to ACC now requires a username and password
+#   2016-May-20  DG
+#     Added a retry to tranferring files to ACC
 #
 import struct,sys
 from sun_pos import *
@@ -898,7 +900,23 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
         g.close()
         sys.stdout.write('Successfully transferred scan_header files to ACC.\n')
     except:
-        sys.stdout.write('Could not transfer scan_header files.  ACC is down?\n')
+        sys.stdout.write('Transfer of scan_header files failed.  Retrying...\n')
+        try:
+            acc = FTP('acc.solar.pvt')
+            acc.login('admin','observer')
+            acc.cwd('parm')
+            # Send XML file to ACC
+            f = open(xmlfile,'r')
+            acc.storlines('STOR scan_header.xml',f)
+            f.close()
+            # Send DAT file to ACC    
+            g = open(datfile,'rb')
+            acc.storbinary('STOR '+datfile[5:],g)
+            acc.close()
+            g.close()
+            sys.stdout.write('Successfully transferred scan_header files to ACC.\n')
+        except:
+            sys.stdout.write('Could not transfer scan_header files.  ACC is down?\n')
 
     return fmt, datfile, xmlfile
 

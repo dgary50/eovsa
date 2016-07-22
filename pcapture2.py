@@ -298,7 +298,8 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
         nx = (xlen-130)/8
         x0 = 130  # Start location in packet buffer
         x1 = 130 + nx*8  # End location in packet buffer
-        xfmt = '>'+str(2*nx)+'i'  # Read buffer as 32-bit signed integers
+        # xfmt = '>'+str(2*nx)+'i'  # Read buffer as big-endian 32-bit signed integers
+        xfmt = str(2*nx)+'i'  # Read buffer as little-endian 32-bit signed integers
         # The format is all baselines, all poln products, for one channel
         outarr = np.zeros([nsec,50,4096,nx],'complex')
     else:
@@ -422,7 +423,8 @@ def rd_jspec(filename):
     pp2 = '8I8Q8I8Q8I8Q8I8Q8I8Q8I8Q8I8Q8I8Q'
     # Read buffer as 136 channels of 4 polns, both real & imaginary 32-bit signed integers
     reclen = 136*4*2
-    xfmt = '>'+str(reclen)+'i'
+    # xfmt = '>'+str(reclen)+'i'  # Format for big-endian
+    xfmt = str(reclen)+'i'     # Format for little-endian
     khdr = ['HeaderLength','PacketNum','FFTShift','AccumLength','GlobalAccumNum',
             'BoardID','AccumNum','DataType','PolType','Ai','Aj','ADCOverflow',
             'QuantClipNum','NSubbands','iFreq','Delay0','Delay1','Delay2','Delay3',

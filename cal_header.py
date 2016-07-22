@@ -28,6 +28,9 @@
 #   2016-05-05  DG
 #      Added a fifth cal type for equalizer gains, and routines
 #      eq_gain2xml() and eq_gain2sql()
+#   2016-05-21  DG
+#      Change to dcm_master_table2sql() to allow output from one of the
+#      better adc_cal2.py routines (get_dcm_attn()).
 #
 import struct, util
 import numpy as np
@@ -597,10 +600,11 @@ def proto_tpcal2sql(filename,t=None):
         buf += struct.pack(str(nfi*2)+'f',*(offsun[:,:,i].reshape(nfi*2)))
     return write_cal(typedef,buf,t)
     
-def dcm_master_table2sql(filename,t=None):
+def dcm_master_table2sql(filename,tbl=None,t=None):
     ''' Writes a DCM master base attenuation calibration table as a record into 
         SQL server table abin. filename can either be a txt file (DCM_master_table.txt) 
-        or a DCM_list (from the output of adc_cal2.make_DCM_table())
+        or a DCM_list (from the output of adc_cal2.make_DCM_table()) or a table from
+        the output of adc_cal2.set_dcm_attn() [use filename='' and give the table as tbl].
 
         This kind of record is type definition 2.
     '''
@@ -608,27 +612,32 @@ def dcm_master_table2sql(filename,t=None):
     ver = cal_types()[typedef][2]
     if t is None:
         t = util.Time.now()
-    # Check the format of the input file and see if it is a file or a python list    
-    try:
-        # Open and read DCM_master_table.txt file
-        if type(filename) is str: 
-            f = open(filename,'r')
-            lines = f.readlines()
-            f.close()
-        if type(filename) is list:
-            lines = filename
-        # Read file of attenuations (34 non-comment lines with band + 30 attns)
-        bands = np.zeros(34,'int')
-        attn = np.zeros((34,30),'float')
-        for line in lines:
-            if line[0] != '#':
-                band,rline = line.strip().split(':')
-                attn[int(band)-1] = map(int,rline.split())
-                bands[int(band)-1] = band
-    except:
-            print 'Error: Could not open/read file',filename
-            return False
-
+    if tbl is None:
+        # Check the format of the input file and see if it is a file or a python list    
+        try:
+            # Open and read DCM_master_table.txt file
+            if type(filename) is str: 
+                f = open(filename,'r')
+                lines = f.readlines()
+                f.close()
+            if type(filename) is list:
+                lines = filename
+            # Read file of attenuations (34 non-comment lines with band + 30 attns)
+            bands = np.zeros(34,'int')
+            attn = np.zeros((34,30),'float')
+            for line in lines:
+                if line[0] != '#':
+                    band,rline = line.strip().split(':')
+                    attn[int(band)-1] = map(int,rline.split())
+                    bands[int(band)-1] = band
+        except:
+                print 'Error: Could not open/read file',filename
+                return False
+    else:
+        # Standard table was input, so interpret as output from adc_cal.set_dcm_attn()
+        bands = np.linspace(1,34,34).astype(int)
+        attn = tbl[:,:30]
+        
     # Write timestamp 
     buf = struct.pack('d',int(t.lv))
     # Write version number

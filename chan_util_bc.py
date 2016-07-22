@@ -14,6 +14,14 @@
 #      FTP to ACC now requires a username and password
 #   2015-Jun-18  DG
 #      Rather major change to eliminate "bad" channels in overlap region
+#   2016-May-20  DG
+#      Adjusted the "good IF bandwith" gifb to 370 MHz, and adjusted the
+#      flagging for overlapped IF in get_chanmask() to 2064 in order to better
+#      optimize our 5 science channels in each science band.
+#   2016-May-21  DG
+#      Looks like dppxmp does not like going past the end of the nominal
+#      500 MHz band, so set gifb back to 350 MHz and 2148 in get_chanmask().
+#      This results in only four good frequencies per band at higher freqs.
 #
 
 import pdb
@@ -33,9 +41,9 @@ nschanx = 0
 #ifbw = 600.
 #gifbw = 500.
 #nschanx = 341
-#nsavg = [64,97,131,162,200,227,262]+[284]*27
-#nsavg = [64,97,131,162,200,20,262]+[568]*27 #temporally increase the number of science channels on band 6
-nsavg = [64,97,131,162,200,227,262]+[568]*15+[20]+[568]*21 #temporally increase the number of science channels on band 23 
+nsavg = [64,97,131,162,200,227,262]+[284]*27
+#nsavg = [64,97,131,162,40,227,262]+[568]*27 #temporarily increase the number of science channels on band 5
+#nsavg = [64,97,131,162,200,227,262]+[568]*15+[20]+[568]*21 #temporarily increase the number of science channels on band 23 
 
 def update_nsavg():
     #update each value in nsavg in order to cover all the good if bandwidth
@@ -217,7 +225,7 @@ def get_chanmask(fsequence,t=None):
     for i,band in enumerate(bands):
         # Transfers the 4096 values for band into the ith slot of chanmask
         chanmask[i,:] = copy.copy(bandmask[band,:])
-        chanmask[i,:2048] = 0  # Temporary--flag all overlapped channels for 800 MHz clock
+        chanmask[i,:2148] = 0  # Temporary--flag all overlapped channels for 800 MHz clock
     chanmask.shape = (204800)
     return chanmask
             

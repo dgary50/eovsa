@@ -11,6 +11,8 @@
 #     inserted into the SQL table by
 #        import cal_header 
 #        cal_header.dcm_master_table2sql(DCM_lines)
+#   2016-May-21  DG
+#     Quite a few changes in an attempt to get set_dcm_attn() to work.
 #
 
 import time
@@ -111,6 +113,23 @@ def set_fem_attn(level=3,ant_str='ant1-15'):
         vatn = str(vatn1[iant])+' '+str(vatn2[iant])+' ant'+str(iant+1)
         send_cmds(['HATTN '+hatn,'VATTN '+vatn],acc)
     return 'Success'
+
+def chk_lo1a(accini, band, iteration=1):
+    data, msg = stf.get_stateframe(accini)
+    errstr = stf.extract(data,accini['sf']['LODM']['LO1A']['ERR']).split('"')[1]
+    if iteration == 1 and errstr != 'No error':
+        # Looks like a reboot of LO1A is needed!
+        print '10-s delay while attempting to reboot LO1A'
+        send_cmds(['LO1A-REBOOT'],acc)
+        time.sleep(10)
+        acc = {'host': accini['host'], 'scdport':accini['scdport']}
+        acc_tune(band+1,acc)
+        time.sleep(5)
+        errstr = chk_lo1a(accini,band,iteration=2)
+        if errstr != 'No error':
+            errstr = 'Reboot attempt failed.'
+    return errstr
+    
     
 def set_dcm_attn(roach_list,fem_level=5,nd_state='on',adc_nom=25,ant_list='ant1-13',do_plot=False):
     ''' Set the FEM attenuation to the given value, switch ND state to the given state
@@ -134,15 +153,22 @@ def set_dcm_attn(roach_list,fem_level=5,nd_state='on',adc_nom=25,ant_list='ant1-
     time.sleep(5)
     dcm_table = np.zeros((34,32), dtype='int')
     # Set DCM state to standard values
-    send_cmds(['DCMAUTO-OFF '+ant_list,'DCMATTN 12 12 '+ant_list],acc)
+    send_cmds(['DCMAUTO-OFF '+ant_list],acc)
+    time.sleep(1)
+    send_cmds(['DCMATTN 12 12 '+ant_list],acc)
+    time.sleep(1)
     # Cycle through bands to get ADC levels
     for band in range(34):
         # Start with nominal DCM attenuation
-        send_cmds(['DCMATTN 12 12 '+ant_list],acc)
-        time.sleep(0.3)
+        #send_cmds(['DCMATTN 12 12 '+ant_list],acc)
+        #time.sleep(1)
         print 'Band:',band+1
         acc_tune(band+1,acc)
-        time.sleep(3)
+        time.sleep(5)
+        errstr = chk_lo1a(accini,band)
+        if errstr != 'No error':
+            print errstr
+            return None
         # Go through ROACH list
         for i,ro in enumerate(roach_list):
             # Get ADC levels at nominal setting
@@ -150,15 +176,20 @@ def set_dcm_attn(roach_list,fem_level=5,nd_state='on',adc_nom=25,ant_list='ant1-
             r.adc_levels([ro])
             # Calculate new attenuation to achieve nominal level
             ch_atn = np.clip(((20*np.log10(ro.adc_levels/adc_nom)+dcm_base + 1)/2).astype('int')*2,0,30)
-            # Set new attenuation levels and check result
-            send_cmds(['DCMATTN '+str(ch_atn[0])+' '+str(ch_atn[1])+' ant'+str(ro.ants[0])],acc)
-            time.sleep(1)
-            send_cmds(['DCMATTN '+str(ch_atn[2])+' '+str(ch_atn[3])+' ant'+str(ro.ants[1])],acc)
-            time.sleep(1)
-            r.adc_levels([ro])
-            ch_atn2 = np.clip(((20*np.log10(ro.adc_levels/adc_nom)+ch_atn + 1)/2).astype('int')*2,0,30)
-            print '  ',ro.roach_ip[:6],'Attn:',ch_atn,'Check:',ch_atn2
-            dcm_table[band,np.array(((ro.ants[0]-1)*2,(ro.ants[0]-1)*2+1,(ro.ants[1]-1)*2,(ro.ants[1]-1)*2+1))] = copy.copy(ch_atn2)
+            # Set new attenuation levels (twice, for good measure, and check result
+            # send_cmds(['DCMATTN '+str(ch_atn[0])+' '+str(ch_atn[1])+' ant'+str(ro.ants[0])],acc)
+            # time.sleep(1)
+            # send_cmds(['DCMATTN '+str(ch_atn[0])+' '+str(ch_atn[1])+' ant'+str(ro.ants[0])],acc)
+            # time.sleep(1)
+            # send_cmds(['DCMATTN '+str(ch_atn[2])+' '+str(ch_atn[3])+' ant'+str(ro.ants[1])],acc)
+            # time.sleep(1)
+            # send_cmds(['DCMATTN '+str(ch_atn[2])+' '+str(ch_atn[3])+' ant'+str(ro.ants[1])],acc)
+            # time.sleep(1)
+            # r.adc_levels([ro])
+            # ch_atn2 = np.clip(((20*np.log10(ro.adc_levels/adc_nom)+ch_atn + 1)/2).astype('int')*2,0,30)
+            # print '  ',ro.roach_ip[:6],'Attn:',ch_atn,'Check:',ch_atn2
+            print '  ',ro.roach_ip[:6],'Attn:',ch_atn
+            dcm_table[band,np.array(((ro.ants[0]-1)*2,(ro.ants[0]-1)*2+1,(ro.ants[1]-1)*2,(ro.ants[1]-1)*2+1))] = copy.copy(ch_atn)
     return dcm_table
     
 # Insert 62 dB into FEMs, cycle through bands, get ADC levels (optionally plot results)

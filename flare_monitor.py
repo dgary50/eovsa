@@ -41,6 +41,11 @@
 #      UT day, so that scans that extend past 24 UT are fully plotted.
 #   2015-Sep-07  DG
 #      Attempt to fix bug in extending date past 24 UT
+#   2016-Jun-30  DG
+#      Update to work with 16-ant-correlator data and new routine read_idb()
+#      Also does correct scaling of x-corr level in case of extraneous inf
+#   2016-Jul-15  DG
+#      Add sk_flag of xdata display.
 #
 import numpy as np
 from util import Time
@@ -128,7 +133,6 @@ def flare_monitor(t):
         # Not enough scan changes to determine EOS (end-of-scan) times
         projdict.update({'EOS': []})
     cursor.close()
-    
     return ut[good],flm[good],projdict
 
 def xdata_display(t,ax=None):
@@ -140,7 +144,8 @@ def xdata_display(t,ax=None):
     '''
     import time
     import dump_tsys
-    import get_X_data2 as gd
+    #import get_X_data2 as gd
+    import read_idb as ri
     import spectrogram_fit as sp
 
     fdb = dump_tsys.rd_fdb(t)
@@ -188,7 +193,12 @@ def xdata_display(t,ax=None):
             # This is a currently active scan, so create the figure
             for i in range(len(files)):
                 files[i] = '/data1/IDB/'+files[i]
-            data, uvw, fghz, times = gd.get_X_data(files)
+            # data, uvw, fghz, times = gd.get_X_data(files)
+            out = ri.read_idb(files)
+            out = ri.flag_sk(out)
+            fghz = out['fghz']
+            times = Time(out['time'],format='jd')
+            data = out['x']
             if ax is not None:
                 datstr = times[0].iso[:10]
                 ax.set_xlabel('Time [UT on '+datstr+']')
@@ -334,8 +344,10 @@ if __name__ == "__main__":
     ax.set_ylabel('RF Detector [arb. units]')
     ax.set_title('EOVSA Flare Monitor for '+t.iso[:10])
     ymax = 1.4
-    if max(fl) > ymax: ymax = max(fl)
-    if max(tlevel) > ymax: ymax = max(tlevel)
+    if np.max(fl) > ymax: ymax = np.max(fl)
+    # Get level max, ignoring nan and inf
+    lmax = np.max(tlevel[np.isfinite(tlevel)])
+    #if lmax > ymax: ymax = lmax
     ax.set_ylim(0.8,ymax)
     ax.set_xlim(int(ut[0])+13/24.,int(ut[0])+26/24.)  # Time plot ranges from 13 UT to 02 UT
     if projdict == {}:

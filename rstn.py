@@ -9,6 +9,8 @@
 #    archive file with dates older than 45 days.  Also added lots of error-handling.
 #  2015-May-29  DG
 #    Converted from using datime() to using Time() based on astropy
+#  2016-May-07  DG
+#    All of a sudden, closing a urlopen() file handle is hanging, so skip it.
 #
 
 import urllib2
@@ -40,7 +42,6 @@ def rd_rstnflux(t=None,f=None,recur=False):
     if t is None:
         t = Time.now()
     datstr = t.datetime.strftime("%Y %b %d")
-    #if datstr[9] == '0': datstr = datstr[:9]+datstr[10:]
     if f is None:
         today = Time.now()
         if today.mjd - t.mjd > 44:
@@ -49,6 +50,8 @@ def rd_rstnflux(t=None,f=None,recur=False):
             try:
                 f = urllib2.urlopen(noaa_url)
                 print 'Data will be retrieved from NOAA 45-day file.'
+                lines = f.readlines()
+                if datstr[9] == '0': datstr = datstr[:9]+datstr[10:]
             except:
                 print 'NOAA 45-day file not reachable at',noaa_url
                 recur = True  # Set this to prevent unneeded recursive call
@@ -56,12 +59,14 @@ def rd_rstnflux(t=None,f=None,recur=False):
             try:
                 f = open(archfile,'r')
                 print 'Data will be retrieved from archive file',archfile,'.'
+                lines = f.readlines()
+                f.close()
             except:
                 print 'Error: Archive file',archfile,'not found.'
                 return None, None
-
-    lines = f.readlines()
-    f.close()
+    else:
+        lines = f.readlines()
+        f.close()
     frq = np.zeros(9,'int')
     flux = np.zeros(9,'float')
     for i,line in enumerate(lines):

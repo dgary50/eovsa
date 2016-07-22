@@ -5,6 +5,21 @@
 #    Began writing the code, adapted from get_X_data2.py
 #  2016-04-01  DG
 #    Added summary_plot()
+#  2016-05-12  DG
+#    Truncate arrays in readXdata() when the file ends early
+#  2016-05-14  DG
+#    Several changes.  Changed filter keyword in readXdata() 
+#    to default to False, since we are missing a lot of 
+#    frequencies.  Instead any filtering will be done in 
+#    read_idb() after arrays are concatenated.  Also added
+#    time-averaging in read_idb().  Also added flag_sk(),
+#    which eliminates bad data due to RFI (sort of)
+#  2016-06-23 BC
+#    Changed the default search directory of the EOVSA IDB files
+#    in get_trange_files() from '/dppdata1/IDB' to /data1/eovsa/fits/IDB'
+#  2016-06-30  DG
+#    Change to allow input of a file list to read_idb() in place of
+#    trange (used by the realtime pipeline).
 
 import aipy
 import os
@@ -16,15 +31,16 @@ import spectrogram_fit as sp
 import pcapture2 as p
 import copy
 
-def readXdata(filename,filter=True):
-    #This routine reads the data from a single IDBfile.
-    
-    # the IDB array sorts basline pairs into correct order for an output
-    # array that just has 18 baselines (2 sets of 4 antennas correlated separately
-    # now just need to convert i,j into slot in 136-slot array: 15*16/2 corrs +16 auto
-    # this array corresponds to the first index (auto corr) for each antenna
-    # 16*(iant-1)-(iant-1)(iant-2)/2
-    ibl = np.array( [ 0,16,31,45,58,70,81,91,100,108,115,121,126,130,133,135 ])
+def readXdata(filename, filter=False, tp_only=False):
+    ''' This routine reads the data from a single IDBfile.
+        
+        Optiona Keywords:
+        filter   boolean--if True, returns only non-zero frequencies 
+                    if False (default), returns uniform set of 500 frequencies
+        tp_only  boolean--if True, returns only TP information
+                    if False (default), returns everything (including 
+                    auto & cross correlations)
+    '''
 
     # Open uv file for reading
     uv = aipy.miriad.UV(filename)
@@ -51,15 +67,17 @@ def readXdata(filename,filter=True):
     nants = uv['nants']
     nbl = nants*(nants-1)/2
     bl2ord = p.bl_list(nants)
-    outa = np.zeros((nants,npol,nf,600),dtype=np.complex64)  # Auto-correlations
-    outx = np.zeros((nbl,npol,nf,600),dtype=np.complex64)  # Cross-correlations
+    if not tp_only:
+        outa = np.zeros((nants,npol,nf,600),dtype=np.complex64)  # Auto-correlations
+        outx = np.zeros((nbl,npol,nf,600),dtype=np.complex64)  # Cross-correlations
     outp = np.zeros((nants,2,nf,600),dtype=np.float)
     outp2 = np.zeros((nants,2,nf,600),dtype=np.float)
     outm = np.zeros((nants,2,nf,600),dtype=np.int)
-    uvwarray = []
+    uvwarray = np.zeros((nbl,600,3),dtype=np.float)
     timearray = []
     l = -1
     tprev = 0
+    tsav = 0
     # Use antennalist if available
     if 'antlist' in uv.vartable:
         ants = uv['antlist']
@@ -77,11 +95,10 @@ def readXdata(filename,filter=True):
             i = antlist.index(j0+1)
         # Assumes uv['pol'] is one of -5, -6, -7, -8
         k = -5 - uv['pol']
-        if k == 3:
-            uvwarray.append(uvw)
         if filter:
             if len(data.nonzero()[0]) == nf:
                 if t != tprev:
+#                    print preamble
                     # New time 
                     l += 1
                     if l == 600:
@@ -97,11 +114,16 @@ def readXdata(filename,filter=True):
                     outm[:,0,:,l] = np.swapaxes(xdata[good_idx,:,2],0,1)
                     outm[:,1,:,l] = np.swapaxes(ydata[good_idx,:,2],0,1)
     
-                if i0 == j0:
-                    # This is an auto-correlation
-                    outa[i0,k,:,l] = data[data.nonzero()]
+                if tp_only:
+                    outa = None
+                    outx = None
                 else:
-                    outx[bl2ord[i,j],k,:,l] = data[data.nonzero()]
+                    if i0 == j0:
+                        # This is an auto-correlation
+                        outa[i0,k,:,l] = data[data.nonzero()]
+                    else:
+                        outx[bl2ord[i,j],k,:,l] = data[data.nonzero()]
+                        if k == 3: uvwarray[bl2ord[i,j],l] = uvw[data.nonzero()]
         else:
             if t != tprev:
                 # New time 
@@ -118,13 +140,28 @@ def readXdata(filename,filter=True):
                 outp2[:,1,:,l] = np.swapaxes(ydata[:,:,1],0,1)
                 outm[:,0,:,l] = np.swapaxes(xdata[:,:,2],0,1)
                 outm[:,1,:,l] = np.swapaxes(ydata[:,:,2],0,1)
-            if i0 == j0:
-                # This is an auto-correlation
-                outa[i0,k,:,l] = data
-            else:
-                outx[bl2ord[i,j],k,:,l] = data
 
-    out = {'a':outa, 'x':outx, 'uvw':np.array(uvwarray), 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
+            if tp_only:
+                outa = None
+                outx = None
+            else:
+                if i0 == j0:
+                    # This is an auto-correlation
+                    outa[i0,k,:,l] = data
+                    if k < 2 and np.sum(data != np.real(data)) > 0:
+                        print preamble,uv['pol'], 'has imaginary data!'
+                else:
+                    outx[bl2ord[i,j],k,:,l] = data
+                    if k == 3: uvwarray[bl2ord[i,j],l] = uvw
+
+    # Truncate in case of early end of data
+    nt = len(timearray)
+    outp = outp[:,:,:,:nt]
+    outp2 = outp2[:,:,:,:nt]
+    outm = outm[:,:,:,:nt]
+    outa = outa[:,:,:,:nt]
+    outx = outx[:,:,:,:nt]
+    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
     return out
 
 def readXdatmp(filename):
@@ -224,7 +261,7 @@ def readXdatmp(filename):
     out = {'a':outa, 'x':outx, 'uvw':np.array(uvwarray), 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
     return out
     
-def summary_plot(out,ant_str='ant1-13',ptype='phase'):
+def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
     ''' Makes a summary amplitude or phase plot for all baselines from ants in ant_str
         in out dictionary.
     '''
@@ -235,6 +272,9 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase'):
     if ptype != 'amp' and ptype != 'phase':
         print "Invalid plot type.  Must be 'amp' or 'phase'."
         return
+    poloff = 0
+    if pol != 'XX-YY':
+        poloff = 2
     f, ax = plt.subplots(nant,nant)
     f.subplots_adjust(hspace=0,wspace=0)
     bl2ord = p.bl_list()
@@ -247,11 +287,11 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase'):
         for j in range(i+1,nant):
             aj = ant_list[j]
             if ptype == 'phase':
-                ax[i,j].imshow(np.angle(out['x'][bl2ord[ai,aj],0]))
-                ax[j,i].imshow(np.angle(out['x'][bl2ord[ai,aj],1]))
+                ax[i,j].imshow(np.angle(out['x'][bl2ord[ai,aj],0+poloff]))
+                ax[j,i].imshow(np.angle(out['x'][bl2ord[ai,aj],1+poloff]))
             elif ptype == 'amp':
-                ax[i,j].imshow(np.abs(out['x'][bl2ord[ai,aj],0]))
-                ax[j,i].imshow(np.abs(out['x'][bl2ord[ai,aj],1]))
+                ax[i,j].imshow(np.abs(out['x'][bl2ord[ai,aj],0+poloff]))
+                ax[j,i].imshow(np.abs(out['x'][bl2ord[ai,aj],1+poloff]))
     for i in range(nant):
         ai = ant_list[i]
         ax[i,i].text(0.5,0.5,str(ai+1),ha='center',va='center',transform=ax[i,i].transAxes,fontsize=14)
@@ -270,9 +310,24 @@ def get_IDBfiles(showthelast=10):
         IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
     return IDBfiles
     
-def read_idb(trange,filter=True):
-    #  This finds the IDB files within a given time range and concatenates the times into a single dictionary
-    files = get_trange_files(trange)
+def read_idb(trange,navg=None,filter=True,tp_only=False):
+    ''' This finds the IDB files within a given time range and concatenates 
+        the times into a single dictionary.  If trange is not a Time() object,
+        assume that it is the list of files to read.
+        
+        Optiona Keywords:
+        filter   boolean--if True (default), returns only non-zero frequencies 
+                    if False, returns uniform set of 500 frequencies, with gaps
+        tp_only  boolean--if True, returns only TP information
+                    if False (default), returns everything (including 
+                    auto & cross correlations)
+    '''
+    if type(trange) == Time:
+        files = get_trange_files(trange)
+    else:
+        # If input type is not Time, assume that it is the list of files to read
+        files = trange
+
     datalist = []
     src = ''
     for file in files:
@@ -280,7 +335,7 @@ def read_idb(trange,filter=True):
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            out = readXdata(file,filter)
+            out = readXdata(file,tp_only)
             if src == '':
                 # This is the first file so set source name and frequency list
                 src = out['source']
@@ -291,31 +346,33 @@ def read_idb(trange,filter=True):
             datalist.append(out)
         except:
             print 'The problematic file is:',file
-    # Sometimes an IDB file will be truncated early and have a number of frequencies
-    # that is incompatible with the others, so make a list of the number of frequencies 
-    # in each IDBdata and keep only those with the most common number.
-    nflist = []
-    # Find the maximum number of frequencies
-    for out in datalist:
-        nflist.append(len(out['fghz']))
-    nflist = np.array(nflist)
-    nfgood = np.median(nflist)
-    badidx, = np.where(nflist != nfgood)
-    if len(badidx) != 0 and len(nflist) < 3:
-        print 'Files have different numbers of frequencies, and result is ambiguous.'
-        print 'Will take the file with the higher number of frequencies'
-        nfgood = nflist.max()
-    # Make a list, nfbad, of entries with fewer than the max number of frequencies
-    nfbad, = np.where(nfgood != nflist)
-    for i in range(len(nflist)):
-        if nflist[i] != nfgood: nfbad.append(i)
-    # This loop will run only if length of nfbad > 0
-    mybad = np.array(nfbad)
-    for i in range(len(nfbad)):
-        # Eliminate the entries in the list with too few frequencies
-        datalist.pop(mybad[i])
-        mybad -= 1
-        print 'File',files[nfbad[i]],'eliminated due to too few frequencies.'
+    # Remove code that attempts to match frequencies--files will always have the full
+    # number of frequencies now
+    # # Sometimes an IDB file will be truncated early and have a number of frequencies
+    # # that is incompatible with the others, so make a list of the number of frequencies 
+    # # in each IDBdata and keep only those with the most common number.
+    # nflist = []
+    # # Find the maximum number of frequencies
+    # for out in datalist:
+        # nflist.append(len(out['fghz']))
+    # nflist = np.array(nflist)
+    # nfgood = np.median(nflist)
+    # badidx, = np.where(nflist != nfgood)
+    # if len(badidx) != 0 and len(nflist) < 3:
+        # print 'Files have different numbers of frequencies, and result is ambiguous.'
+        # print 'Will take the file with the higher number of frequencies'
+        # nfgood = nflist.max()
+    # # Make a list, nfbad, of entries with fewer than the max number of frequencies
+    # nfbad = (np.where(nfgood != nflist)[0]).tolist()
+    # for i in range(len(nflist)):
+        # if nflist[i] != nfgood: nfbad.append(i)
+    # # This loop will run only if length of nfbad > 0
+    # mybad = np.array(nfbad)
+    # for i in range(len(nfbad)):
+        # # Eliminate the entries in the list with too few frequencies
+        # datalist.pop(mybad[i])
+        # mybad -= 1
+        # print 'File',files[nfbad[i]],'eliminated due to too few frequencies.'
     # Have to concatenate outa, outx, uvw, and time arrays
     outa = []
     outx = []
@@ -324,21 +381,103 @@ def read_idb(trange,filter=True):
     outm = []
     uvw = []
     time = []
+    # This could be a lot of data, so handle P data first to determine
+    # frequencies to eliminate
     for out in datalist:
+        outp.append(out['p'])
+    out['p'] = np.concatenate(outp,3)
+    if filter:
+        # Eliminate frequencies where there is no nonzero value
+        # sums power over every dimension except freq.
+        goodidx, = np.sum(np.sum(np.sum(out['p'],3),1),0).nonzero()
+        # Eliminate frequencies where there is no nonzero value
+        out['p'] = out['p'][:,:,goodidx]
+    for out in datalist:
+        if filter:
+            # Eliminate frequencies where there is no nonzero value
+            # before concatenation, to reduce memory load
+            out['p2'] = out['p2'][:,:,goodidx]
+            out['m'] = out['m'][:,:,goodidx]
+            out['a'] = out['a'][:,:,goodidx]
+            out['x'] = out['x'][:,:,goodidx]
+            out['fghz'] = out['fghz'][goodidx]
         outa.append(out['a'])
         outx.append(out['x'])
-        outp.append(out['p'])
         outp2.append(out['p2'])
         outm.append(out['m'])
         uvw.append(out['uvw'])
         time.append(out['time'])
-    out['a'] = np.concatenate(outa,3)
-    out['x'] = np.concatenate(outx,3)
-    out['p'] = np.concatenate(outp,3)
+    if tp_only:
+        out['a'] = outa
+        out['x'] = outx
+    else:
+        out['a'] = np.concatenate(outa,3)
+        out['x'] = np.concatenate(outx,3)
     out['p2'] = np.concatenate(outp2,3)
     out['m'] = np.concatenate(outm,3)
-    out['uvw'] = np.concatenate(uvw)
+    out['uvw'] = np.concatenate(uvw,1)
     out['time'] = np.concatenate(time)
+    if navg:
+        # Perform time average over navg seconds. Note that this does not do the
+        # right thing over time gaps (yet)        
+        # First set any time-frequency bins with M value 0 to nan
+        badidx = np.where(out['m'][0,0] == 0)
+        out['p'][:,:,badidx[0],badidx[1]] = np.nan
+        out['p2'][:,:,badidx[0],badidx[1]] = np.nan
+        if not tp_only:
+            out['a'][:,:,badidx[0],badidx[1]] = np.nan
+            out['x'][:,:,badidx[0],badidx[1]] = np.nan
+        # Truncate arrays so that times are evenly divisible by navg
+        nt = len(out['time'])
+        nout = nt/navg
+        ntnew = nout*navg
+        out['m'] = out['m'][:,:,:,:ntnew]
+        out['p'] = out['p'][:,:,:,:ntnew]
+        out['p2'] = out['p2'][:,:,:,:ntnew]
+        if not tp_only:
+            out['a'] = out['a'][:,:,:,:ntnew]
+            out['x'] = out['x'][:,:,:,:ntnew]
+        out['time'] = out['time'][:ntnew]
+        out['uvw'] = out['uvw'][:,:ntnew,:]
+        # Recast shape 
+        out['m'].shape = out['m'].shape[0:3]+(nout,navg)
+        out['p'].shape = out['p'].shape[0:3]+(nout,navg)
+        out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
+        if not tp_only:
+            out['a'].shape = out['a'].shape[0:3]+(nout,navg)
+            out['x'].shape = out['x'].shape[0:3]+(nout,navg)
+        out['time'].shape = (nout,navg)
+        out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
+        # Perform the average (mean) power and add to out dictionary
+        out.update({'meanp':np.nanmean(out['p'],4)})
+        # Perform sum over m, p and p2, to preserve SK
+        out['m'] = np.nansum(out['m'],4)
+        out['p'] = np.nansum(out['p'],4)
+        out['p2'] = np.nansum(out['p2'],4)
+        if not tp_only:
+            # Perform the average (mean), over non-nan values
+            out['a'] = np.nanmean(out['a'],4)
+            out['x'] = np.nanmean(out['x'],4)
+        out['time'] = np.mean(out['time'],1)  # Weighted average time
+        out['uvw'] = np.mean(out['uvw'],2)
+    return out
+    
+def flag_sk(out):
+    bl2ord = p.bl_list()
+    m = out['m']
+    sk = (m+1.)/(m-1.)*(m*out['p2']/(out['p']**2) - 1)
+    u_lim = 1.25
+    l_lim = 0.75
+    sk_flag = np.logical_or(sk > u_lim,sk < l_lim)
+    nant,npol,nf,nt = m.shape
+    for i in range(nant-1):
+        for j in range(i+1,nant):
+            flags = np.logical_or(sk_flag[i],sk_flag[j])
+            out['x'][bl2ord[i,j],flags] = np.nan
+    for i in range(nant):
+        if 'meanp' in out:
+            out['meanp'][i,sk_flag[i]] = np.nan
+        out['a'][i,sk_flag[i]] = np.nan
     return out
 
 def get_trange_files(trange):
@@ -346,7 +485,8 @@ def get_trange_files(trange):
     #  that time range, put them in a list, and return that list.
     #  This function is used in get_X_data(data).
     fstr = trange[0].iso
-    folder = '/dppdata1/IDB'
+    #folder = '/dppdata1/IDB'
+    folder='/data1/eovsa/fits/IDB/'+fstr.replace('-','').split()[0]
     try:
         os.listdir(folder)
     except:

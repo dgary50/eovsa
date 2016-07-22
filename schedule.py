@@ -164,6 +164,9 @@
 #      Implemented writing of DCM table to sql server as well as to ACC.
 #      Also added $FEM-INIT command to reset the FEM attenuations to
 #      their optimal value (for power level 3 dBm)
+#   2016-May-20  DG
+#      Starting a new scan now takes much longer (not sure why), so changed
+#      the wake_up() timer from 10 s to 15 s
 #
 
 import os, signal
@@ -436,7 +439,7 @@ class App():
             showerror('Error','Another '+self.subarray_name+' schedule is already running (PID '+ match_pid + ')')
             exit()
         
-        # Set function to handle signal alarm, if it should go off.  It is set for 10 s in inc_time().
+        # Set function to handle signal alarm, if it should go off.  It is set for 15 s in inc_time().
         signal.signal(signal.SIGALRM, self.wake_up)
 
         # Read ACC.ini file to get values for global variables
@@ -780,11 +783,11 @@ class App():
 
     #============================
     def wake_up(self):
-        # This is called whenever the 10-second alarm goes off, indicating the
+        # This is called whenever the 15-second alarm goes off, indicating the
         # process is stuck in sk_wait.  We simply send ourselves a SIGINT (ctrl-C),
         # which should hopefully do it, but we should also log the fact by setting
         # a flag in the self object.
-        self.error = 'The 10-s-alarm went off!'
+        self.error = 'The 15-s-alarm went off!'
         print self.error
         # Try to reestablish connection to the ROACHes, and set self.fpga accordingly
         # This will keep dla2roach() from hanging.
@@ -1462,9 +1465,9 @@ class App():
         # Update the clock
         self.label.configure(text=t.iso[:19])
 
-        # Set an alarm for 10 seconds.  If the process hangs for more than that, we will send ourselves
+        # Set an alarm for 15 seconds.  If the process hangs for more than that, we will send ourselves
         # a SIGINT via the Callback self.wake_up(), which should recover from sk_wait hang up
-        signal.alarm(10)  # This will reset alarm if it has not gone off yet
+        signal.alarm(15)  # This will reset alarm if it has not gone off yet
         tnow = time.time()
         self.telapsed = tnow - self.prev
         self.prev = tnow
@@ -1899,7 +1902,7 @@ class App():
             # moving satellite capability, track_mode for those should be 'SATELL'
             sh_dict['track_mode'] = 'FIXED '
             try:
-                f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/geo.txt',timeout=2)
+                f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/geo.txt',timeout=20)
                 lines = f.readlines()
             except:
                 print util.Time.now().iso,'Connection to Celestrak timed out.'

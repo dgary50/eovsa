@@ -30,6 +30,8 @@
 #    Changed to work with tawa and pipeline data in /data1/eovsa... dir
 #  2016-May-05  DG
 #    Add rd_miriad_tsys_16() routine to read 16-ant correlator data.
+#  2016-May-10  DG
+#    Fix bug that could not find older data that has been moved to pipeline
 #
 import subprocess, time, sys, glob
 import numpy as np
@@ -51,7 +53,6 @@ def file_list(trange,udb=False):
     '''
     # Find files corresponding to date of first time
     fstr = trange[0].iso
-
     if udb:
         # Check for existence of /data1/UDB:
         folder = '/data1/UDB/'+str(int(trange[0].jyear))
@@ -72,11 +73,13 @@ def file_list(trange,udb=False):
         folder = '/data1/IDB'
         if glob.glob(folder) == []:
             folder = '/dppdata1/IDB'
-        if glob.glob(folder) == []:
+            files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+            files.sort()
+        if files == [] or glob.glob(folder) == []:
             datdir = trange[0].iso[:10].replace('-','')
             folder = '/data1/eovsa/fits/IDB/'+datdir
-        files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
-        files.sort()
+            files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+            files.sort()
         # Check if second time has different date
         mjd1, mjd2 = trange.mjd.astype('int')
         if mjd2 != mjd1:

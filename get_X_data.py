@@ -18,9 +18,12 @@
 #    Also fixed bug where out was not truncated in readXdata() to actual number of times.
 #  2015-07-26  DG
 #    Fixed an off-by-one error in times returned by readXdata().
-#  2015-04-26  Shaheda
+#  2016-04-26  Shaheda
 #    Added the path for the 2015 data in /data1/eovsa/fits/IDB/directory on tawa#    machine.
-
+#  2016-05-11  DG
+#    Fixed the data path now that both /dppdata1 and the new /data1/eovsa
+#    path for older data are available.
+#
 import aipy
 import os
 from util import Time
@@ -197,14 +200,17 @@ def get_trange_files(trange):
     #  that time range, put them in a list, and return that list.
     #  This function is used in get_X_data(data).
     fstr = trange[0].iso
+
     folder = '/data1/IDB'
     if glob.glob(folder) == []:
         folder = '/dppdata1/IDB'
-    if glob.glob(folder) == []:
+        files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+        files.sort()
+    if files == [] or glob.glob(folder) == []:
         datdir = trange[0].iso[:10].replace('-','')
         folder = '/data1/eovsa/fits/IDB/'+datdir
-    files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
-    files.sort()
+        files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+        files.sort()
     mjd1, mjd2 = trange.mjd.astype('int')
     if mjd2 != mjd1:
         if (mjd2 - 1) != mjd1:

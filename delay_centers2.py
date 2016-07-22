@@ -22,12 +22,19 @@
 #   2016-Apr-09  DG
 #     Moved delay_centers2sql() to cal_header.py module, to join other,
 #     similar routines.
+#   2016-May-22  DG
+#     Fairly substantial rewrite of delay_centers(), and addition of
+#     routines auto_delay_search() and delay_search(), to work better
+#     and also work with either band6 or band23 data.
+#   2016-May-27  DG
+#     Some small changes to improve fitting, plus output delay_centers.txt
+#     file now only has the new values, so needs no editing to use.
 #
 
 import pcapture2 as p
 import numpy as np
 import matplotlib.pylab as plt
-import urllib2
+import urllib2, time
 from util import Time
 import get_sat_info as gs
 
@@ -46,13 +53,65 @@ def ant_str2list(ant_str):
         print 'Error: cannot interpret ant_str',ant_str
         return None
     return np.array(ant_list)
-                    
-def delay_centers(filename,satname,ants='ant1-13',doplot=False):
+
+def auto_delay_search(dat,freq,do_plot=False):
+    # Iteration 1 (1 ns steps)
+    pattern = []
+    taus = np.arange(-50,50,1)
+    for tau in taus:
+        arg = 2*np.pi*freq*tau
+        dat2 = dat*(np.cos(arg) - 1j*np.sin(arg))
+        pattern.append(np.median(np.angle(dat2) - np.roll(np.angle(dat2),1)))
+    tau_0 = taus[np.argmin(np.abs(np.array(pattern)))]
+    if do_plot: plt.plot(taus,pattern,'-')
+    # Iteration 2 (0.1 ns steps)
+    pattern = []
+    taus = np.arange(-5,5,0.1)+tau_0
+    for tau in taus:
+        arg = 2*np.pi*freq*tau
+        dat2 = dat*(np.cos(arg) - 1j*np.sin(arg))
+        pattern.append(np.median(np.angle(dat2) - np.roll(np.angle(dat2),1)))
+    tau_0 = taus[np.argmin(np.abs(np.array(pattern)))]
+    if do_plot: plt.plot(taus,pattern,'x')
+    # Iteration 2 (0.01 ns steps)
+    pattern = []
+    taus = np.arange(-0.5,0.5,0.01)+tau_0
+    for tau in taus:
+        arg = 2*np.pi*freq*tau
+        dat2 = dat*(np.cos(arg) - 1j*np.sin(arg))
+        pattern.append(np.median(np.angle(dat2) - np.roll(np.angle(dat2),1)))
+    tau_0 = taus[np.argmin(np.abs(np.array(pattern)))]
+    if do_plot: plt.plot(taus,pattern,'+')
+    if do_plot: plt.show()
+    return tau_0
+    
+def delay_search(dat,freq,tau_0=0,do_plot=False):
+    # Iteration 1 (0.2 ns steps)
+    pattern = []
+    taus = np.arange(-10,10,0.2)+tau_0
+    for tau in taus:
+        arg = 2*np.pi*freq*tau
+        pattern.append((dat*(np.cos(arg) - 1j*np.sin(arg))).sum())
+    tau_0 = taus[np.argmax(np.array(pattern))]
+    if do_plot: plt.plot(taus,pattern,'x')
+    # Iteration 2 (0.02 ns steps)
+    pattern = []
+    taus = np.arange(-1.0,1.0,0.02)+tau_0
+    for tau in taus:
+        arg = 2*np.pi*freq*tau
+        pattern.append((dat*(np.cos(arg) - 1j*np.sin(arg))).sum())
+    tau_0 = taus[np.argmax(np.array(pattern))]
+    if do_plot: plt.plot(taus,pattern,'+')
+    if do_plot: plt.show()
+    return tau_0
+
+def delay_centers(filename,satname,ants='ant1-13',band=23,doplot=False):
     ''' Reads specified 1-s capture file (specified as a filename string) 
-        and analyzes a specific range of channels in the 12-12.5 GHz band 
-        (band 23).  First measures the phase slope and converts to delay 
-        on each baseline, and then calculates the optimum delay needed to 
-        correct for the phase slope.
+        and analyzes data in either the 3.5-4 GHz band (band 6) or the 
+        12-12.5 GHz band (band 23).  First finds the peak amplitude of the
+        vector-summed measurements for delays, from -15 to 15 ns, on each 
+        baseline, and then applies the optimum delay needed to correct 
+        for the phase slope, optionally plotting the results.
 
         The keyword nants can be used to limit the solution to a smaller
         number of baselines.
@@ -60,37 +119,10 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
         If doplot is True, plots an overview plot of the corrected phases,
         including the standard deviation of the fit as text in each box.
         
-        The keyword chans allows adjusting which subchannels the delay is
-        determined from.  It is sometimes good to restrict the channel
-        range to avoid problems with multiple satellites at one HA.
-
         TODO: It then optionally reads the delay_centers.txt file from 
         the ACC and updates it.
     '''
     
-    def best_fit(freq, data, idx):
-        size = len(idx)*9
-        loc_idx = np.rollaxis(np.array([idx-4,idx-3,idx-2,idx-1,idx,idx+1,idx+2,idx+3,idx+4]),1)
-        local_idx = np.sort(loc_idx.reshape(size))
-        p1 = np.unwrap(np.angle(data[local_idx]))
-        p1.shape = (len(idx),9)
-        p0 = np.zeros(p1.shape,'float')
-        p2 = np.zeros(p1.shape,'float')
-        slope = np.zeros(len(idx),'float')
-        for i in range(len(idx)):
-            slope[i] = np.polyfit(freq[loc_idx[i]],p1[i],1)[0]
-            p0[i] = p1[i] - 2*np.pi*i
-            p2[i] = p1[i] + 2*np.pi*i
-        mslope = np.median(slope)
-        p0 = p0.reshape(size)
-        p1 = p1.reshape(size)
-        p2 = p2.reshape(size)
-        slp = [np.polyfit(freq[local_idx],p0,1)[0]]
-        slp.append(np.polyfit(freq[local_idx],p1,1)[0])
-        slp.append(np.polyfit(freq[local_idx],p2,1)[0])
-        slp = np.array(slp)
-        return slp[np.argmin(np.abs(mslope-slp))]
-        
     # First see if we can read delay_centers.txt from the ACC (return if failure)
     userpass = 'admin:observer@'
     try:
@@ -113,10 +145,19 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
     # Get satellite frequencies and polarizations (this is to use channel centers for fitting,
     # but is not yet completed)
     sat, = gs.get_sat_info(names=[satname])
-    freq = np.linspace(0,4095,4096)*0.4/4096 + 12.15
+    if band == 23:
+        freq = np.linspace(0,4095,4096)*0.4/4096 + 12.15
+    elif band ==6:
+        freq = np.linspace(0,4095,4096)*0.4/4096 + 3.65
+    else:
+        print 'Band MUST be either 23 (12-12.5 GHz) or 6 (3.5-4 GHz)'
+        return None, None, None
     freqmhz = (freq*10000. + 0.5).astype('int')/10.
     pol = sat['pollist']
-    ridx, = np.where(pol == 'R')
+    if band == 23:
+        ridx, = np.where(pol == 'R')
+    else:
+        ridx, = np.where(pol == 'H')
     rfrq = sat['freqlist'][ridx]
     ridx = []
     for f in rfrq:
@@ -124,10 +165,11 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
             ridx.append(np.where(f == freqmhz)[0][0])
         except:
             pass
-    ridx = np.array(ridx)
-    ridx = ridx[np.where(ridx > 2047)]  # Indexes to use for fitting phases
-    ridx = ridx[:-2]  # Last point or two seems to be unreliable
-    lidx, = np.where(pol == 'L')
+    idxmin = ridx[0]
+    if band == 23:
+        lidx, = np.where(pol == 'L')
+    else:
+        lidx, = np.where(pol == 'V')
     lfrq = sat['freqlist'][lidx]
     lidx = []
     for f in lfrq:
@@ -135,9 +177,8 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
             lidx.append(np.where(f == freqmhz)[0][0])
         except:
             pass
-    lidx = np.array(lidx)
-    lidx = lidx[np.where(lidx > 2047)]  # Indexes to use for fitting phases
-    lidx = lidx[:-1]  # Last point seems to be unreliable
+    idxmin = min(idxmin,lidx[0])
+    freq = freq[idxmin:]
 
     ant_list = ant_str2list(ants)
     nants = len(ant_list)
@@ -149,6 +190,9 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
     cy = np.zeros(nbl,dtype='float')
     # Read 1-s capture file of raw packets
     out = p.rd_jspec(filename)
+    # Eliminate data on channels less than minimum, and perform sum over times
+    out['x'] = out['x'][:,:,idxmin:,:].sum(3)
+    out['a'] = out['a'][:,:,idxmin:,:].sum(3)
     print 'Successfully read file',filename
     # Get conversion from antenna pair (bl) to "data source" index
     bl2ord = p.bl_list()
@@ -173,40 +217,27 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
     tau_a = np.zeros(nants,dtype='float')
     for i in range(nants):
         ai = ant_list[i]
-        # Determine phase difference between X and Y feed using auto-correlation on each ant
-        phi_ar = np.unwrap(np.angle(out['a'][ai,2,ridx].sum(1)))
-        phi_al = np.unwrap(np.angle(out['a'][ai,2,lidx].sum(1)))
-        tau_a[i] = (np.polyfit(freq[ridx],phi_ar,1)[0] + np.polyfit(freq[lidx],phi_al,1)[0])/(4*np.pi)
+        dat = out['a'][ai,2]
+        tau_a[i] = auto_delay_search(dat,freq)
+    #plt.figure()
     for i in range(0,nants-1):
         ai = ant_list[i]
         for j in range(i+1,nants):
             aj = ant_list[j]
-            # Form all possible phase measures, and check for consistency
-            data = out['x'][bl2ord[ai,aj],0,].sum(1)
-            tau_xx[i,j] = (best_fit(freq,data,ridx)+best_fit(freq,data,lidx))/(4*np.pi)
-            data = out['x'][bl2ord[ai,aj],1,].sum(1)
-            tau_yy[i,j] = (best_fit(freq,data,ridx)+best_fit(freq,data,lidx))/(4*np.pi)
-            data = out['x'][bl2ord[ai,aj],2,].sum(1)
-            tau_xy[i,j] = (best_fit(freq,data,ridx)+best_fit(freq,data,lidx))/(4*np.pi)
-            data = out['x'][bl2ord[ai,aj],3,].sum(1)
-            tau_yx[i,j] = (best_fit(freq,data,ridx)+best_fit(freq,data,lidx))/(4*np.pi)
-            # Nominally, tau_xx and tau_yy are the same, and are what we want.  However,
-            # the following two checks (residual slopes) should be small, so if either is 
-            # greater than 1 then set both tau_xx and tau_yy to the same value, whichever
-            # has the smaller slope residual.
-            chk_xx = np.abs(tau_xx[i,j] - (tau_xy[i,j] - tau_a[j]))
-            chk_yy = np.abs(tau_yy[i,j] - (tau_yx[i,j] + tau_a[j]))
-            if chk_xx > chk_yy and chk_xx > 1:
-                tau_xx[i,j] = tau_yy[i,j]
-            if chk_yy > chk_xx and chk_yy > 1:
-                tau_yy[i,j] = tau_xx[i,j]
+            dat = out['x'][bl2ord[ai,aj],0]
+            tau_0 = auto_delay_search(dat,freq)
+            tau_xx[i] = delay_search(dat,freq,tau_0)
+            dat = out['x'][bl2ord[ai,aj],1]
+            tau_0 = auto_delay_search(dat,freq)
+            tau_yy[i] = delay_search(dat,freq,tau_0)
+
             if doplot:
                 phi0 = tau_xx[i,j]*2*np.pi*freq
-                phix = np.angle(out['x'][bl2ord[ai,aj],0,].sum(1)) - phi0
+                phix = np.angle(out['x'][bl2ord[ai,aj],0]) - phi0
                 phix -= phix[2048]
                 ax[i,j].plot(freq, (phix + np.pi) % (2*np.pi) - np.pi , '.')
                 phi0 = tau_yy[i,j]*2*np.pi*freq
-                phiy = np.angle(out['x'][bl2ord[ai,aj],1,].sum(1)) - phi0
+                phiy = np.angle(out['x'][bl2ord[ai,aj],1]) - phi0
                 phiy -= phiy[2048]
                 ax[j,i].plot(freq, (phiy + np.pi) % (2*np.pi) - np.pi, '.')
             tau_ns[i,j] = tau_xx[i,j]             # delay in nsec
@@ -248,14 +279,14 @@ def delay_centers(filename,satname,ants='ant1-13',doplot=False):
                 # No update for this antenna
                 fmt = '{:4d}*{:12.3f} {:12.3f} {:12.3f} {:12.3f}'
                 print fmt.format(ant,dcenx[ant-1],dceny[ant-1],dcenx[ant-1],dceny[ant-1])
-                fmt = '{:4d} {:12.3f} {:12.3f} {:12.3f} {:12.3f}\n'
-                f.write(fmt.format(ant,dcenx[ant-1],dceny[ant-1],dcenx[ant-1],dceny[ant-1]))
+                fmt = '{:4d} {:12.3f} {:12.3f}\n'
+                f.write(fmt.format(ant,dcenx[ant-1],dceny[ant-1]))
             else:
                 idx = idx[0]
                 fmt = '{:4d} {:12.3f} {:12.3f} {:12.3f} {:12.3f}'
                 print fmt.format(ant,dcenx[ant-1],dceny[ant-1],newdlax[idx],newdlay[idx])
-                fmt = '{:4d} {:12.3f} {:12.3f} {:12.3f} {:12.3f}\n'
-                f.write(fmt.format(ant,dcenx[ant-1],dceny[ant-1],newdlax[idx],newdlay[idx]))
+                fmt = '{:4d} {:12.3f} {:12.3f}\n'
+                f.write(fmt.format(ant,newdlax[idx],newdlay[idx]))
     f.close()
     fmt = '{:6.2f} '*nants
     for i in range(nants): print fmt.format(*tau_ns[i])
