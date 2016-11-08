@@ -136,7 +136,7 @@ def load_sidereal_cats():
     '''
     # both \r and \n can be used in files to mark new lines and sometimes both
     # so split lines based on either and don't split twice if there is more than one in a row
-    tmp = os.popen('cat SourceCat/*.srclist').read().strip().replace('\r','\n')
+    tmp = os.popen('cat '+os.path.expandvars('$EOVSAPY')+'/SourceCat/*.srclist').read().strip().replace('\r','\n')
     lines = re.split('\n+',tmp)
     
     srclist = []

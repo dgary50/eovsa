@@ -3,6 +3,7 @@
 # 2015-May-29  DG
 #    Converted from using datime() to using Time() based on astropy
 #
+import os
 
 class Calibrator():
     def setra(self, rastr):
@@ -19,7 +20,7 @@ class Calibrator():
 
 def readvlacaldb():
     #filename = 'C:\Home\OVSA Expansion\Design\Calibration\\vla_calibrator_list.txt'
-    filename = 'vla_calibrator_list.txt'  # Must be in current directory
+    filename = os.path.expandvars('${EOVSAPY}')+'/SourceCat/vla_calibrator_list.txt'  # Must be in current directory
     f = open(filename)
     # read lines and close file
     lines = f.readlines()
