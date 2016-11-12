@@ -39,6 +39,10 @@
 #   2016-Jun-15  DG
 #    Added new versions sp_apply_cal2() and sp_bg_subtract2() to work
 #    with new data format.
+#   2016-Aug-07  DG
+#    Change sp_offsets() to give RA and Dec offsets for old ants.  Also
+#    wrote offsets2ants() routine (to replace one that I wrote earlier,
+#    but somehow got lost...)
 #
 
 if __name__ == "__main__":
@@ -366,9 +370,10 @@ def sp_bsize(x,y):
         ax[ant % nrow, ant/nrow].plot(y['fghz'][fgood],y['decparms'][2,fgood,ant]*2*np.sqrt(np.log(2))/10000,'r.')
     plt.draw()
     
-def sp_offsets(x,y):
+def sp_offsets(x,y,save_plot=False):
     import matplotlib.pyplot as plt
 
+    oldant = [8,9,10,12]
     nfrq, npnt, nant = x['rao'].shape
     nrow = (nant+1)/2
     ncol = 2
@@ -391,16 +396,28 @@ def sp_offsets(x,y):
         ramed = np.median(x['raparms'][1,fgood,ant])
         ax[ant/ncol,ant % ncol].plot(x['fghz'][fgood],x['raparms'][1,fgood,ant]/10000,'b.')
         ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*ramed/10000,'b')
-        ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),transform=ax[ant/2,ant % 2].transAxes)
         decmed = np.median(x['decparms'][1,fgood,ant])
         ax[ant/ncol,ant % ncol].plot(x['fghz'][fgood],x['decparms'][1,fgood,ant]/10000,'r.')
         ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*decmed/10000,'r')
-        ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),transform=ax[ant/2,ant % 2].transAxes)
+        if ant in oldant:
+            ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),color='red',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),color='red',transform=ax[ant/2,ant % 2].transAxes)
+        else:
+            ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),color='gray',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),color='gray',transform=ax[ant/2,ant % 2].transAxes)
         xel, el = solpnt.dradec2dazel(x['ra0'],x['dec0'],t1,ramed*user2rad/cosdec,decmed*user2rad)
-        ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
-        ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
-        xelx.append(xel*180./np.pi)
-        elx.append(el*180./np.pi)
+        if ant in oldant:
+            ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),color='gray',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),color='gray',transform=ax[ant/2,ant % 2].transAxes)
+        else:
+            ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
+        if ant in oldant:
+            xelx.append(ramed/10000)
+            elx.append(decmed/10000)
+        else:
+            xelx.append(xel*180./np.pi)
+            elx.append(el*180./np.pi)
     plt.draw()
     f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
     f.set_size_inches(16,2*((nant+2)/2),forward=True)
@@ -418,23 +435,94 @@ def sp_offsets(x,y):
         ramed = np.median(y['raparms'][1,fgood,ant])
         ax[ant/ncol,ant % ncol].plot(y['fghz'][fgood],y['raparms'][1,fgood,ant]/10000,'b.')
         ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*ramed/10000,'b')
-        ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),transform=ax[ant/2,ant % 2].transAxes)
         decmed = np.median(y['decparms'][1,fgood,ant])
         ax[ant/ncol,ant % ncol].plot(y['fghz'][fgood],y['decparms'][1,fgood,ant]/10000,'r.')
         ax[ant/ncol,ant % ncol].plot([0,18],np.array([1,1])*decmed/10000,'r')
-        ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),transform=ax[ant/2,ant % 2].transAxes)
+        if ant in oldant:
+            ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),color='red',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),color='red',transform=ax[ant/2,ant % 2].transAxes)
+        else:
+            ax[ant/ncol,ant % ncol].text(0.05,0.80,'RA = {:6.3f}'.format(ramed/10000.),color='gray',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.05,0.65,'Dec = {:6.3f}'.format(decmed/10000.),color='gray',transform=ax[ant/2,ant % 2].transAxes)
         xel, el = solpnt.dradec2dazel(y['ra0'],y['dec0'],t1,ramed*user2rad/cosdec,decmed*user2rad)
-        ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
-        ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),transform=ax[ant/2,ant % 2].transAxes)
-        xely.append(xel*180./np.pi)
-        ely.append(el*180./np.pi)
+        if ant in oldant:
+            ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),color='gray',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),color='gray',transform=ax[ant/2,ant % 2].transAxes)
+        else:
+            ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
+            ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
+        if ant in oldant:
+            xely.append(ramed/10000)
+            ely.append(decmed/10000)
+        else:
+            xely.append(xel*180./np.pi)
+            ely.append(el*180./np.pi)
     plt.draw()
-    x = (np.array(xelx) + np.array(xely))/2.
-    y = (np.array(elx) + np.array(ely))/2.
-    dx = abs((np.array(xelx) - np.array(xely)))/2.
-    dy = abs((np.array(elx) - np.array(ely)))/2.
-    return x,y,dx,dy
+    xout = (np.array(xelx) + np.array(xely))/2.
+    yout = (np.array(elx) + np.array(ely))/2.
+    dxout = abs((np.array(xelx) - np.array(xely)))/2.
+    dyout = abs((np.array(elx) - np.array(ely)))/2.
+    plt.figure()
+    plt.errorbar(xout,yout,xerr=dxout,yerr=dyout,fmt=' ')
+    plt.axis('equal')
+    plt.plot(0.25*np.cos(np.linspace(0,2*np.pi)),0.25*np.sin(np.linspace(0,2*np.pi)))
+    plt.xlim(-0.5,0.5)
+    plt.ylim(-0.5,0.5)
+    plt.xlabel('XDec or XEl Offset [deg]')
+    plt.xlabel('Dec or El Offset [deg]')
+    for i in range(nant):
+        plt.text(xout[i],yout[i],str(i+1))
+    plt.title('EOVSA Pointing for '+t1.iso)
+    if save_plot:
+        tstr = t1.iso.replace('-','').replace(':','').replace(' ','')[:14]
+        plt.savefig('/common/webplots/PTG/PTG'+tstr+'.png',bbox_inches='tight')
+    return xout,yout,dxout,dyout
+
+def offsets2ants(start_mjd,xoff,yoff,ant_str=None):
+    ''' Given a start time (mjd) and a list of offsets output by sp_offsets()
+        for 13 antennas, convert to pointing coefficients (multiply by 10000),
+        add to coefficients listed in stateframe, and send to the relevant 
+        antennas.  The antennas to update are specified with ant_str 
+        (defaults to no antennas, for safety).        
+    '''
+    if ant_str is None:
+        print 'No antenna list specified, so there is nothing to do!'
+        return
+    try:
+        timestamp = Time(start_mjd,format='mjd').lv
+    except:
+        print 'Error interpreting start time in mjd'
+        return
+    import pcapture2 as p
+    import dbutil as db
+    import adc_cal2 as ac
+    import stateframe as stf
+    accini = stf.rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
+    antlist = p.ant_str2list(ant_str)
+    if antlist is None:
+        return
+    cursor = db.get_cursor()
+    # Read current stateframe data (as of 10 s ago)
+    D15data = db.get_dbrecs(cursor,dimension=15,timestamp=timestamp,nrecs=1)
+    p1_cur, = D15data['Ante_Cont_PointingCoefficient1']
+    p7_cur, = D15data['Ante_Cont_PointingCoefficient7']
     
+    for i in antlist:
+        p1_inc = int(xoff[i]*10000)
+        p7_inc = int(yoff[i]*10000)
+        p1_new = p1_cur[i] + p1_inc
+        p7_new = p7_cur[i] + p7_inc
+        print 'Updating P1 for Ant',i+1,'P1_old =',p1_cur[i],'P1_inc =',p1_inc,'P1_new =',p1_new
+        cmd1 = 'pointingcoefficient1 '+str(p1_new)+' ant'+str(i+1)
+        print 'Updating P7 for Ant',i+1,'P7_old =',p7_cur[i],'P7_inc =',p7_inc,'P7_new =',p7_new
+        cmd7 = 'pointingcoefficient7 '+str(p7_new)+' ant'+str(i+1)
+        print 'Commands to be sent:'
+        print cmd1
+        print cmd7
+        ac.send_cmds([cmd1],acc)
+        ac.send_cmds([cmd7],acc)
+
 if __name__ == "__main__":
     ''' Run automatically via cron job, or at command line.
         Usage: python /common/python/current/calibration.py "2014-12-15 18:30"
@@ -443,7 +531,7 @@ if __name__ == "__main__":
         The logic is to check whether there is a new SOLPNTCAL available, and
         analyze it if so.  Compares times from solpnt.find_solpnt() with current
         time and analyzes any that are between 5 and 10 minutes old.
-    '''    
+    '''
     arglist = str(sys.argv)
     t = Time.now()
     if len(sys.argv) == 2:
@@ -480,6 +568,7 @@ if __name__ == "__main__":
         x, y, qual = solpntanal(t,udb=True)
     elif socket.gethostname() == 'dpp':
         x, y, qual = solpntanal(t,udb=False)
+        xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
     else:
         print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
         exit()

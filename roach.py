@@ -62,6 +62,15 @@
 #      adj_eq_auto() does the job by calling set_eq_all() - set equalizer
 #      gain for all antennas, jcap_data() - capture some data, calc_eq()
 #      - calculate new eq levels, plot_apratio() - plot power/auto-corr ratio
+#   2016-Aug-28  DG
+#      Added new routine set_fftshift() to allow setting of the fftshift to
+#      the given value.
+#   2016-Oct-04  DG
+#      Added commented lines for 300 MHz clock, comments to be swapped
+#      where specified in order to set up 300 MHz design
+#   2016-Nov-12  DG
+#      Clean up function call for adj_eq_auto() and set_eq_all() for more rational
+#      handling of missing arguments. 
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
@@ -338,7 +347,9 @@ class Roach():
 
         # Set accumulation start and length (calculate from ADC clock)
         acc_start = int(0.001 * clkHz / 8192.) + 54   # ~1 ms delay
+        # Swap comments here when 300 MHz design is to be configured.
         acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration
+        #acc_len   = int(0.019 * clkHz / 8192.) - 223   # ~19 ms duration
         if nbds == 8:
             # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
             # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
@@ -395,7 +406,11 @@ class Roach():
                 self.fpga.write_int('swreg_ip0_roach1',ip2int(fx[0,j+1]))
                 self.fpga.write_int('swreg_ip1_roach1',ip2int(fx[1,j+1]))
             else:
+                # ***Change above lines similarly...
                 for j in range(8):
+				    # Swap comments here when 300 MHz design is to be configured.
+                    #self.fpga.write_int('ip0',ip2int(fx[0,j]),offset=j)
+                    #self.fpga.write_int('ip1',ip2int(fx[1,j]),offset=j)
                     self.fpga.write_int('swreg_ip0_roach'+str(j),ip2int(fx[0,j]))
                     self.fpga.write_int('swreg_ip1_roach'+str(j),ip2int(fx[1,j]))
                 
@@ -567,8 +582,8 @@ class Roach():
                 for qdrstr in qdrs:
                     if qdrstr[5:] == 'ctrl':
                         q = qdr.Qdr(self.fpga,qdrstr[:4])
-                        print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal()
-                
+                        print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal()#verbosity=2)
+                        #print 'QDR',qdrstr[:4],'calibration skipped...'
 
         self.msg = 'Success'
 
@@ -598,11 +613,24 @@ class Roach():
         else:
             self.msg = 'Could not get delays--client not connected'
 
+#======= Roach.set_fftshift ========
+    def set_fftshift(self,fftshift):
+        ''' Sets the FFT_shift to the given value.
+        '''
+        if self.fpga.is_connected():
+            pktdla = self.fpga.read_int('swreg_pkt_fft',0) >> 16
+            self.fpga.write_int('swreg_pkt_fft',(2**16)*pktdla+fftshift)
+            self.msg = 'Success'
+        else:
+            self.msg = 'Could not set frequency sequence--client not connected'
+
 #======= Roach.set_sequence ========
     def set_sequence(self,bands):
         ''' Sets frequency sequence (called once each scan change)
             The bands is an array of 0-based band numbers
         '''
+        # Swap comments here when 300 MHz design is to be configured.
+        #pass
         if self.fpga.is_connected():
             for i in range(10):
                 idx = i * 5
@@ -1289,9 +1317,10 @@ def rmon():
     return numpy.append(vals,numpy.array(lines[0].strip().strip('[]').split(',')).astype('int'))
     
 #======== adjust equlizer values ========
-def adj_eq_auto(niter=2,co_in=numpy.zeros((16,2,34))+16.,do_plot=False):
+def adj_eq_auto(niter=2,co_in=None,do_plot=False):
     import matplotlib.pyplot as plt
-    # initialize equalizer coefficients to 16
+    if co_in is None:
+        co_in = numpy.zeros((16,2,34))+16.    # initialize equalizer coefficients to 16
     co0=co_in
     set_eq_all(co=copy.deepcopy(co0))
     po0, ac0, fseq0 = jcap_data()
@@ -1316,7 +1345,11 @@ def adj_eq_auto(niter=2,co_in=numpy.zeros((16,2,34))+16.,do_plot=False):
     co_out=co1
     return co_out
 
-def set_eq_all(roach_list=[Roach('roach'+str(i+1)) for i in range(8)],co=numpy.zeros((16,2,34))+16.,verbose=False):
+def set_eq_all(roach_list=None,co=None,verbose=False):
+    if roach_list is None:
+        roach_list = [Roach('roach'+str(i+1)) for i in range(8)]
+    if co is None:
+        co = numpy.zeros((16,2,34))+16.
     print 'setting equalizer levels for all 8 ROACHes...'
     for i in range(8): 
         if verbose:

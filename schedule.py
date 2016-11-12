@@ -167,7 +167,17 @@
 #   2016-May-20  DG
 #      Starting a new scan now takes much longer (not sure why), so changed
 #      the wake_up() timer from 10 s to 15 s
-#
+#   2016-Aug-17  DG
+#      Change to connect2roach() to minimize number of FTP accesses to 
+#      files on ACC.
+#   2016-Sep-07  DG
+#      Aborted the preceding, since it never worked, and the ACC is fixed...
+#   2016-Oct-26  DG
+#      Added $CAPTURE-1S command, to capture 1 s of data packets on dpp.
+#      Data recording must first be stopped, using $SCAN-STOP.
+#   2016-Nov-04  DG
+#      Add $SCAN-START NODATA option, so that a scan is set up for running
+#      but no data is recorded (needed prior to $CAPTURE-1S).
 
 import os, signal
 os.chdir('/home/sched/Dropbox/PythonCode/Current')
@@ -198,6 +208,7 @@ import starburst
 from matplotlib.mlab import find
 import cal_header
 import adc_cal2
+import pcapture2
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
@@ -762,7 +773,11 @@ class App():
         for roach_ip in roach_ips:
             # Make connection to ROACHes
             rnum = int(roach_ip[5:6])-1
-            self.roaches.append(roachModule.Roach(roach_ip, boffile_name))
+            if len(self.roaches) > 0:
+                cfg = self.roaches[0].cfg
+            else:
+                cfg = None
+            self.roaches.append(roachModule.Roach(roach_ip, boffile_name))#, cfg))
             if self.roaches[-1].msg == 'Success':
                 print roach_ip,'is reachable'
                 self.roaches[-1].dlasweep = None
@@ -1487,6 +1502,12 @@ class App():
                 print t.iso,msg
             except:
                 break
+        # Attempt to read from spawned task pcapture2.capture_1s() queue.
+        try:
+            msg = pcapture2.q.get_nowait()
+            print t.iso,msg
+        except:
+            pass
             
         # If this schedule is running the second subarray, confirm that Subarray1 is running; if it is not,
         # print a warning message to the log file.
@@ -1895,7 +1916,7 @@ class App():
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
             print 'Source is',cmds[1]
-        elif cmds[0].upper() == 'GEOSAT':
+        elif cmds[0].upper() == 'GEOSAT' or cmds[0].upper() == 'DELAYCAL':
             sh_dict['project'] = 'GEOSAT'
             sh_dict['source_id'] = cmds[1].replace('_',' ')
             # These are geostationary satellites so far.  If/when we add
@@ -2084,8 +2105,21 @@ class App():
                     t = threading.Thread(target=adc_cal2.set_fem_attn, kwargs={'ant_str':ant_str})
                     t.daemon = True
                     t.start()
+                #==== CAPTURE-1S ====
+                elif ctlline.split(' ')[0].upper() == '$CAPTURE-1S':
+                    # Use $CAPTURE-1S <stem> where <stem> is a string to add to the end of the
+                    # capture filename.  The capture is done on the dpp.  This will take a few
+                    # seconds to complete.
+                    cmd, stem = ctlline.strip().split(' ')
+                    # Capture 1 s of data on dpp
+                    t = threading.Thread(target=pcapture2.capture_1s, kwargs={'stem':stem})
+                    t.daemon = True
+                    t.start()
                 #==== SCAN-START ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-START':
+                    # Command by itself is normal scan start, while $SCAN-START NODATA
+                    # means set up scan, but do not take data.  Used for some calibrations.
+                    nodata = ctlline.strip().split(' ')[-1].upper()
                     # Do any tasks here that are required to start a new scan
                     sys.stdout.write('Started new scan\n')
                     if self.subarray_name == 'Subarray1':
@@ -2180,8 +2214,11 @@ class App():
                             sys.stdout.flush()
                             self.error = 'Err: Cannot write scan header to SQL'
                     
-                    # Set scan state to on
-                    sf_dict['scan_state'] = 1
+                    if nodata == 'NODATA':
+                        pass
+                    else:
+                        # Set scan state to on
+                        sf_dict['scan_state'] = 1
                 #==== SCAN-RESTART ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-RESTART':
                     # This command is for restarting a scan with the same setup as the

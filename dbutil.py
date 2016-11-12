@@ -13,8 +13,17 @@
 #   2015-Apr-02  DG
 #      Finally figured out a way to get the right table version for a given
 #      timestamp.  Added routine find_table_version() to accomplish it.
+#   2016-Aug-03  DG
+#      Slight change in get_dbrecs(), to call find_table_version(), if the
+#      version is not given.
+#   2016-Aug-04  DG
+#      Another change to allow get_dbrecs() to be called with a Time()
+#      object or even a timerange (which means nrecs need not be given).
+#   2016-Aug-06  DG
+#      Made get_chi() and a14_wsram() version independent.
 
 import stateframedef
+import util
 from util import Time
 
 def get_cursor():
@@ -53,10 +62,34 @@ def find_table_version(cursor,timestamp,scan_header=False):
 def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None):
     ''' Fairly general routine for fetching a contiguous block of data and returning
         it as a dictionary of arrays of size nrecs x dimension.
+        
+        Note: timestamp can be given as a single LabVIEW timestamp, or a
+        single Time() object, or as a two-element Time() object representing
+        a timerange.  If the latter, nrecs is determined from the timerange.
     '''
+    te = None
+    if type(timestamp) == util.Time:
+        try:
+            if len(timestamp) == 2:
+                # This is a timerange as Time object.  Generate nrecs from time difference (in s)
+                ts = timestamp[0].lv
+                nrecs = int(round(timestamp[1].lv - timestamp[0].lv))
+            else:
+                print 'Too many times in Time() object.'
+                return {}
+        except:
+            # This is a single Time object
+            ts = timestamp.lv
+    else:
+        ts = timestamp
     if type(cursor) != stateframedef.pyodbc.Cursor:
         print 'No database open'
         return {}
+    if ts is None:
+        print 'A timestamp must be given.'
+        return {}
+    if version is None:
+        version = int(find_table_version(cursor,ts))
     if type(version) != int:
         print 'Version must be int type.'
         return {}
@@ -66,14 +99,11 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
     if type(nrecs) != int:
         print 'NRecs must be int type.'
         return {}
-    if type(timestamp) is None:
-        print 'A timestamp must be given.'
-        return {}
     nvals = dimension*nrecs
     # Generate table name
     table = 'fV'+str(version)+'_vD'+str(dimension)
     # Generate query
-    query = 'select top '+str(nvals)+' * from '+table+' where timestamp >= '+str(timestamp)
+    query = 'select top '+str(nvals)+' * from '+table+' where timestamp >= '+str(ts)
     try:
         cursor.execute(query)
     except:
@@ -81,6 +111,8 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
         print stateframedef.sys.exc_info()[0]
     # Extract the data
     data = stateframedef.numpy.transpose(stateframedef.numpy.array(cursor.fetchall(),'object'))
+    # Override nrecs with the number of records actually read (could be less than requested)
+    nrecs = len(data[0])/dimension
     # Get names from description
     names = stateframedef.numpy.array(cursor.description)[:,0]
     # Reshape data array for zipping into dictionary.  Each dictionary entry will be
@@ -119,7 +151,8 @@ def a14_wscram(trange):
     '''
     tstart,tend = [str(i) for i in trange.lv]
     cursor = get_cursor()
-    query = 'select Timestamp,Ante_Fron_Wind_State from fV65_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
+    ver = find_table_version(cursor,trange[0].lv)
+    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
     data, msg = do_query(cursor, query)
     cursor.close()
     if msg == 'Success':
@@ -133,7 +166,8 @@ def get_chi(trange):
     '''
     tstart,tend = [str(i) for i in trange.lv]
     cursor = get_cursor()
-    query = 'select Timestamp,I16,Sche_Data_Chi from fV65_vD16 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+    ver = find_table_version(cursor,trange[0].lv)
+    query = 'select Timestamp,I16,Sche_Data_Chi from fV'+ver+'_vD16 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
     data, msg = do_query(cursor, query)
     cursor.close()
     if msg == 'Success':

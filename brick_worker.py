@@ -428,7 +428,14 @@ class BrickWorker(i_worker.IWorker):
             num = int(str_val, 16)
         except Exception:
             num = 0
-        return (num >> 12) * 2**((num & 0xFFF) - 2082)
+        mantissa = num >> 12
+        if mantissa > 0x800000000 :
+            mantissa -= 0x1000000000
+        if mantissa == 0 :
+            return(0.0)
+        exp = num & 0x00000FFFL
+        exp -= 2082
+        return (mantissa * pow(2.0, float(exp))) # return (num >> 12) * 2**((num & 0xFFF) - 2082)
 
     # ---------------------------------------------------------------
     # INTERFACE IMPLEMENTATIONS

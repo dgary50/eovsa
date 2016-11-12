@@ -20,6 +20,8 @@
 #  2016-06-30  DG
 #    Change to allow input of a file list to read_idb() in place of
 #    trange (used by the realtime pipeline).
+#  2016-07-23  DG
+#    Widen range of allowed SK to 0.7 - 1.5.
 
 import aipy
 import os
@@ -343,36 +345,56 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
                 print 'Source name:',out['source'],'is different from initial source name:',src
                 print 'Will stop reading files.'
                 break
+
+            if navg:
+                # Perform time average over navg seconds. Note that this does not do the
+                # right thing over time gaps (yet)        
+                # First set any time-frequency bins with M value 0 to nan
+                badidx = np.where(out['m'][0,0] == 0)
+                out['p'][:,:,badidx[0],badidx[1]] = np.nan
+                out['p2'][:,:,badidx[0],badidx[1]] = np.nan
+                if not tp_only:
+                    out['a'][:,:,badidx[0],badidx[1]] = np.nan
+                    out['x'][:,:,badidx[0],badidx[1]] = np.nan
+                # Truncate arrays so that times are evenly divisible by navg
+                nt = len(out['time'])
+                nout = nt/navg
+                ntnew = nout*navg
+                out['m'] = out['m'][:,:,:,:ntnew]
+                out['p'] = out['p'][:,:,:,:ntnew]
+                out['p2'] = out['p2'][:,:,:,:ntnew]
+                if not tp_only:
+                    out['a'] = out['a'][:,:,:,:ntnew]
+                    out['x'] = out['x'][:,:,:,:ntnew]
+                out['time'] = out['time'][:ntnew]
+                out['uvw'] = out['uvw'][:,:ntnew,:]
+                # Recast shape 
+                out['m'].shape = out['m'].shape[0:3]+(nout,navg)
+                out['p'].shape = out['p'].shape[0:3]+(nout,navg)
+                out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
+                if not tp_only:
+                    out['a'].shape = out['a'].shape[0:3]+(nout,navg)
+                    out['x'].shape = out['x'].shape[0:3]+(nout,navg)
+                out['time'].shape = (nout,navg)
+                out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
+                # Perform the average (mean) power and add to out dictionary
+                out.update({'meanp':np.nanmean(out['p'],4)})
+                # Perform sum over m, p and p2, to preserve SK
+                out['m'] = np.nansum(out['m'],4)
+                out['p'] = np.nansum(out['p'],4)
+                out['p2'] = np.nansum(out['p2'],4)
+                if not tp_only:
+                    # Perform the average (mean), over non-nan values
+                    out['a'] = np.nanmean(out['a'],4)
+                    out['x'] = np.nanmean(out['x'],4)
+                out['time'] = np.mean(out['time'],1)  # Weighted average time
+                out['uvw'] = np.mean(out['uvw'],2)
+
+
             datalist.append(out)
         except:
             print 'The problematic file is:',file
-    # Remove code that attempts to match frequencies--files will always have the full
-    # number of frequencies now
-    # # Sometimes an IDB file will be truncated early and have a number of frequencies
-    # # that is incompatible with the others, so make a list of the number of frequencies 
-    # # in each IDBdata and keep only those with the most common number.
-    # nflist = []
-    # # Find the maximum number of frequencies
-    # for out in datalist:
-        # nflist.append(len(out['fghz']))
-    # nflist = np.array(nflist)
-    # nfgood = np.median(nflist)
-    # badidx, = np.where(nflist != nfgood)
-    # if len(badidx) != 0 and len(nflist) < 3:
-        # print 'Files have different numbers of frequencies, and result is ambiguous.'
-        # print 'Will take the file with the higher number of frequencies'
-        # nfgood = nflist.max()
-    # # Make a list, nfbad, of entries with fewer than the max number of frequencies
-    # nfbad = (np.where(nfgood != nflist)[0]).tolist()
-    # for i in range(len(nflist)):
-        # if nflist[i] != nfgood: nfbad.append(i)
-    # # This loop will run only if length of nfbad > 0
-    # mybad = np.array(nfbad)
-    # for i in range(len(nfbad)):
-        # # Eliminate the entries in the list with too few frequencies
-        # datalist.pop(mybad[i])
-        # mybad -= 1
-        # print 'File',files[nfbad[i]],'eliminated due to too few frequencies.'
+            
     # Have to concatenate outa, outx, uvw, and time arrays
     outa = []
     outx = []
@@ -417,57 +439,14 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
     out['m'] = np.concatenate(outm,3)
     out['uvw'] = np.concatenate(uvw,1)
     out['time'] = np.concatenate(time)
-    if navg:
-        # Perform time average over navg seconds. Note that this does not do the
-        # right thing over time gaps (yet)        
-        # First set any time-frequency bins with M value 0 to nan
-        badidx = np.where(out['m'][0,0] == 0)
-        out['p'][:,:,badidx[0],badidx[1]] = np.nan
-        out['p2'][:,:,badidx[0],badidx[1]] = np.nan
-        if not tp_only:
-            out['a'][:,:,badidx[0],badidx[1]] = np.nan
-            out['x'][:,:,badidx[0],badidx[1]] = np.nan
-        # Truncate arrays so that times are evenly divisible by navg
-        nt = len(out['time'])
-        nout = nt/navg
-        ntnew = nout*navg
-        out['m'] = out['m'][:,:,:,:ntnew]
-        out['p'] = out['p'][:,:,:,:ntnew]
-        out['p2'] = out['p2'][:,:,:,:ntnew]
-        if not tp_only:
-            out['a'] = out['a'][:,:,:,:ntnew]
-            out['x'] = out['x'][:,:,:,:ntnew]
-        out['time'] = out['time'][:ntnew]
-        out['uvw'] = out['uvw'][:,:ntnew,:]
-        # Recast shape 
-        out['m'].shape = out['m'].shape[0:3]+(nout,navg)
-        out['p'].shape = out['p'].shape[0:3]+(nout,navg)
-        out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
-        if not tp_only:
-            out['a'].shape = out['a'].shape[0:3]+(nout,navg)
-            out['x'].shape = out['x'].shape[0:3]+(nout,navg)
-        out['time'].shape = (nout,navg)
-        out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
-        # Perform the average (mean) power and add to out dictionary
-        out.update({'meanp':np.nanmean(out['p'],4)})
-        # Perform sum over m, p and p2, to preserve SK
-        out['m'] = np.nansum(out['m'],4)
-        out['p'] = np.nansum(out['p'],4)
-        out['p2'] = np.nansum(out['p2'],4)
-        if not tp_only:
-            # Perform the average (mean), over non-nan values
-            out['a'] = np.nanmean(out['a'],4)
-            out['x'] = np.nanmean(out['x'],4)
-        out['time'] = np.mean(out['time'],1)  # Weighted average time
-        out['uvw'] = np.mean(out['uvw'],2)
     return out
     
 def flag_sk(out):
     bl2ord = p.bl_list()
     m = out['m']
     sk = (m+1.)/(m-1.)*(m*out['p2']/(out['p']**2) - 1)
-    u_lim = 1.25
-    l_lim = 0.75
+    u_lim = 1.5
+    l_lim = 0.7
     sk_flag = np.logical_or(sk > u_lim,sk < l_lim)
     nant,npol,nf,nt = m.shape
     for i in range(nant-1):

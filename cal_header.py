@@ -31,8 +31,15 @@
 #   2016-05-21  DG
 #      Change to dcm_master_table2sql() to allow output from one of the
 #      better adc_cal2.py routines (get_dcm_attn()).
+#   2016-08-03  DG
+#      Added two type definitions for DCM_Attn_Val and FEM_Attn_Val and
+#      their associated xml and sql routines.
+#   2016-10-17  DG
+#      Added a dla_update2sql() routine to make updates to the delay center
+#      easier.
 #
 import struct, util
+import stateframe as sf
 import numpy as np
 
 def cal_types():
@@ -50,7 +57,9 @@ def cal_types():
             2:['DCM master base attenuation table [units=dB]','dcm_master_table2xml',1.0],
             3:['DCM base attenuation table [units=dB]','dcm_table2xml',1.0],
             4:['Delay centers [units=ns]','dlacen2xml',1.0],
-            5:['Equalizer gains','eq_gain2xml',1.0]}
+            5:['Equalizer gains','eq_gain2xml',1.0],
+            6:['DCM attenuator values [units=dB]','dcm_attn_val2xml',1.0],
+            7:['FEM attenuator values [units=dB]','fem_attn_val2xml',1.0]}
 
 def str2bin(string):
     ''' Convert the given string to a binary packed byte buffer '''
@@ -311,6 +320,108 @@ def eq_gain2xml():
     buf += str2bin('</Cluster>')   # End EQ_Gain cluster
 
     return buf
+
+def dcm_attn_val2xml():
+    ''' Writes the XML description of the DCM attenuator values as 
+        measured by DCMATTNTEST, and analyzed by DCM_attn_anal().  The
+        values are complex numbers, in dB, for each of the attenuator 
+        bits (2, 4, 8 and 16).  Returns a binary representation of the 
+        xml, for putting into the SQL database.  The version number 
+        must be incremented each time there is a change to the structure 
+        of this header.
+    '''
+    version = cal_types()[6][2]
+    
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>DCM_Attn_Val</Name>')
+    buf += str2bin('<NumElts>4</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+    
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>'+str(version)+'</Val>')
+    buf += str2bin('</DBL>')
+
+    # List of real part of attenuations (nant x npol x nbits) (4 x 2 x 16).
+    # Note inverted order of dimensions  
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>DCM_Attn_Real</Name>')
+    buf += str2bin('<Dimsize>4</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+    
+    # List of real part of attenuations (nant x npol x nbits) (4 x 2 x 16).
+    # Note inverted order of dimensions  
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>DCM_Attn_Imag</Name>')
+    buf += str2bin('<Dimsize>4</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+    
+    # End cluster
+    buf += str2bin('</Cluster>')   # End DCM_Attn_Val cluster
+
+    return buf
+
+
+def fem_attn_val2xml():
+    ''' Writes the XML description of the FEM attenuator values as 
+        measured by FEMATTNTEST, and analyzed by FEM_attn_anal().  The
+        values are complex numbers, in dB, for each of the attenuator 
+        bits (2, 4, 8 and 16).  Returns a binary representation of the 
+        xml, for putting into the SQL database.  The version number 
+        must be incremented each time there is a change to the structure 
+        of this header.
+    '''
+    version = cal_types()[7][2]
+    
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>FEM_Attn_Val</Name>')
+    buf += str2bin('<NumElts>4</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+    
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>'+str(version)+'</Val>')
+    buf += str2bin('</DBL>')
+
+    # List of real part of attenuations (nant x npol x natt x nbits) (5 x 2 x 2 x 16).
+    # The natt = 2 is due to the fact that the FEM has two attenuators.  
+    # Note inverted order of dimensions  
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FEM_Attn_Real</Name>')
+    buf += str2bin('<Dimsize>5</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+    
+    # List of real part of attenuations (nant x npol x natt x nbits) (5 x 2 x 2 x 16).
+    # The natt = 2 is due to the fact that the FEM has two attenuators.  
+    # Note inverted order of dimensions  
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FEM_Attn_Imag</Name>')
+    buf += str2bin('<Dimsize>5</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+    
+    # End cluster
+    buf += str2bin('</Cluster>')   # End DCM_Attn_Val cluster
+
+    return buf
+
 
 def send_xml2sql(type=None,t=None,test=False,nant=None,nfrq=None):
     ''' Routine to send any changed calibration xml definitions to the 
@@ -686,6 +797,45 @@ def dcm_table2sql(filename,t=None):
         buf += struct.pack('30H',*attn[i])
     return write_cal(typedef,buf,t)
 
+def dla_update2sql(dla_update,xy_delay=None,t=None):
+    ''' Write delay_center updates to SQL server table abin,
+        with the timestamp given by Time() object t (or current time, if none)
+		
+		Input:
+		  dla_update   a 14-element array of delay differences measured on
+		                  a geosynchronous satellite
+		  xy_delay     an optional 14-element array of delay differences in 
+		                  Y relative to X, measured from an ND-ON packet capture
+	'''
+    typedef = 4
+    ver = cal_types()[typedef][2]
+    if t is None:
+        # If no time is defined, use the current time 
+        t = util.Time.now(0)
+    if xy_delay is None:
+        # If no xy_delay was given, use zeros
+        xy_dla = np.zeros(14,dtype=float)
+    # Read the SQL database to get delay_centers current at the given time
+    xml, buf = read_cal(4,t)
+    dcen = sf.extract(buf,xml['Delaycen_ns'])
+    # Apply corrections, forcing them to be relative to ant 1 (reference antenna),
+    # converting input units in "steps" to ns (each step is 1.25 ns)
+    rel_dla_ns = (dla_update-dla_update[0])*1.25
+    rel_xy_dla_ns = (xy_delay - xy_delay[0])*1.25
+    dcen[:14,0] -= rel_dla_ns
+    dcen[:14,1] -= (rel_dla_ns + rel_xy_dla_ns)
+
+    # Write timestamp 
+    buf = struct.pack('d',int(t.lv))
+    # Write version number
+    buf += struct.pack('d',ver)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',16)
+    for i in range(16):
+        buf += struct.pack('2f',*tau_ns[i])
+    return write_cal(typedef,buf,t)
+	
+	
 def dla_cen2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
     ''' Write delays given in file filename to SQL server table abin
         with the timestamp given by Time() object t (or current time, if none)
@@ -747,3 +897,78 @@ def eq_gain2sql(coeff, ver=1.0, t=None):
         for j in range(2):
             buf += struct.pack('34f',*coeff[i,j])
     return write_cal(typedef,buf,t)
+    
+def dcm_attn_val2sql(attn, ver=1.0, t=None):
+    ''' Write measured DCM attenuation values (dB) to SQL server table
+        abin, with the timestamp given by Time() object t (or current
+        time, if none).
+        
+        This kind of record is type definition 6.
+    '''
+    typedef = 6
+    ver = cal_types()[typedef][2]
+    if t is None:
+        t = util.Time.now()
+
+    # Write timestamp 
+    buf = struct.pack('d',int(t.lv))
+    # Write version number
+    buf += struct.pack('d',ver)
+    
+    # Write real part of table
+    rattn = np.real(attn)
+    buf += struct.pack('I',4)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',16)
+    for i in range(16):
+        for j in range(2):
+            buf += struct.pack('4f',*rattn[i,j])
+    # Write imag part of table
+    iattn = np.imag(attn)
+    buf += struct.pack('I',4)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',16)
+    for i in range(16):
+        for j in range(2):
+            buf += struct.pack('4f',*iattn[i,j])
+    return write_cal(typedef,buf,t)
+    
+def fem_attn_val2sql(attn, ver=1.0, t=None):
+    ''' Write measured FEM attenuation values (dB) to SQL server table
+        abin, with the timestamp given by Time() object t (or current
+        time, if none).
+        
+        This kind of record is type definition 7.
+    '''
+    typedef = 7
+    ver = cal_types()[typedef][2]
+    if t is None:
+        t = util.Time.now()
+
+    # Write timestamp 
+    buf = struct.pack('d',int(t.lv))
+    # Write version number
+    buf += struct.pack('d',ver)
+    
+    # Write real part of table
+    rattn = np.real(attn)
+    buf += struct.pack('I',5)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',16)
+    for i in range(16):
+        for j in range(2):
+            for k in range(2):
+                buf += struct.pack('5f',*rattn[i,j,k])
+    # Write imag part of table
+    iattn = np.imag(attn)
+    buf += struct.pack('I',4)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',2)
+    buf += struct.pack('I',16)
+    for i in range(16):
+        for j in range(2):
+            for k in range(2):
+                buf += struct.pack('5f',*iattn[i,j,k])
+    return write_cal(typedef,buf,t)
+    

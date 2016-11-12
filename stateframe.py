@@ -33,6 +33,13 @@
 #      a single dictionary. 
 #   2016-Jan-15  DG
 #      Cleaned up azel_from_stateframe() code to use extract().
+#   2016-Aug-12  DG
+#      Doh!  Subtle bug in parallactic angle calculation, doing lat**dtor 
+#      instead of lat*dtor!  All of the stateframe values up to now are
+#      wrong!  Now fixed...
+#   2016-Oct-20  DG
+#      Added hadec2altaz() routine, so that I can find parallactic angle
+#      more easily vs. HA, DEC.
 #
 
 import struct, sys
@@ -386,10 +393,23 @@ def par_angle(alt, az):
        This is likely reversed in sign for a feed at prime focus.
     '''
     dtor = np.pi/180.
-    lat = 37.233170**dtor
+    lat = 37.233170*dtor
     chi = np.arctan2(-np.cos(lat)*np.sin(az),
                   np.sin(lat)*np.cos(alt) - np.cos(lat)*np.sin(alt)*np.cos(az))
     return chi
+
+#============================
+def hadec2altaz(ha, dec):
+    ''' Given an hour angle and declination, both in radians, return
+        the corresponding altitude and azimuth for OVRO
+    '''
+    lat = 37.233170*pi/180.
+    salt = sin(dec)*sin(lat) + cos(dec)*cos(lat)*cos(ha)
+    alt = arcsin(salt)
+    caz = (sin(dec) - sin(alt)*sin(lat)) / (cos(alt)*cos(lat))
+    az = arccos(caz)
+    if sin(ha) > 0: return alt, 2*pi - az
+    return alt, az
 
 #============================
 def azel_from_sqldict(sqldict, antlist=None):
