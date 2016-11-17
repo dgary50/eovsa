@@ -178,6 +178,11 @@
 #   2016-Nov-04  DG
 #      Add $SCAN-START NODATA option, so that a scan is set up for running
 #      but no data is recorded (needed prior to $CAPTURE-1S).
+#   2016-Nov-15  DG
+#      Implement two new commands, $PA-TRACK and $PA-STOP, to initiate and
+#      abort automatic tracking of the position angle setting of the 27-m
+#      focus rotation mechanism.  $PA-TRACK requires an antenna number, 
+#      which is the antenna from which to read the value of parallactic angle.
 
 import os, signal
 os.chdir('/home/sched/Dropbox/PythonCode/Current')
@@ -687,6 +692,7 @@ class App():
         self.sensors = [{},{},{},{},{},{},{},{}]  # Empty ROACH sensor dictionaries
         self.delays = [{},{},{},{},{},{},{},{}]  # Empty ROACH delays dictionaries
         self.w = {} # Empty weather dictionary
+        self.PAthread = None
 
         # Start the clock ticking
         self.prev = time.time()
@@ -2228,6 +2234,34 @@ class App():
                 #==== SCAN-STOP ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-STOP':
                     sf_dict['scan_state'] = -1
+                #==== PA-TRACK ====
+                elif ctlline.split(' ')[0].upper() == '$PA-TRACK':
+                    # Track 27-m focus rotation mechanism to correct for parallactic angle 
+                    # of given antenna (does nothing if antenna not correctly specified)
+                    #   Usage: $PA-TRACK ant4
+                    print 'Got '+ctlline.split(' ')[0].upper()+' command.'
+                    if self.PAthread is None or not self.PAthread.is_alive():
+                        # Thread is not already running, so it is safe to proceed
+                        antstr = ctlline.strip().split(' ')[-1].upper()
+                        print 'Given antenna is '+antstr
+                        try:
+                            # Spawn the stateframe.PA_adjust() routine to update PA once/minute
+                            antn = pcapture2.ant_str2list(antstr)[0]
+                            print 'Antenna index is',antn
+                            self.PAthread = threading.Thread(target=stateframe.PA_adjust,kwargs={'ant':antn})
+                            self.PAthread.daemon = True
+                            self.PAthread.start()
+                            print 'PAthread started.'
+                        except:
+                            # Antenna not correctly specified, so do not spawn routine
+                            print 'Antenna specification no good?'
+                            pass
+                #==== PA-STOP ====
+                elif ctlline.split(' ')[0].upper() == '$PA-STOP':
+                    # Send Abort string to stateframe.PA_adjust() routine.  Note that
+                    # abort may not be acted upon until up to 1 s later.
+                    if self.PAthread and self.PAthread.is_alive():
+                        stateframe.q.put_nowait('Abort')
                 #==== TRIPS ====
                 elif ctlline.split(' ')[0].upper() == '$TRIPS':
                     try:

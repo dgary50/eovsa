@@ -622,7 +622,7 @@ class datime():
             try:
                 hh, mm, ss = v_time.split(':')
             except:
-		# Failure indicates that no seconds were given, so handle
+        # Failure indicates that no seconds were given, so handle
                 # hour and minute, setting seconds to zero.
                 hh, mm = v_time.split(':')
                 ss = '0'
@@ -949,6 +949,6 @@ def nearest_val_idx(array1,array2):
     idx = []
     for value in array1:
         idx.append(find_nearest(array2,value))
-    return np.array(idx)
+    return array(idx)
 
 
