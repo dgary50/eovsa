@@ -535,7 +535,7 @@ def PA_adjust(ant=None):
             elif chi < -90:
                 chi = 180. + chi
             pa_to_send = -int(chi)   # Desired rotation angle is -chi
-            current_pa = int(extract(data,pakey))
+            current_pa = int(extract(data,pakey)+0.5)
             if pa_to_send != current_pa:
                 # Current PA is different from new one, so rotate feed to new position.
                 adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
