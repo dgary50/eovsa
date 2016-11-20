@@ -22,6 +22,13 @@
 #    trange (used by the realtime pipeline).
 #  2016-07-23  DG
 #    Widen range of allowed SK to 0.7 - 1.5.
+#  2016-11-19  DG
+#    Fix glitches in uvw when averaging over time, by replacing
+#    missing values with nan before averaging.  Also added srcchk boolean
+#    to read_idb(), to skip the name check if False.  Also added the
+#    option to specify a source name, and changed behavior so that
+#    if a different source name is found, it just skips the file
+#    instead of bailing out.
 
 import aipy
 import os
@@ -33,7 +40,7 @@ import spectrogram_fit as sp
 import pcapture2 as p
 import copy
 
-def readXdata(filename, filter=False, tp_only=False):
+def readXdata(filename, filter=False, tp_only=False, src=None):
     ''' This routine reads the data from a single IDBfile.
         
         Optiona Keywords:
@@ -62,7 +69,15 @@ def readXdata(filename, filter=False, tp_only=False):
         uv.rewind()
 
     if 'source' in uv.vartable:
-        src = uv['source']
+        if src is None:
+            # If no source name is given, return the source from the file and keep going
+            src = uv['source']
+        elif src != uv['source']:
+            # If a specific source name is given, and it does not match the file, stop and return None
+            return uv['source']
+        else:
+            # If a source is given, and it matches the file, keep going
+            pass
     nf = len(good_idx)
     freq = uv['sfreq'][good_idx]
     npol = uv['npol']
@@ -312,15 +327,21 @@ def get_IDBfiles(showthelast=10):
         IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
     return IDBfiles
     
-def read_idb(trange,navg=None,filter=True,tp_only=False):
+def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
     ''' This finds the IDB files within a given time range and concatenates 
         the times into a single dictionary.  If trange is not a Time() object,
         assume that it is the list of files to read.
         
-        Optiona Keywords:
-        filter   boolean--if True (default), returns only non-zero frequencies 
+        Keywords:
+          src      string--if not None, files in trange will be skipped unless
+                    their source name matches this string.
+        Optional Keywords:
+          filter   boolean--if True (default), returns only non-zero frequencies 
                     if False, returns uniform set of 500 frequencies, with gaps
-        tp_only  boolean--if True, returns only TP information
+          srcchk   boolean--if True (default), stops reading files when source 
+                    name is different from initial source name.  If set to
+                    False, only the source name in the first file is returned
+          tp_only  boolean--if True, returns only TP information
                     if False (default), returns everything (including 
                     auto & cross correlations)
     '''
@@ -331,67 +352,64 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
         files = trange
 
     datalist = []
-    src = ''
     for file in files:
-        #This will skip any files which give us errors.
+        #This will skip any files that give us errors.
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            out = readXdata(file,tp_only)
-            if src == '':
-                # This is the first file so set source name and frequency list
-                src = out['source']
-            if src != out['source']:
-                print 'Source name:',out['source'],'is different from initial source name:',src
-                print 'Will stop reading files.'
-                break
+            out = readXdata(file,tp_only,src=src)
+            if type(out) is str:
+                print 'Source name:',out,'does not match requested name:',src+'.  Will skip',file
+            else:
+                if srcchk and src is None:
+                    # This is the first file, and we care about the source, so set source name
+                    src = out['source']
+                if navg:
+                    # Perform time average over navg seconds. Note that this does not do the
+                    # right thing over time gaps (yet)        
+                    # First set any time-frequency bins with M value 0 to nan
+                    badidx = np.where(out['m'][0,0] == 0)
+                    out['p'][:,:,badidx[0],badidx[1]] = np.nan
+                    out['p2'][:,:,badidx[0],badidx[1]] = np.nan
+                    if not tp_only:
+                        out['a'][:,:,badidx[0],badidx[1]] = np.nan
+                        out['x'][:,:,badidx[0],badidx[1]] = np.nan
+                        out['uvw'][:,badidx[1],:] = np.nan
+                    # Truncate arrays so that times are evenly divisible by navg
+                    nt = len(out['time'])
+                    nout = nt/navg
+                    ntnew = nout*navg
+                    out['m'] = out['m'][:,:,:,:ntnew]
+                    out['p'] = out['p'][:,:,:,:ntnew]
+                    out['p2'] = out['p2'][:,:,:,:ntnew]
+                    if not tp_only:
+                        out['a'] = out['a'][:,:,:,:ntnew]
+                        out['x'] = out['x'][:,:,:,:ntnew]
+                    out['time'] = out['time'][:ntnew]
+                    out['uvw'] = out['uvw'][:,:ntnew,:]
+                    # Recast shape 
+                    out['m'].shape = out['m'].shape[0:3]+(nout,navg)
+                    out['p'].shape = out['p'].shape[0:3]+(nout,navg)
+                    out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
+                    if not tp_only:
+                        out['a'].shape = out['a'].shape[0:3]+(nout,navg)
+                        out['x'].shape = out['x'].shape[0:3]+(nout,navg)
+                    out['time'].shape = (nout,navg)
+                    out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
+                    # Perform the average (mean) power and add to out dictionary
+                    out.update({'meanp':np.nanmean(out['p'],4)})
+                    # Perform sum over m, p and p2, to preserve SK
+                    out['m'] = np.nansum(out['m'],4)
+                    out['p'] = np.nansum(out['p'],4)
+                    out['p2'] = np.nansum(out['p2'],4)
+                    if not tp_only:
+                        # Perform the average (mean), over non-nan values
+                        out['a'] = np.nanmean(out['a'],4)
+                        out['x'] = np.nanmean(out['x'],4)
+                    out['time'] = np.mean(out['time'],1)  # Weighted average time
+                    out['uvw'] = np.nanmean(out['uvw'],2)
 
-            if navg:
-                # Perform time average over navg seconds. Note that this does not do the
-                # right thing over time gaps (yet)        
-                # First set any time-frequency bins with M value 0 to nan
-                badidx = np.where(out['m'][0,0] == 0)
-                out['p'][:,:,badidx[0],badidx[1]] = np.nan
-                out['p2'][:,:,badidx[0],badidx[1]] = np.nan
-                if not tp_only:
-                    out['a'][:,:,badidx[0],badidx[1]] = np.nan
-                    out['x'][:,:,badidx[0],badidx[1]] = np.nan
-                # Truncate arrays so that times are evenly divisible by navg
-                nt = len(out['time'])
-                nout = nt/navg
-                ntnew = nout*navg
-                out['m'] = out['m'][:,:,:,:ntnew]
-                out['p'] = out['p'][:,:,:,:ntnew]
-                out['p2'] = out['p2'][:,:,:,:ntnew]
-                if not tp_only:
-                    out['a'] = out['a'][:,:,:,:ntnew]
-                    out['x'] = out['x'][:,:,:,:ntnew]
-                out['time'] = out['time'][:ntnew]
-                out['uvw'] = out['uvw'][:,:ntnew,:]
-                # Recast shape 
-                out['m'].shape = out['m'].shape[0:3]+(nout,navg)
-                out['p'].shape = out['p'].shape[0:3]+(nout,navg)
-                out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
-                if not tp_only:
-                    out['a'].shape = out['a'].shape[0:3]+(nout,navg)
-                    out['x'].shape = out['x'].shape[0:3]+(nout,navg)
-                out['time'].shape = (nout,navg)
-                out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
-                # Perform the average (mean) power and add to out dictionary
-                out.update({'meanp':np.nanmean(out['p'],4)})
-                # Perform sum over m, p and p2, to preserve SK
-                out['m'] = np.nansum(out['m'],4)
-                out['p'] = np.nansum(out['p'],4)
-                out['p2'] = np.nansum(out['p2'],4)
-                if not tp_only:
-                    # Perform the average (mean), over non-nan values
-                    out['a'] = np.nanmean(out['a'],4)
-                    out['x'] = np.nanmean(out['x'],4)
-                out['time'] = np.mean(out['time'],1)  # Weighted average time
-                out['uvw'] = np.mean(out['uvw'],2)
-
-
-            datalist.append(out)
+                datalist.append(out)
         except:
             print 'The problematic file is:',file
             

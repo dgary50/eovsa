@@ -47,6 +47,9 @@
 #      Corrected long-standing problem with parallactic angle--apparently
 #      my hadec2altaz() routine was never completed, and never used to
 #      convert HA, Dec to Az, El.  Now it should work as intended.
+#   2016-Nov-20  DG
+#      Had to update hadec2altaz(), because my changes made it no longer
+#      work for array arguments.
 #
 
 import struct, sys
@@ -421,11 +424,21 @@ def hadec2altaz(ha, dec):
     salt = np.sin(dec)*np.sin(lat) + np.cos(dec)*np.cos(lat)*np.cos(ha)
     alt = np.arcsin(salt)
     caz = (np.sin(dec) - np.sin(alt)*np.sin(lat)) / (np.cos(alt)*np.cos(lat))
-    if caz >= 1 or caz <= -1:
-        az = np.pi
+    if type(caz) is np.ndarray:
+        az = np.zeros(caz.shape,float)
+        for i,c in enumerate(caz):
+            if c >= 1 or c <= -1:
+                az[i] = np.pi
+            else:
+                az[i] = np.arccos(c)
+        if np.sin(ha[i]) > 0: 
+            az[i] = 2*np.pi - az[i]
     else:
-        az = np.arccos(caz)
-    if np.sin(ha) > 0: return alt, 2*np.pi - az
+        if caz >= 1 or caz <= -1:
+            az = np.pi
+        else:
+            az = np.arccos(caz)
+        if np.sin(ha) > 0: return alt, 2*np.pi - az
     return alt, az
 
 #============================
@@ -480,8 +493,8 @@ def azel_from_sqldict(sqldict, antlist=None):
     # Override equatorial antennas
     for iant in [8,9,10,12,13,14]:
         # Case of equatorial mount antennas, convert HA, Dec to El, Az
-        eqel, eqaz = hadec2altaz(az_act[i]*dtor,el_act[i]*dtor)
-        chi[i] = par_angle(eqel, eqaz)
+        eqel, eqaz = hadec2altaz(az_act[:,iant]*dtor,el_act[:,iant]*dtor)
+        chi[:,iant] = par_angle(eqel, eqaz)
 
     # Track limit is set at 1/10th of primary beam at 18 GHz
     tracklim = np.array([0.0555]*13+[0.0043]*2)       # 15-element array

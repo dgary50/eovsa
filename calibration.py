@@ -43,6 +43,8 @@
 #    Change sp_offsets() to give RA and Dec offsets for old ants.  Also
 #    wrote offsets2ants() routine (to replace one that I wrote earlier,
 #    but somehow got lost...)
+#   2016-Nov-20  DG
+#    There was a slight bug in offsets2ants(), now fixed.
 #
 
 if __name__ == "__main__":
@@ -489,7 +491,7 @@ def offsets2ants(start_mjd,xoff,yoff,ant_str=None):
         print 'No antenna list specified, so there is nothing to do!'
         return
     try:
-        timestamp = Time(start_mjd,format='mjd').lv
+        timestamp, = (Time(start_mjd,format='mjd').lv).astype(int)
     except:
         print 'Error interpreting start time in mjd'
         return

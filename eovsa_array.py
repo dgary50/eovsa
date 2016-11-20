@@ -17,6 +17,11 @@
 #      Update of antenna coordinates based on 3C273 observations
 #   2016-May-28  DG
 #      First Bz correction of antenna coordinates, based on 3C273 and 3C286 observations
+#   2016-Nov-18  DG
+#      Updated ants 1-5, 9, 12 and 14 based on correction for offset-axes on new dishes.
+#      Also updated ants 9,10,11,13 based on 3C84 obs later same day.
+#   2016-Nov-20  DG
+#      Finally!  Got updates for Bz for ants 1-5, 9-14.
 #
 
 import aipy, ephem, numpy
@@ -96,6 +101,13 @@ def bl_cor(x, y, z, iant):
     dy += numpy.array([0.00, 0.19,-0.13, 0.05, 0.15,  0.39,  0.68,-0.90, 2.29, 0.22,-0.25, 14.35,  0.00, 0.15, 0.0, 0.0])
     # Update based on 3C273 and 3C286 obs. on 2016 May 28 -- again in ns
     dz += numpy.array([0.00,-0.01, 0.98,-0.15,-2.19, -0.10,  0.05, 0.05,19.08,11.80, 7.80,-15.20,  8.75, 6.80, 0.0, 0.0])
+    # Update based on multiple sources on 2016 Nov 17, after axis-offset correction (ants 5-8 not in service) 
+    # Further update 2016 Nov 18
+    #                   A1     2      3      4      5      6     7    8     9      10    11     12     13     14
+    dx += numpy.array([0.00, 0.018, 0.018,-0.035,-0.054,  0.0,  0.0, 0.0, 0.624, 0.388, 0.272,-0.132, 0.582, 0.353, 0.0, 0.0])
+    dy += numpy.array([0.00,-0.018, 0.015, 0.036, 0.017,  0.0,  0.0, 0.0,-0.111,-0.035,-0.025,-0.097,-0.106,-0.035, 0.0, 0.0])    
+    # Update based on 3C273 and 3C286 obs. on 2016 Nov 20 -- again in ns (ants 5-8 not in service)
+    dz += numpy.array([0.00,-0.171,-0.258, 0.114,-0.403,  0.0,  0.0, 0.0, 1.323, 0.363, 57.00, 1.463, 0.798, 0.637, 0.0, 0.0])
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]
