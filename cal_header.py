@@ -37,6 +37,10 @@
 #   2016-10-17  DG
 #      Added a dla_update2sql() routine to make updates to the delay center
 #      easier.
+#   2016-11-21  DG
+#      Added dla_censql2table() routine to read a delay center calibration
+#      from the SQL database and (optionally) send it to the ACC, which
+#      is needed for dppxmp. Also renamed dla_cen2sql() -> dla_centable2sql().
 #
 import struct, util
 import stateframe as sf
@@ -800,21 +804,21 @@ def dcm_table2sql(filename,t=None):
 def dla_update2sql(dla_update,xy_delay=None,t=None):
     ''' Write delay_center updates to SQL server table abin,
         with the timestamp given by Time() object t (or current time, if none)
-		
-		Input:
-		  dla_update   a 14-element array of delay differences measured on
-		                  a geosynchronous satellite
-		  xy_delay     an optional 14-element array of delay differences in 
-		                  Y relative to X, measured from an ND-ON packet capture
-	'''
+        
+        Input:
+          dla_update   a 14-element array of delay differences measured on
+                          a geosynchronous satellite
+          xy_delay     an optional 14-element array of delay differences in 
+                          Y relative to X, measured from an ND-ON packet capture
+    '''
     typedef = 4
     ver = cal_types()[typedef][2]
     if t is None:
         # If no time is defined, use the current time 
-        t = util.Time.now(0)
+        t = util.Time.now()
     if xy_delay is None:
         # If no xy_delay was given, use zeros
-        xy_dla = np.zeros(14,dtype=float)
+        xy_delay = np.zeros(14,dtype=float)
     # Read the SQL database to get delay_centers current at the given time
     xml, buf = read_cal(4,t)
     dcen = sf.extract(buf,xml['Delaycen_ns'])
@@ -823,7 +827,7 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
     rel_dla_ns = (dla_update-dla_update[0])*1.25
     rel_xy_dla_ns = (xy_delay - xy_delay[0])*1.25
     dcen[:14,0] -= rel_dla_ns
-    dcen[:14,1] -= (rel_dla_ns + rel_xy_dla_ns)
+    dcen[:14,1] -= rel_dla_ns + rel_xy_dla_ns
 
     # Write timestamp 
     buf = struct.pack('d',int(t.lv))
@@ -832,11 +836,51 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
     buf += struct.pack('I',2)
     buf += struct.pack('I',16)
     for i in range(16):
-        buf += struct.pack('2f',*tau_ns[i])
+        buf += struct.pack('2f',*dcen[i])
     return write_cal(typedef,buf,t)
-	
-	
-def dla_cen2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
+    
+def dla_censql2table(acc=True, t=None):
+    ''' Reads current database contents for delay centers and writes
+        them out as a text table to a fixed location, /tmp/delay_centers.txt,
+        and optionally sends the file to the ACC (for use by dppxmp).
+        
+        acc   boolean: if True (default), write the file to the ACC.
+    '''
+    import time
+    from util import Time
+    typedef = 4
+    if t is None:
+        t = util.Time.now()
+    else:
+        # Ensure that an old table is not written to ACC
+        print 'Warning! Specifying a time disables writing the file to the ACC.'
+        print 'FTP the file /tmp/delay_centers.txt by hand if that is what you intend.'
+        acc = False
+    xml, buf = read_cal(4,t)
+    delays = sf.extract(buf,xml['Delaycen_ns'])
+    timestr = Time(int(sf.extract(buf,xml['Timestamp'])),format='lv').iso
+    f = open('/tmp/delay_centers.txt','w')
+    f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
+    f.write('#     Date: '+timestr+'\n')
+    f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
+    f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
+    fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
+    for i in range(16):
+        f.write(fmt.format(i+1,*delays[i]))
+    f.close()
+    time.sleep(1)   # Make sure file has time to be closed.
+    if acc:
+        from ftplib import FTP
+        f = open('/tmp/delay_centers.txt','r')
+        acc = FTP('acc.solar.pvt')
+        acc.login('admin','observer')
+        acc.cwd('parm')
+        # Send DCM table lines to ACC
+        print acc.storlines('STOR delay_centers.txt',f)
+        f.close()
+        print 'Successfully wrote delay_centers.txt to ACC'
+    
+def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
     ''' Write delays given in file filename to SQL server table abin
         with the timestamp given by Time() object t (or current time, if none)
         

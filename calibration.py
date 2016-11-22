@@ -45,6 +45,9 @@
 #    but somehow got lost...)
 #   2016-Nov-20  DG
 #    There was a slight bug in offsets2ants(), now fixed.
+#   2016-Nov-21  DG
+#    Had the wrong sign of the correction in offsets2ants()!   Yikes!  It
+#    was only x that was the wrong sign.
 #
 
 if __name__ == "__main__":
@@ -480,8 +483,8 @@ def sp_offsets(x,y,save_plot=False):
         plt.savefig('/common/webplots/PTG/PTG'+tstr+'.png',bbox_inches='tight')
     return xout,yout,dxout,dyout
 
-def offsets2ants(start_mjd,xoff,yoff,ant_str=None):
-    ''' Given a start time (mjd) and a list of offsets output by sp_offsets()
+def offsets2ants(t,xoff,yoff,ant_str=None):
+    ''' Given a start time (Time object) and a list of offsets output by sp_offsets()
         for 13 antennas, convert to pointing coefficients (multiply by 10000),
         add to coefficients listed in stateframe, and send to the relevant 
         antennas.  The antennas to update are specified with ant_str 
@@ -491,9 +494,9 @@ def offsets2ants(start_mjd,xoff,yoff,ant_str=None):
         print 'No antenna list specified, so there is nothing to do!'
         return
     try:
-        timestamp, = (Time(start_mjd,format='mjd').lv).astype(int)
+        timestamp = int(Time(t,format='mjd').lv)
     except:
-        print 'Error interpreting start time in mjd'
+        print 'Error interpreting time as Time() object'
         return
     import pcapture2 as p
     import dbutil as db
@@ -513,7 +516,7 @@ def offsets2ants(start_mjd,xoff,yoff,ant_str=None):
     for i in antlist:
         p1_inc = int(xoff[i]*10000)
         p7_inc = int(yoff[i]*10000)
-        p1_new = p1_cur[i] + p1_inc
+        p1_new = p1_cur[i] - p1_inc
         p7_new = p7_cur[i] + p7_inc
         print 'Updating P1 for Ant',i+1,'P1_old =',p1_cur[i],'P1_inc =',p1_inc,'P1_new =',p1_new
         cmd1 = 'pointingcoefficient1 '+str(p1_new)+' ant'+str(i+1)

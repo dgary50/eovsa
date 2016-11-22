@@ -21,7 +21,10 @@
 #      Updated ants 1-5, 9, 12 and 14 based on correction for offset-axes on new dishes.
 #      Also updated ants 9,10,11,13 based on 3C84 obs later same day.
 #   2016-Nov-20  DG
-#      Finally!  Got updates for Bz for ants 1-5, 9-14.
+#      Finally!  Got updates for Bz for ants 1-5, 9-14.  Ant 11's 57 ns is just a guess
+#   2016-Nov-22  DG
+#      Ant 11 looks like a bad guess, but at least now it is measureable.  I reduced
+#      it by 25.1 ns, to 31.9 ns.
 #
 
 import aipy, ephem, numpy
@@ -107,7 +110,7 @@ def bl_cor(x, y, z, iant):
     dx += numpy.array([0.00, 0.018, 0.018,-0.035,-0.054,  0.0,  0.0, 0.0, 0.624, 0.388, 0.272,-0.132, 0.582, 0.353, 0.0, 0.0])
     dy += numpy.array([0.00,-0.018, 0.015, 0.036, 0.017,  0.0,  0.0, 0.0,-0.111,-0.035,-0.025,-0.097,-0.106,-0.035, 0.0, 0.0])    
     # Update based on 3C273 and 3C286 obs. on 2016 Nov 20 -- again in ns (ants 5-8 not in service)
-    dz += numpy.array([0.00,-0.171,-0.258, 0.114,-0.403,  0.0,  0.0, 0.0, 1.323, 0.363, 57.00, 1.463, 0.798, 0.637, 0.0, 0.0])
+    dz += numpy.array([0.00,-0.171,-0.258, 0.114,-0.403,  0.0,  0.0, 0.0, 1.323, 0.363, 31.90, 1.463, 0.798, 0.637, 0.0, 0.0])
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]

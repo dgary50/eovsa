@@ -348,12 +348,18 @@ class Roach():
         # Set accumulation start and length (calculate from ADC clock)
         acc_start = int(0.001 * clkHz / 8192.) + 54   # ~1 ms delay
         # Swap comments here when 300 MHz design is to be configured.
-        acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration
-        #acc_len   = int(0.019 * clkHz / 8192.) - 223   # ~19 ms duration
+        if clk == 800:
+            acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration (200 MHz)
+        else:
+            acc_len   = int(0.019 * clkHz / 8192.) - 223   # ~19 ms duration (300 MHz)
         if nbds == 8:
             # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
             # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
             x_acc_len = 6
+            if clk != 800:
+                # 16-ant correlator uses different units for x_acc_len (number of 512-sample blocks)
+                # This is 5 (5*512 = 2560), but because of 0-based scheme it is set to 4
+                x_acc_len = 4
         else:
             x_acc_len = acc_len
 
@@ -407,12 +413,16 @@ class Roach():
                 self.fpga.write_int('swreg_ip1_roach1',ip2int(fx[1,j+1]))
             else:
                 # ***Change above lines similarly...
+                devs = self.fpga.listdev()
+                ip0 = [s for s in devs if 'ip0' in s]
                 for j in range(8):
-				    # Swap comments here when 300 MHz design is to be configured.
-                    #self.fpga.write_int('ip0',ip2int(fx[0,j]),offset=j)
-                    #self.fpga.write_int('ip1',ip2int(fx[1,j]),offset=j)
-                    self.fpga.write_int('swreg_ip0_roach'+str(j),ip2int(fx[0,j]))
-                    self.fpga.write_int('swreg_ip1_roach'+str(j),ip2int(fx[1,j]))
+                    # Swap comments here when 300 MHz design is to be configured.
+                    if ip0[0] == 'ip0':
+                        self.fpga.write_int('ip0',ip2int(fx[0,j]),offset=j)
+                        self.fpga.write_int('ip1',ip2int(fx[1,j]),offset=j)
+                    else:
+                        self.fpga.write_int('swreg_ip0_roach'+str(j),ip2int(fx[0,j]))
+                        self.fpga.write_int('swreg_ip1_roach'+str(j),ip2int(fx[1,j]))
                 
         fx_port, self.msg = rd_ini(cfg,'fx port')
         if self.msg != 'int':
@@ -582,7 +592,7 @@ class Roach():
                 for qdrstr in qdrs:
                     if qdrstr[5:] == 'ctrl':
                         q = qdr.Qdr(self.fpga,qdrstr[:4])
-                        print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal()#verbosity=2)
+                        print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal(False)#verbosity=2)
                         #print 'QDR',qdrstr[:4],'calibration skipped...'
 
         self.msg = 'Success'
@@ -630,16 +640,16 @@ class Roach():
             The bands is an array of 0-based band numbers
         '''
         # Swap comments here when 300 MHz design is to be configured.
-        #pass
-        if self.fpga.is_connected():
-            for i in range(10):
-                idx = i * 5
-                sw_reg_name = 'swreg_sky_freq' + str(i)
-                sw_reg_value = bands[idx:idx+5]*(2**numpy.array([0,6,12,18,24]))
-                self.fpga.write_int(sw_reg_name, sw_reg_value.sum())
-            self.msg = 'Success'
-        else:
-            self.msg = 'Could not set frequency sequence--client not connected'
+        pass
+        #if self.fpga.is_connected():
+        #    for i in range(10):
+        #        idx = i * 5
+        #        sw_reg_name = 'swreg_sky_freq' + str(i)
+        #        sw_reg_value = bands[idx:idx+5]*(2**numpy.array([0,6,12,18,24]))
+        #        self.fpga.write_int(sw_reg_name, sw_reg_value.sum())
+        #    self.msg = 'Success'
+        #else:
+        #    self.msg = 'Could not set frequency sequence--client not connected'
 
 #======= Roach.get_katadc_dict ========
     def get_katadc_dict(self):
