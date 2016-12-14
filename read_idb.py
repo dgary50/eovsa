@@ -29,6 +29,9 @@
 #    option to specify a source name, and changed behavior so that
 #    if a different source name is found, it just skips the file
 #    instead of bailing out.
+#  2016-12-14 BC
+#    let 'get_trange_files' to first look for env variable EOVSADB first as the default path. 
+#    If not defined, use '/data1/eovsa/fits/IDB/'
 
 import aipy
 import os
@@ -508,11 +511,22 @@ def get_trange_files(trange):
     #  This function is used in get_X_data(data).
     fstr = trange[0].iso
     #folder = '/dppdata1/IDB'
-    folder='/data1/eovsa/fits/IDB/'+fstr.replace('-','').split()[0]
+    # look for environmental variable EOVSADB first
+    if not os.getenv('EOVSADB'):
+        # go to default directory on pipeline
+        datadir='/data1/eovsa/fits/IDB/'
+    else:
+        datadir=os.getenv('EOVSADB')
+    folder=datadir+fstr.replace('-','').split()[0]
     try:
         os.listdir(folder)
     except:
-        folder = '/data1/IDB'
+        try:
+            os.listdir('/data1/IDB')
+        except:
+            print 'Something wrong with the definition of EOVSA data directory.'
+            print 'Best to define a EOVSADB variable in .cshrc or .bashrc'
+            return
     files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
     files.sort()
     mjd1, mjd2 = trange.mjd.astype('int')
