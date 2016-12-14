@@ -15,7 +15,8 @@
 #    Removed unneeded import of util's Vector and datime routines.
 #  2015-Oct-24  DG
 #    Added Venus
-#
+#  2016-Dec-14 BC
+#    Changed the method for locating the calibrator source files in load_sidereal_cats()
 
 import aipy, ephem, numpy
 from math import cos, sin
@@ -136,7 +137,11 @@ def load_sidereal_cats():
     '''
     # both \r and \n can be used in files to mark new lines and sometimes both
     # so split lines based on either and don't split twice if there is more than one in a row
-    tmp = os.popen('cat '+os.path.expandvars('$EOVSAPY')+'/SourceCat/*.srclist').read().strip().replace('\r','\n')
+    if not os.getenv('EOVSAPY':
+        cmd='cat SourceCat/*.srclist' # from the current directory
+    else:
+        cmd='cat '+os.path.expandvars('$EOVSAPY')+'/SourceCat/*.srclist'
+    tmp = os.popen(cmd).read().strip().replace('\r','\n')
     lines = re.split('\n+',tmp)
     
     srclist = []
