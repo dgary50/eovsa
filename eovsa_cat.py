@@ -137,7 +137,7 @@ def load_sidereal_cats():
     '''
     # both \r and \n can be used in files to mark new lines and sometimes both
     # so split lines based on either and don't split twice if there is more than one in a row
-    if not os.getenv('EOVSAPY':
+    if not os.getenv('EOVSAPY'):
         cmd='cat SourceCat/*.srclist' # from the current directory
     else:
         cmd='cat '+os.path.expandvars('$EOVSAPY')+'/SourceCat/*.srclist'
