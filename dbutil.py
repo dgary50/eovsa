@@ -21,6 +21,8 @@
 #      object or even a timerange (which means nrecs need not be given).
 #   2016-Aug-06  DG
 #      Made get_chi() and a14_wsram() version independent.
+#   2016-Nov-26  DG
+#      Added get_motor_currents().
 
 import stateframedef
 import util
@@ -176,3 +178,25 @@ def get_chi(trange):
         nt = len(chi)/16
         chi.shape = (nt,16)
         return times,chi
+
+def get_motor_currents(trange):
+    ''' Get the Azimuth and Elevation motor currents for all antennas (ntimes x 15) for a
+        given time range (returns times, azimuth motor current, and elevation motor current)
+    '''
+    tstart,tend = [str(i) for i in trange.lv]
+    cursor = get_cursor()
+    ver = find_table_version(cursor,trange[0].lv)
+    query = 'select Timestamp,Ante_Cont_AzimuthMotorCurrent,Ante_Cont_ElevationMotorCurrent from fV'+ver+'_vD15 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+    data, msg = do_query(cursor, query)
+    cursor.close()
+    if msg == 'Success':
+        times = Time(data['Timestamp'].astype('int'),format='lv')[::15]
+        az = data['Ante_Cont_AzimuthMotorCurrent']
+        el = data['Ante_Cont_ElevationMotorCurren']
+        nt = len(az)/15
+        az.shape = (nt,15)
+        el.shape = (nt,15)
+        return times,az,el
+    else:
+        print msg
+        return None,None,None

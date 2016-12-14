@@ -6,6 +6,8 @@ Created on Wed Jun 18 18:14:41 2014
 """
 #   2015-May-29  DG
 #      Converted from using datime() to using Time() based on astropy.
+#   2016-Dec-10  DG
+#      Added check for restricted range of "old" 2m antennas.
 
 from eovsa_lst import eovsa_ha
 from numpy import rad2deg
@@ -56,6 +58,16 @@ def check_2m_visible(az,alt):
     else:
         return False  
 
+def check_2meq_visible(ha,dec):
+    # ha and dec should be in degrees
+    # limits: ha  between -58 and 58 degrees
+    #         dec between -24 and 45 degrees
+    
+    if ha >= -58 and ha <= 58 and dec >= -24 and dec <= 45:
+        return True
+    else:
+        return False  
+
 def check_visible(src,aa,t=None,check27m=True,check2m=True):
     ''' Check whether a source is observable from the location of aa
         given the limits on az/el of the 2-m's and HA/dec of the 27-m's, at
@@ -80,11 +92,11 @@ def check_visible(src,aa,t=None,check27m=True,check2m=True):
     dec = rad2deg(src.dec)
     
     if check27m and check2m:
-        return check_27m_visible(ha,dec) and check_2m_visible(az,alt)
+        return check_27m_visible(ha,dec) and check_2m_visible(az,alt) and check_2meq_visible(ha,dec)
     elif check27m:
         return check_27m_visible(ha,dec)
     elif check2m:
-        return check_2m_visible(az,alt)
+        return check_2m_visible(az,alt) and check_2meq_visible(ha,dec)
     else:
         return True
 

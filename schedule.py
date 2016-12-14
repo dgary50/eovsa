@@ -183,6 +183,29 @@
 #      abort automatic tracking of the position angle setting of the 27-m
 #      focus rotation mechanism.  $PA-TRACK requires an antenna number, 
 #      which is the antenna from which to read the value of parallactic angle.
+#   2016-Nov-22  DG
+#      Changed the code to read delay centers from the database at the
+#      start of each scan (so code does not have to be reloaded every time).
+#      Note that it reads from the SQL database, not the ACC file
+#      /parm/delay_centers.txt, so proper procedures are needed to
+#      ensure that these are the same!  The dppxmp program uses that file.
+#   2016-Nov-25  DG
+#      Delays on ant 13 are still going negative.  Change Ant1 delay to
+#      11000, to counteract it.  I hope this does not drive other delays
+#      past 16000
+#   2016-Nov-26  DG
+#      Added CALPNTCAL command handling, to do 27-m pointing measurement on
+#      calibrators.
+#   2016-Dec-10  DG
+#      Added $PA-SWEEP command, which rotates the FRM from -PA to PA at
+#      a given rate.  Uses the same PA_thread variable so that $PA-STOP
+#      works to stop it, and it cannot run if $PA-TRACK is running (and
+#      vice versa).  Also fixed a number of problems where I was referring
+#      to np instead of numpy--there is no np in this module!
+#   2016-Dec-12  DG
+#      Changed autogen() to expect the first line to be an ACQUIRE line,
+#      second to be a PHASECAL, and third to be SUN.
+#
 
 import os, signal
 os.chdir('/home/sched/Dropbox/PythonCode/Current')
@@ -256,19 +279,27 @@ def init_scanheader_dict(version=37.0):
     aa.date = str(aa.date)[:11]+'00:00'  # Set date to 0 UT
     mjd0 = aa.date + 15019.5   # Convert from ephem date to mjd
 
+    #try:
+        ## Read delay center file from ACC
+        #dlafile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/delay_centers.txt',timeout=1)
+        #dcen = []
+        #dceny = []
+        #for line in dlafile.readlines():
+            #if line[0] != '#':
+                #ant,dx,dy = numpy.array(line.strip().split()).astype('float')
+                ## Skip comment lines and take second number as delay center [ns]
+                #dcen.append(dx)
+                #dceny.append(dy)
+    #except:
+        #print t.iso,'ACC connection for delay centers timed out.'
+        #dcen = [0]*16
     try:
-        # Read delay center file from ACC
-        dlafile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/delay_centers.txt',timeout=1)
-        dcen = []
-        dceny = []
-        for line in dlafile.readlines():
-            if line[0] != '#':
-                ant,dx,dy = numpy.array(line.strip().split()).astype('float')
-                # Skip comment lines and take second number as delay center [ns]
-                dcen.append(dx)
-                dceny.append(dy)
+        xml, buf = cal_header.read_cal(4)
+        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+        dcen  = dcenters[:,0]
+        dceny = dcenters[:,1]
     except:
-        print t.iso,'ACC connection for delay centers timed out.'
+        print t.iso,'SQL connection for delay centers failed.'
         dcen = [0]*16
     
     try:
@@ -949,7 +980,7 @@ class App():
             for i,line in enumerate(lines):
                 self.L.insert(END, line.rstrip('\n'))
                 ctl_cmd = line.split()[2]
-                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'STARBURST':
+                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'STARBURST' or ctl_cmd == 'CALPNTCAL':
                     name = line.split()[3]
                     # Get start and stop time for this calibrator, as ephem-compatible strings
                     if i == self.lastline-1:
@@ -962,7 +993,7 @@ class App():
                     if ctl_cmd == 'STARBURST':
                         check_27m = True
                         check_2m = False
-                    elif ctl_cmd == 'PHASECAL':
+                    elif ctl_cmd == 'PHASECAL' or ctl_cmd == 'CALPNTCAL':
                         check_27m = True
                         check_2m = True
                     # Check visibility for source
@@ -1110,12 +1141,18 @@ class App():
         mjdrise, mjdset = suntimes(t)
         # First solar line starts at sunrise
         trise = util.Time(mjdrise,format='mjd')
+        line = self.L.get(2)
+        line = trise.iso[:19] + line[19:]
+        self.L.delete(2)
+        self.L.insert(2,line)
+        # First calibrator line starts 15 min earlier
+        trise = util.Time(mjdrise - 15.*60./86400.,format='mjd')
         line = self.L.get(1)
         line = trise.iso[:19] + line[19:]
         self.L.delete(1)
         self.L.insert(1,line)
-        # First calibrator line starts 15 min earlier
-        trise = util.Time(mjdrise - 15.*60./86400.,format='mjd')
+        # First calibrator ACQUIRE line starts 20 min earlier
+        trise = util.Time(mjdrise - 20.*60./86400.,format='mjd')
         line = self.L.get(0)
         line = trise.iso[:19] + line[19:]
         self.L.delete(0)
@@ -1224,6 +1261,14 @@ class App():
                             print src.name, jys, visible, src.ra, src.dec, '     ', src.az, src.alt
                 self.L.delete(i)
                 self.L.insert(i,line)
+                if i == 1:
+                    # Check if earlier line is ACQUIRE, and if so, make sure it goes to the same
+                    # calibrator!
+                    acline = self.L.get(0)
+                    if acline[20:27] == 'ACQUIRE':
+                        acline = acline[:28] + src.name
+                        self.L.delete(0)
+                        self.L.insert(0,acline)
 
     #============================
     def Insert(self):
@@ -1756,13 +1801,12 @@ class App():
         # Delay centers.  These are read from file 'delay_centers.txt' in the
         # ACC parm directory by init_scan_dict().
         # The 0.800 is because current clock frequency is 800 MHz.  This should be a
-        # parameter. The 9000.5 is to center delays mid-range (ROACHes have a range
-        # of 16,000), and provide integer delay.  The 0.5 is to make the astype(int) act
-        # as a round().
+        # parameter. The 11000 is to accomodate Ant 13, which has a large delay center
+        # value (ROACHes have a range of 16,000).  
         # ****** Send delay0, which is actually the delay for the next upcoming second ******
         adc_clk = self.brd_clk_freq*4./1000.
-        dlax = ((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 9000.5).astype(int)
-        dlay = ((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 9000.5).astype(int)
+        dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 11000)
+        dlay = numpy.round((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 11000)
         
         for r in self.roaches:
             if r.fpga:
@@ -1915,6 +1959,10 @@ class App():
             sh_dict['track_mode'] = 'PLANET'
         elif cmds[0].upper() == 'PHASECAL':
             sh_dict['project'] = 'PHASECAL'
+            sh_dict['source_id'] = cmds[1]
+            sh_dict['track_mode'] = 'RADEC '
+        elif cmds[0].upper() == 'CALPNTCAL':
+            sh_dict['project'] = 'CALPNTCAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
         elif cmds[0].upper() == 'STARBURST':
@@ -2140,6 +2188,18 @@ class App():
                             s.close()
                         except:
                             pass
+                    # Fetch current delay centers from SQL database (NB: there is no check
+                    # that these match the ACC file /parm/delay_centers.txt, which is used
+                    # by the dppxmp program, so follow procedures to create this file!
+                    xml, buf = cal_header.read_cal(4)
+                    try:
+                        xml, buf = cal_header.read_cal(4)
+                        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+                        sh_dict['dlacen']  = dcenters[:,0]
+                        sh_dict['dlaceny'] = dcenters[:,1]
+                    except:
+                        print t.iso,'SQL connection for delay centers failed.  Delay center not updated'
+
                     # We need an initial call to set_uvw() in order to set RA, Dec and HA
                     # coordinates in scan header dictionary.
                     srcname = sh_dict['source_id']
@@ -2234,6 +2294,32 @@ class App():
                 #==== SCAN-STOP ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-STOP':
                     sf_dict['scan_state'] = -1
+                #==== PA-SWEEP ====
+                elif ctlline.split(' ')[0].upper() == '$PA-SWEEP':
+                    # Rotate 27-m focus rotation mechanism to sweep through a given angle 
+                    # range (does nothing if PA adjustment routine is already running)
+                    #   Usage: $PA-SWEEP PA rate, where angle is swept from -PA to PA at
+                    #                             rate of 1-degree-per-rate [s]
+                    print 'Got '+ctlline.split(' ')[0].upper()+' command.'
+                    if self.PAthread is None or not self.PAthread.is_alive():
+                        # Thread is not already running, so it is safe to proceed
+                        try:
+                            PA,rate = map(numpy.int,ctlline.strip().split()[-2:])
+                        except:
+                            # Reading arguments failed, so use defaults
+                            PA = 80
+                            rate = 3
+                        print 'PA and rate are ',PA,rate
+                        try:
+                            # Spawn the stateframe.PA_sweep() routine to update PA once/rate
+                            self.PAthread = threading.Thread(target=stateframe.PA_sweep,kwargs={'PA':PA,'rate':rate})
+                            self.PAthread.daemon = True
+                            self.PAthread.start()
+                            print 'PAthread started.'
+                        except:
+                            # Something went wrong
+                            print 'Error spawning PA_sweep task'
+                            pass
                 #==== PA-TRACK ====
                 elif ctlline.split(' ')[0].upper() == '$PA-TRACK':
                     # Track 27-m focus rotation mechanism to correct for parallactic angle 
@@ -2242,7 +2328,7 @@ class App():
                     print 'Got '+ctlline.split(' ')[0].upper()+' command.'
                     if self.PAthread is None or not self.PAthread.is_alive():
                         # Thread is not already running, so it is safe to proceed
-                        antstr = ctlline.strip().split(' ')[-1].upper()
+                        antstr = ctlline.strip().split()[-1].upper()
                         print 'Given antenna is '+antstr
                         try:
                             # Spawn the stateframe.PA_adjust() routine to update PA once/minute
@@ -2472,7 +2558,7 @@ class App():
                     if fsequence == '':
                         print 'FSEQ file',cmds[1],'not successfully interpreted.'
                         # Default to allowing all channels in RFI mask
-                        sh_dict.update({'chanmask':np.array([1]*204800,'byte')})
+                        sh_dict.update({'chanmask':numpy.array([1]*204800,'byte')})
                     else:
                         sh_dict.update({'fsequence':fsequence[:-1]})   # -1 removes trailing ','
                         chanmask = cu.get_chanmask(fsequence[:-1])
@@ -2483,7 +2569,7 @@ class App():
                         for band in fseqlist:
                             ch = cu.chan_asmt(int(band))
                             item += ch
-                        sh_dict.update({'chan2wide':np.array(item)*sh_dict['chanmask']})
+                        sh_dict.update({'chan2wide':numpy.array(item)*sh_dict['chanmask']})
                         self.sequence2roach(fsequence[:-1])
                         self.sequence2dcmtable(fsequence[:-1])
 

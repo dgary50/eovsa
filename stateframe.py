@@ -42,7 +42,7 @@
 #      more easily vs. HA, DEC.
 #   2016-Nov-15  DG
 #      Added PA_adjust() routine to continuously adjust the PA of the 
-#      27-m feed.
+#      27-m feed to track the parallactic angle of a given antenna.
 #   2016-Nov-16  DG
 #      Corrected long-standing problem with parallactic angle--apparently
 #      my hadec2altaz() routine was never completed, and never used to
@@ -50,6 +50,12 @@
 #   2016-Nov-20  DG
 #      Had to update hadec2altaz(), because my changes made it no longer
 #      work for array arguments.
+#   2016-Dec-10  DG
+#      Added PA_sweep() routine to sweep PA of 27-m feed from -PA to PA,
+#      at a specified rate.
+#   2016-Dec-12  DG
+#      Tweaked PA_sweep() to wait until initial PA is acquired before
+#      starting the sweep (or times out and starts sweep after 2 minutes).
 #
 
 import struct, sys
@@ -528,15 +534,11 @@ def PA_adjust(ant=None):
     chikey = sf['Schedule']['Data']['Chi']
     timekey = sf['Schedule']['Data']['Timestamp']
     pakey = sf['FEMA']['FRMServo']['PositionAngle']['Position']
-    msg = ''
     while 1:
         # Read stateframe from ACC
         data, sfmsg = get_stateframe(accini)
         if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
             # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
-            break
-        if msg == 'Abort':
-            # Got abort message, so exit.
             break
         if extract(data,timekey) != 0:
             # Do this only if stateframe timestamp is valid--otherwise just skip this update
@@ -547,8 +549,8 @@ def PA_adjust(ant=None):
                 chi = 180. - chi
             elif chi < -90:
                 chi = 180. + chi
-            pa_to_send = -int(chi)   # Desired rotation angle is -chi
-            current_pa = int(extract(data,pakey)+0.5)
+            pa_to_send = -np.int(chi)   # Desired rotation angle is -chi
+            current_pa = np.int(extract(data,pakey)+0.5)
             if pa_to_send != current_pa:
                 # Current PA is different from new one, so rotate feed to new position.
                 adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
@@ -567,3 +569,94 @@ def PA_adjust(ant=None):
     # an Abort message.  In either case, reset the PA to 0 and exit.
     adc_cal2.send_cmds(['frm-set-pa 0 ant14'],acc)
         
+def PA_sweep(PA=80,rate=3):
+    ''' Spawned task to rotate the 27-m focus rotation mechanism to
+        value given by negative of PA argument (waits up to 2 minutes to 
+        reach it), and then rotate the position angle at a rate given by 
+        the rate argument (units = s/deg) until PA is reached. Checks 
+        for Abort message once per second.
+        
+        This routine is invoked with $PA-SWEEP command in the schedule,
+        and aborts with $PA-STOP command, or if Ant14 is removed from
+        the current subarray.
+        
+        PA:  Initial PA is negative of this, and sweeps until PA is reached.
+               Default = 80, for full sweep from -80 to 80
+        rate: Rate of rotation, in seconds/degree. Default is 3, or 
+               20 degrees/minute (can acquire and complete -80 to 80 
+               sweep in 10 minutes)
+    '''
+    import time
+    import adc_cal2
+    if PA > 90:
+        # Make sure PA is not too big
+        PA = 90
+    # Initial PA is negative of argument given
+    pa_to_send = -PA
+    accini = rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
+    sf = accini['sf']
+    sub1 = sf['LODM']['Subarray1']
+    timekey = sf['Schedule']['Data']['Timestamp']
+    pakey = sf['FEMA']['FRMServo']['PositionAngle']['Position']
+    # Send FRM to initial position, and wait up to two minutes, checking every 5 s, until there
+    adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
+    current_pa = -999  # Start with impossible value for current_pa
+    msg = ''
+    for i in range(24):
+        data, sfmsg = get_stateframe(accini)
+        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+            msg = 'Abort'
+            break
+        if extract(data,timekey) != 0:
+            current_pa = np.round(extract(data,pakey)+0.5)
+        #print 'Current and target PAs:', current_pa, pa_to_send,
+        if pa_to_send != current_pa:
+            try:
+                msg = q.get_nowait()
+                if msg == 'Abort':
+                    # Got abort message, so exit.
+                    break
+            except:
+                pass
+            # Current PA is different from new one, so sleep 5 minutes
+            #print 'Not equal, so sleeping 5 s'
+            time.sleep(5)
+        else:
+            # We are on the desired PA, so proceed
+            #print 'Target PA reached...'
+            break
+    # When we get here, either we are on the desired PA, or the 2 min is up, or
+    # an Abort message was received.
+    while 1:
+        if msg == 'Abort':
+            # Handle case of abort while positioning in above loop
+            break
+        # Read stateframe from ACC
+        data, sfmsg = get_stateframe(accini)
+        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+            break
+        #print 'Sending command','frm-set-pa '+str(pa_to_send)+' ant14'
+        adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
+        # Sleep for number of seconds given by rate (but checking for Abort message every second), 
+        # and then repeat
+        for i in range(rate):
+            try:
+                msg = q.get_nowait()
+                if msg == 'Abort':
+                    # Got abort message, so exit.
+                    break
+            except:
+                pass
+            time.sleep(1)
+        # Time to increment the PA
+        pa_to_send += 1
+        # If PA is reached, then exit
+        if pa_to_send == PA:
+            break
+    # To get here, either Ant14 is not in the subarray, or we got 
+    # an Abort message, or the FRM has reached PA.  In any of these cases, 
+    # reset the PA to 0 and exit.
+    adc_cal2.send_cmds(['frm-set-pa 0 ant14'],acc)

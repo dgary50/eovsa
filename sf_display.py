@@ -1442,9 +1442,9 @@ class App():
             self.L3.insert(END,headline)
             self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
 
-            head =  '   --------Voltage (VDC)------- ---------Current (A)-------- ----Temperature---- -------Delays------'
-            head2 = 'r# 1.0 1.5 1.8 2.5 3.3 5.0 12.0 1.0 1.5 1.8 2.5 3.3 5.0 12.0 AMB FPGA PPC IN OUT  X-CHN1-Y  X-CHN2-Y'
-            fmt = '{:2} {:3} {:3} {:3} {:3} {:3} {:3} {:4} {:3} {:3} {:3} {:3} {:3} {:3}  {:3}  {:2}   {:2}  {:2} {:2}  {:2} {:4} {:4} {:4} {:4}'
+            head =  '   --------Voltage (VDC)------- ---------Current (A)------ ----Temperature--- ---------Delays--------'
+            head2 = 'r# 1.0 1.5 1.8 2.5 3.3 5.0 12.0 1.0 1.5 1.8 2.5 3.3 5.0 12 AMB FPG PPC IN OUT  X--CHN1--Y  X--CHN2--Y'
+            fmt = '{:2} {:3} {:3} {:3} {:3} {:3} {:3} {:4} {:3} {:3} {:3} {:3} {:3} {:3} {:3} {:2}  {:2}  {:2} {:2}  {:2} {:5d} {:5d} {:5d} {:5d}'
             self.L3.insert(END,head)
             self.L3.itemconfig(END,bg=self.colors['colhead'])
             self.L3.insert(END,head2)
@@ -1470,10 +1470,10 @@ class App():
                 tin = str(stf.extract(data,r[i]['Temp.inlet'])+0.5).split('.')[0]
                 tout = str(stf.extract(data,r[i]['Temp.outlet'])+0.5).split('.')[0]
                 tppc = str(stf.extract(data,r[i]['Temp.ppc'])+0.5).split('.')[0]
-                dla0x = str(stf.extract(data,r[i]['Delay0x']))
-                dla0y = str(stf.extract(data,r[i]['Delay0y']))
-                dla1x = str(stf.extract(data,r[i]['Delay1x']))
-                dla1y = str(stf.extract(data,r[i]['Delay1y']))
+                dla0x = stf.extract(data,r[i]['Delay0x'])
+                dla0y = stf.extract(data,r[i]['Delay0y'])
+                dla1x = stf.extract(data,r[i]['Delay1x'])
+                dla1y = stf.extract(data,r[i]['Delay1y'])
                 line = fmt.format(i+1,v1,v15,v18,v25,v33,v5,v12,c1,c15,c18,c25,c33,c5,c12,
                                   tamb,tfpga,tppc,tin,tout,dla0x,dla0y,dla1x,dla1y)
                 self.L3.insert(END,line)
@@ -1622,6 +1622,7 @@ class App():
         fe7 = sf['Antenna'][6]['Frontend']['FEM']
         fe8 = sf['Antenna'][7]['Frontend']['FEM']
         fe12 = sf['Antenna'][11]['Frontend']['FEM']
+        windkey = sf['Schedule']['Data']['Weather']['AvgWind']
         npts = len(self.que)
 #        daydif = (datetime.datetime(1901,1,1)-datetime.datetime(1,1,1)).days
         tm = np.zeros(npts,'float')
@@ -1642,6 +1643,7 @@ class App():
         f7 = np.zeros(npts,'float')
         f8 = np.zeros(npts,'float')
         f12 = np.zeros(npts,'float')
+        wind = np.zeros(npts,'float')
         for i in range(npts):
             am[i] = stf.extract(self.que[i],sf['Schedule']['Data']['Weather']['Temperature'])
             tm[i] = stf.extract(self.que[i],sf['Timestamp'])
@@ -1661,6 +1663,7 @@ class App():
             f7[i] = stf.extract(self.que[i],fe7['Temperature'])
             f8[i] = stf.extract(self.que[i],fe8['Temperature'])
             f12[i] = stf.extract(self.que[i],fe12['Temperature'])
+            wind[i] = stf.extract(self.que[i],windkey)
         # Exactly zero temperatures mean missing data (except ambient on rare cold days!), so flag with NaN
         am[np.where(am == 0.0)[0]] = np.NaN
         am = (am-32)*5./9   # Convert ambient to Celcius temperature
@@ -1680,6 +1683,7 @@ class App():
         f7[np.where(f7 == 0.0)[0]] = np.NaN
         f8[np.where(f8 == 0.0)[0]] = np.NaN
         f12[np.where(f12 == 0.0)[0]] = np.NaN
+        wind[np.where(wind == 0.0)[0]] = np.NaN
         # Get current axis extent
         extent = self.sub_plot1.axis()
         auto = self.sub_plot1.get_autoscale_on()
@@ -1687,6 +1691,7 @@ class App():
         self.sub_plot1.cla()
         # Add all of the temperatures to the plot
         tim = Time(tm,format='lv').plot_date
+        self.sub_plot1.plot_date(tim,wind,label='AvgWind',marker=None,color='gray',linestyle='-',linewidth=2)
         self.sub_plot1.plot_date(tim,t1,label='Laird A1',marker=None,color='blue',linestyle='-')
         self.sub_plot1.plot_date(tim,t2,label='Laird A2',marker=None,color='blue',linestyle='--')
         self.sub_plot1.plot_date(tim,t3,label='Laird A3',marker=None,color='blue',linestyle=':')

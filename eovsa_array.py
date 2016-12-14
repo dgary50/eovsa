@@ -25,6 +25,10 @@
 #   2016-Nov-22  DG
 #      Ant 11 looks like a bad guess, but at least now it is measureable.  I reduced
 #      it by 25.1 ns, to 31.9 ns.
+#   2016-Nov-24  DG
+#      A (final?) tweak to Bz.
+#   2916-Nov-25  DG
+#      Nope, not final!  I got the wrong sign on Bz correction.  Here is another try.
 #
 
 import aipy, ephem, numpy
@@ -111,6 +115,10 @@ def bl_cor(x, y, z, iant):
     dy += numpy.array([0.00,-0.018, 0.015, 0.036, 0.017,  0.0,  0.0, 0.0,-0.111,-0.035,-0.025,-0.097,-0.106,-0.035, 0.0, 0.0])    
     # Update based on 3C273 and 3C286 obs. on 2016 Nov 20 -- again in ns (ants 5-8 not in service)
     dz += numpy.array([0.00,-0.171,-0.258, 0.114,-0.403,  0.0,  0.0, 0.0, 1.323, 0.363, 31.90, 1.463, 0.798, 0.637, 0.0, 0.0])
+    # Update based on 2136+006 and 2253+161 obs. on 2016 Nov 23, in ns (ants 5-8 not in service).
+    dz += numpy.array([0.00, 0.034, 0.065,-0.106,-0.002,  0.0,  0.0, 0.0,-0.211, 0.101,-3.702,-1.730,-0.206,-0.168, 0.0, 0.0])
+    # Update based on 2136+006 and 2253+161 obs. on 2016 Nov 25, in ns (ants 5-8 not in service).
+    dz += numpy.array([0.00, 0.000,-0.085, 0.000,-0.061,  0.0,  0.0, 0.0, 0.680,-0.039, 7.696,-0.186, 0.607, 0.645, 0.0, 0.0])
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]

@@ -47,7 +47,14 @@
 #    There was a slight bug in offsets2ants(), now fixed.
 #   2016-Nov-21  DG
 #    Had the wrong sign of the correction in offsets2ants()!   Yikes!  It
-#    was only x that was the wrong sign.
+#    was only x that was the wrong sign. (I worry that this is only for the
+#    equatorial dishes...)
+#   2016-Nov-27  DG
+#    New routine to analyze interferometric (cal) pointing, called calpntanal().
+#   2016-Dec-09  DG
+#    I had determined RA offsets in units of "cross-Dec," but in fact I want
+#    them in units of RA, so do not multiply by cos(Dec).  Also, I now write
+#    out HA and Dec in degrees instead of radians.
 #
 
 if __name__ == "__main__":
@@ -64,7 +71,59 @@ import struct, time, glob, sys, socket
 from disk_conv import *
 import dump_tsys
 
-
+def calpntanal(t,ant_str='ant1-13',do_plot=True):
+    ''' Does a complete analysis of CALPNTCAL, reading information from the SQL
+        database, finding the corresponding Miriad IDB data, and doing the 
+        gaussian fit to the beam, to return the beam and offset parameters.
+    '''
+    import matplotlib.pyplot as plt
+    import read_idb
+    bl2ord = read_idb.p.bl_list()
+    # Read pointing data (timerange t must be accurate)
+    out = read_idb.read_idb(t, navg=30)
+    # Determine wanted baselines with ant 14 from ant_str
+    idx = read_idb.p.ant_str2list(ant_str)
+    # Do appropriate sums over frequency and baseline
+    pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)
+    # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
+    # sum over these
+    pntdata.shape = (16,3)
+    stdev = np.std(pntdata,1)
+    pntdata = np.sum(pntdata,1)
+    # Multiply by cos(dec) to convert to "Cross-dec" sky coordinates -- NO, leave in RA units
+    #rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])*np.cos(out['dec'])
+    rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])
+    radat = pntdata[:8]
+    deco = np.array([-0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 1.00])
+    decdat = pntdata[8:]
+    plsqr, xr, yr = solpnt.gausfit(rao, radat)
+    plsqd, xd, yd = solpnt.gausfit(deco, decdat)
+    midtime = Time((t[1].lv + t[0].lv)/2.,format='lv')
+    if (do_plot):
+        f, ax = plt.subplots(1,2)
+        f.set_size_inches(7,3.5,forward=True)
+        ax[0].errorbar(rao,radat,yerr=stdev[:8],fmt='.')
+        ax[0].plot(xr,yr)
+        ax[0].axvline(x=0,color='k')
+        ax[0].axvline(x=plsqr[1],linestyle='--')
+        ax[1].errorbar(deco,decdat,yerr=stdev[8:],fmt='.')
+        ax[1].plot(xd,yd)
+        ax[1].axvline(x=0,color='k')
+        ax[1].axvline(x=plsqd[1],linestyle='--')
+        for j in range(2):
+            ax[j].set_xlim(-0.3, 0.3)
+            ax[j].grid()
+        ax[0].text(0.6,0.9,'RAO :'+str(plsqr[1])[:5],transform=ax[0].transAxes)
+        ax[0].text(0.6,0.85,'FWHM:'+str(plsqr[2])[:5],transform=ax[0].transAxes)
+        ax[0].set_xlabel('RA Offset [deg]')
+        ax[1].text(0.6,0.9,'DECO:'+str(plsqd[1])[:5],transform=ax[1].transAxes)
+        ax[1].text(0.6,0.85,'FWHM:'+str(plsqd[2])[:5],transform=ax[1].transAxes)
+        ax[1].set_xlabel('Dec Offset [deg]')
+        f.suptitle('Pointing on '+out['source']+' at '+midtime.iso)
+    return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
+               'rao':plsqr[1],'deco':plsqd[1],'time':midtime}
+    
+    
 def solpntanal(t,udb=False):
     ''' Does a complete analysis of SOLPNTCAL, reading information from the SQL
         database, finding and dumping the corresponding Miriad IDB data, and 

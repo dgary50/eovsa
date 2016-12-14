@@ -38,6 +38,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import spectrogram_fit as sp
 import pcapture2 as p
+import eovsa_lst as el
 import copy
 
 def readXdata(filename, filter=False, tp_only=False, src=None):
@@ -92,6 +93,7 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     outm = np.zeros((nants,2,nf,600),dtype=np.int)
     uvwarray = np.zeros((nbl,600,3),dtype=np.float)
     timearray = []
+    lstarray = []
     l = -1
     tprev = 0
     tsav = 0
@@ -122,6 +124,10 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
                         break
                     tprev = t
                     timearray.append(t)
+                    try:
+                        lstarray.append(uv['lst'])
+                    except:
+                        pass
                     xdata = uv['xsampler'].reshape(500,nants,3)
                     ydata = uv['ysampler'].reshape(500,nants,3)
                     outp[:,0,:,l] = np.swapaxes(xdata[good_idx,:,0],0,1)
@@ -178,7 +184,16 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     outm = outm[:,:,:,:nt]
     outa = outa[:,:,:,:nt]
     outx = outx[:,:,:,:nt]
-    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
+    if len(lstarray) != 0:
+        pass
+    else:
+        tarray = Time(timearray,format='jd')
+        for t in tarray:
+            lstarray.append(el.eovsa_lst(t))
+    ha = np.array(lstarray) - uv['ra']
+    ha[np.where(ha > 2*np.pi)] -= 2*np.pi
+    ha[np.where(ha < 0)] += 2*np.pi
+    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
     return out
 
 def readXdatmp(filename):
@@ -386,6 +401,7 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
                         out['a'] = out['a'][:,:,:,:ntnew]
                         out['x'] = out['x'][:,:,:,:ntnew]
                     out['time'] = out['time'][:ntnew]
+                    out['ha'] = out['ha'][:ntnew]
                     out['uvw'] = out['uvw'][:,:ntnew,:]
                     # Recast shape 
                     out['m'].shape = out['m'].shape[0:3]+(nout,navg)
@@ -395,6 +411,7 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
                         out['a'].shape = out['a'].shape[0:3]+(nout,navg)
                         out['x'].shape = out['x'].shape[0:3]+(nout,navg)
                     out['time'].shape = (nout,navg)
+                    out['ha'].shape = (nout,navg)
                     out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
                     # Perform the average (mean) power and add to out dictionary
                     out.update({'meanp':np.nanmean(out['p'],4)})
@@ -408,12 +425,17 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
                         out['x'] = np.nanmean(out['x'],4)
                     out['time'] = np.mean(out['time'],1)  # Weighted average time
                     out['uvw'] = np.nanmean(out['uvw'],2)
+                    ha = np.mean(np.unwrap(out['ha']),1)  # Weighted average "unwrapped" ha
+                    # Wrap it again...
+                    ha[np.where(ha > 2*np.pi)] -= 2*np.pi
+                    ha[np.where(ha < 0)] += 2*np.pi
+                    out['ha'] = ha
 
                 datalist.append(out)
         except:
             print 'The problematic file is:',file
             
-    # Have to concatenate outa, outx, uvw, and time arrays
+    # Have to concatenate outa, outx, uvw, time, and ha arrays
     outa = []
     outx = []
     outp = []
@@ -421,6 +443,7 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
     outm = []
     uvw = []
     time = []
+    ha = []
     # This could be a lot of data, so handle P data first to determine
     # frequencies to eliminate
     for out in datalist:
@@ -447,6 +470,7 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
         outm.append(out['m'])
         uvw.append(out['uvw'])
         time.append(out['time'])
+        ha.append(out['ha'])
     if tp_only:
         out['a'] = outa
         out['x'] = outx
@@ -457,6 +481,7 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
     out['m'] = np.concatenate(outm,3)
     out['uvw'] = np.concatenate(uvw,1)
     out['time'] = np.concatenate(time)
+    out['ha'] = np.concatenate(ha)
     return out
     
 def flag_sk(out):
