@@ -116,7 +116,6 @@ def mountcal(filename=None,param_string=None,star=True):
     # Read first line to get old alignment parameters
     # line = f.readline()
     aligntab = param_string.strip().split() # Read old alignment parameters into ALIGNTAB
-    altab = aligntab[:5] + aligntab[6:] # Skip unused parameter 6
     # Read rest of file into lines
     lines = f.readlines()
     f.close()
@@ -447,7 +446,6 @@ def eq_mountcal(filename=None, param_string=None, star=True, stepsize=None, sfac
     # Read first line to get old alignment parameters
     # line = f.readline()
     aligntab = param_string.strip().split() # Read old alignment parameters into ALIGNTAB
-    altab = aligntab # No unused parameters
     # Read rest of file into lines
     lines = f.readlines()
     f.close()
@@ -499,6 +497,250 @@ def eq_mountcal(filename=None, param_string=None, star=True, stepsize=None, sfac
         hapo.append(-dra)
 
         name.append(nam)
+        ahodo.append('DECO')
+        aha[npt+1] = float(ha)
+        adec[npt+1] = float(dec)
+        #ael[npt+1] = el+(1/60.)*(0.0019279 + 1.02/np.tan((el + 10.3/(el+5.1))*dtor))  # refraction corr.
+        apo[npt+1] = ddec
+        decpo.append(ddec)
+        
+        # Coordinate parameters are contained in variable X, which are different
+        # for azimuth and elevation measurements
+        if ahodo[npt] is 'HAO':
+             x = [1.,
+                 -np.cos(lat*dtor)*np.sin(aha[npt]*dtor)/np.cos(adec[npt]*dtor),
+                 np.tan(adec[npt]*dtor),
+                 -1./np.cos(adec[npt]*dtor),
+                 np.sin(aha[npt]*dtor)*np.tan(adec[npt]*dtor),
+                 -np.cos(aha[npt]*dtor)*np.tan(adec[npt]*dtor),
+                 0.,
+                 0.]
+             if nparm == 10:
+                 x.append(aha[npt])
+                 x.append(0.)
+             x = np.array(x)
+             n += 1
+             b += np.array(apo[npt]*x)
+             xx = []
+             for i in range(len(x)):
+                 xx.append(x*x[i])
+             a += np.asmatrix(xx)
+        if ahodo[npt+1] is 'DECO':
+             x = [0.,
+                  0.,
+                  0.,
+                  0.,
+                  np.cos(aha[npt+1]*dtor),
+                  np.sin(aha[npt+1]*dtor),
+                  1.,
+                - np.cos(lat*dtor)*np.cos(aha[npt+1]*dtor)*np.sin(adec[npt+1]*dtor) 
+                + np.sin(lat*dtor)*np.cos(adec[npt+1]*dtor)]
+             if nparm == 10:
+                 x.append(0.)
+                 x.append(adec[npt+1]-lat)
+             x = np.array(x)
+             n += 1
+             b += np.array(apo[npt+1]*x)
+             xx = []
+             for i in range(len(x)):
+                 xx.append(x*x[i])
+             a += np.asmatrix(xx)
+
+        npt += 2
+
+    if npt == 0:
+        print 'EQ_MOUNTCAL: File read error.'
+        return
+
+    # Solve equation for pointing parameters
+    p = np.linalg.solve(a,b)
+
+    fit = []
+    hafit = []
+    decfit = []
+    # Do fit to all of the measurements using the solution for P
+    #   HAO = P1 - P2 cos(LAT)*cos(HA)*sec(DEC) + P3 tan(DEC) - P4 sec(DEC) + P5 sin(HA)*tan(DEC) 
+    #            - P6 cos(HA)*tan(DEC) + P9 HA
+    #   DECO = P5 cos(HA) + P6 sin(HA) + P7 + P8 [cos(LAT)*cos(HA)*sin(DEC) + sin(LAT)*cos(DEC)]
+    #            + P10 DEC
+    for i in range(npt):
+        if ahodo[i] is 'HAO':
+            ha = p[0] - p[1]*np.cos(lat*dtor)*np.sin(aha[i]*dtor)/np.cos(adec[i]*dtor) \
+                      + p[2]*np.tan(adec[i]*dtor) \
+                      - p[3]/np.cos(adec[i]*dtor) \
+                      + p[4]*np.sin(aha[i]*dtor)*np.tan(adec[i]*dtor) \
+                      - p[5]*np.cos(aha[i]*dtor)*np.tan(adec[i]*dtor) #+ sfac*aha[i]
+            if nparm == 10:
+                ha = ha + p[8]*aha[i]
+            fit.append(ha)
+            hafit.append(ha)
+        elif ahodo[i] is 'DECO':
+            dec = p[4]*np.cos(aha[i]*dtor) + p[5]*np.sin(aha[i]*dtor) \
+                      + p[6] \
+                      - p[7]*(np.cos(lat*dtor)*np.cos(aha[i]*dtor)*np.sin(adec[i]*dtor) \
+                            - np.sin(lat*dtor)*np.cos(adec[i]*dtor)) #+ sfac*(adec[i]-lat)
+            if nparm == 10:
+                dec = dec + p[9]*(adec[i]-lat)
+            fit.append(dec)
+            decfit.append(dec)
+
+    # Calculate the difference between the measured offsets and the fitted ones
+    diff = np.array(apo) - np.array(fit)
+
+    # Print results
+    print ' '
+    print '\     HA    DEC      MEASURED   FITTED  DIFFERENCE (deg)'
+    print ' '
+    for i in range(npt):
+        print "\ {:6.1f}{:6.1f}   {:s}= {:7.3f}  {:7.3f}  {:7.3f}".format(aha[i],adec[i],ahodo[i],apo[i],fit[i],diff[i])
+
+    # Calculate an appropriate residual
+    rmsum = diff.std()
+    origsum = (apo**2).sum()
+    origsum = np.sqrt(origsum/(n-nparm))
+
+    # If these are optical stellar measurements, change the sign of the corrections,
+    # since they are positions of the center of the field, not the offset of the source
+    # from the center.
+    if star != None: p = -p
+
+    # Print residual and solution
+    print ' '
+    print '\ RMS Residual={:5.3f}   RMS Original={:5.3f}'.format(rmsum,origsum)
+    print '\\',''.join('{:8.4f}'.format(k) for k in p), '<- UPDATE'
+    
+    print ''.join('{:7d}'.format(int(int(aligntab[k])+v*10000)) for k,v in enumerate(p)),' ALIGNPARM \ Updated pointing parameters'
+
+#    pha = Hour Angle list for plotting
+#    pdec = Declination list for plotting
+#    hapo = HA pointing offset for plotting
+#    decpo = Dec pointing offset for plotting
+#    hafit = Fit for HA for plotting
+#    decfit = Fit for Declination for plotting
+    # Hour Angle -- get index for sort by ascending order
+    print 'start of plot'
+    pha = np.array(pha)
+    ind = pha.argsort()
+    hapo = np.array(hapo)
+    decpo = np.array(decpo)
+    print 'setting drange'
+    drange = np.sqrt((hapo.max() - hapo.min())**2 + (decpo.max() - decpo.min())**2)
+    matplotlib.rcParams.update({'font.size':12})
+    plt.subplot(221)
+    if drange > 0.25:
+        plt.axis([-60,60,-3,3])
+    else:
+        plt.axis([-60,60,-0.25,0.25])
+    plt.xlabel('Hour Angle [deg]')
+    plt.ylabel('HA Offset [deg]')
+    plt.title('HA Offsets and Fit')
+    plt.plot(pha[ind],np.array(hapo)[ind],'o')
+    plt.plot(pha[ind],np.array(hafit)[ind])
+
+    plt.subplot(222)
+    if drange > 0.25:
+        plt.axis([-60,60,-3,3])
+    else:
+        plt.axis([-60,60,-0.25,0.25])
+    plt.xlabel('Hour Angle [deg]')
+    plt.ylabel('Declination Offset [deg]')
+    plt.title('Declination Offsets and Fit')
+    plt.plot(pha[ind],np.array(decpo)[ind],'o')
+    plt.plot(pha[ind],np.array(decfit)[ind])
+
+    plt.subplot(223)
+    plt.axis('equal')
+    plt.axis('scaled')
+    plt.axis([-60,60,-25,45])
+    plt.xlabel('Hour Angle [deg]')
+    plt.ylabel('Declination [deg]')
+    plt.title('Sky Coverage')
+    plt.plot(pha[ind],np.array(pdec)[ind],'+')
+
+    plt.subplot(224)
+    plt.axis('equal')
+    plt.axis('scaled')
+    plt.axis([-0.25,0.25,-0.25,0.25])
+    plt.xlabel('Hour Angle Offset [deg]')
+    plt.ylabel('Declination Offset [deg]')
+    plt.title('Pointing Relative to Solar Disk')
+    th = np.linspace(0,2*np.pi,100)
+    plt.plot(0.25*np.cos(th),0.25*np.sin(th),np.array(hapo),np.array(decpo),'+')
+    # Set plot size
+    fig = plt.gcf()
+    fig.set_size_inches(10.0,8.0)
+    tok = filename.split('/')
+    stem = tok[len(tok)-1].split('.')[0]
+    plt.savefig(stem+'.pdf')
+    plt.close()
+    
+def anta_mountcal(filename=None, param_string=None, star=True, stepsize=None, sfac=0.0):
+
+    lat = 37.233170       # OVSA Latitude (degrees)
+    nparm = 8
+    # Open the file containing the raw pointing data
+    if filename is None:
+        print 'Error: Must specify an input file name.'
+        return
+    if stepsize != None:
+        nparm = 10
+    if param_string is None:
+        if nparm == 10:
+            param_string = '0 0 0 0 0 0 0 0 0 0'
+        else:
+            param_string = '0 0 0 0 0 0 0 0'
+
+    f = open(filename,'r')
+
+    # Read first line to get old alignment parameters
+    # line = f.readline()
+    aligntab = param_string.strip().split() # Read old alignment parameters into ALIGNTAB
+    # Read rest of file into lines
+    lines = f.readlines()
+    f.close()
+    nlines = len(lines)
+
+##    !p.multi = [0,2,1,0,0]
+##    !p.charsize = 1
+
+##    saveresult = ' '
+
+     # Set some initializations
+    n = 0          # Number of "good" measurements
+    npt = 0        # Total number of entries (some could be "flagged" bad)
+
+    x = np.zeros((nparm,nparm))
+    a = np.asmatrix(x)   # Matrix to create from coordinates   A#B = P
+    b = np.zeros(nparm)  # Array to create from measurements
+    aha = np.zeros(nlines*2)
+    pha = []
+    pdec = []
+    hapo = []
+    decpo = []
+    adec = np.zeros(nlines*2)
+    apo = np.zeros(nlines*2)
+    ahodo = []
+    hodo = []
+    name = []
+    dtor = np.pi/180.
+
+    for line in lines:
+        nam = line[:10]
+        info = map(float,line.strip().split()[3:7])
+        ha,dec,dra,ddec = info
+        ha = ha#*180/np.pi
+        dec = dec#*180/np.pi
+
+        # Enter line contents into arrays for later use
+        ahodo.append('HAO')
+        aha[npt] = float(ha)
+        adec[npt] = float(dec)
+        pha.append(float(ha))
+        pdec.append(float(dec))
+        # ael[npt] = el+(1/60.)*(0.0019279 + 1.02/np.tan((el + 10.3/(el+5.1))*dtor))  # refraction corr.
+        apo[npt] = -dra#/np.cos(dec*np.pi/180.)     # Change sign for RA -> HA
+        hapo.append(-dra)#/np.cos(dec*np.pi/180.))
+
         ahodo.append('DECO')
         aha[npt+1] = float(ha)
         adec[npt+1] = float(dec)

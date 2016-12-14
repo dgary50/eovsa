@@ -45,7 +45,9 @@
 #      Update to work with 16-ant-correlator data and new routine read_idb()
 #      Also does correct scaling of x-corr level in case of extraneous inf
 #   2016-Jul-15  DG
-#      Add sk_flag of xdata display.
+#      Add sk_flag to xdata display.
+#   2016-Aug-04  DG
+#      After update of numpy, my medians no longer worked.  Changed to nanmedian.
 #
 import numpy as np
 from util import Time
@@ -226,7 +228,7 @@ def flaremeter(data):
     nbl,npol,nf,nt = data.shape
     tlevel = np.zeros(nt,'float')
     background = np.sqrt(np.abs(data[:,0,:,:])**2 + np.abs(data[:,1,:,:])**2)
-    init_bg = np.median(background,2)  # Initially take background as median over entire time range
+    init_bg = np.nanmedian(background,2)  # Initially take background as median over entire time range
     bflag = np.ones(nt,'bool')   # flags indicating "good" background times (not in flare)
     for i in range(nt):
         good, = np.where(bflag[:i] == True)   # List of indexes of good background times up to current time
@@ -234,7 +236,7 @@ def flaremeter(data):
         if ngood > 100:
             good = good[ngood-100:]
             # Calculate median over good background times
-            bg = np.median(background[:,:,good],2)
+            bg = np.nanmedian(background[:,:,good],2)
         else:
             # If there haven't been 100 times with good backgrounds yet, just use the initial one.
             # This is supposed to avoid startup transients.
@@ -242,7 +244,7 @@ def flaremeter(data):
         # Generate levels for each baseline and frequency for this time
         level = np.sqrt(abs(data[:,0,:,i])**2 + abs(data[:,1,:,i])**2)/bg
         # Take median over baseline and frequency to give a single number for this time
-        tlevel[i] = np.median(level)
+        tlevel[i] = np.nanmedian(level)
         if tlevel[i] > 1.05:
             # If the level of the current time is higher than 1.05, do not include this time in future backgrounds
             bflag[i] = False

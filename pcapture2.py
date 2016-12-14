@@ -64,9 +64,16 @@
 #      import the entire, complex corr module!
 #   2016-Apr-01  DG
 #      Added ant_str2list()
+#   2016-Oct-24  DG
+#      Added phdr output to rd_jspec(), so that overflow and power level information are available
+#   2016-Oct-28  DG
+#      Added capture_1s(), whose status output string is queued for reading by the schedule,
+#      or can be read after the call by msg = pcapture2.q.get_nowait()
 
 import numpy as np
 import pdb
+import Queue
+q = Queue.Queue()
 
 def ant_str2list(ant_str):
     ant_list = []
@@ -134,6 +141,24 @@ def sendcmd(command):
 
     out = subprocess.check_output(command.split(),stderr=subprocess.STDOUT).split('\n')
     return out
+
+def capture_1s(stem=None):
+    ''' Executes the dpp_packet_frame_dump routine on the dpp, to capture 1 s of packets,
+        then renames the output by adding the STEM argument to the filename.
+    '''
+    res = sendcmd('ssh user@dpp /home/user/test_svn/Miriad/packet16_dump_test/dpp_packet_frame_dump')
+    fname = None
+    for i,line in enumerate(res):
+        if line.find('dpp_fullsec_buffer') != -1:
+            fname = '/data1/PRT/PRT'+res[i-1].strip()+'.dat'
+            break
+    if fname and stem != None:
+        sendcmd('ssh user@dpp mv '+fname+' '+fname[:28]+stem+fname[28:])
+        fname = fname[:28]+stem+fname[28:]
+    if fname:
+        q.put('Saved 1-s capture to file '+fname)
+    else:
+        q.put('Saved 1-s capture to file '+fname)
 
 
 def list_header(filename,ptype='P',boardID=None,verbose=False):
@@ -391,6 +416,9 @@ def rd_jspec(filename):
           'a': auto-correlations in x-pkts,   [ 16,  4, 4096, 50  ]
                                               blines pol chan slots
           'x': cross-correlations in x-pkts, [ 120,   4, 4096, 50 ]
+          'phdr': Select power-packet header information, [16, 3, 50]
+                  where the 3 values are average power X, average power Y, 
+                  and overflow state.
     '''
     import struct, os
     bl_order = get_bl_order(16)
@@ -435,6 +463,7 @@ def rd_jspec(filename):
     outcross = np.zeros((120, 4, 4096, 50),dtype='complex64')
     outp     = np.zeros(( 16, 2, 4096, 50),dtype='float'    )
     outp2    = np.zeros(( 16, 2, 4096, 50),dtype='float'    )
+    outphdr  = np.zeros(( 16, 3, 50), dtype='int')
     # Start reading records
     with open(filename,'rb') as f:
         for i in range(npkt):
@@ -446,6 +475,9 @@ def rd_jspec(filename):
                 n = h['PacketNum']
                 bid = h['BoardID']
                 a = h['AccumNum']
+                if n == 0:
+                    outphdr[bid*2,   :, a] = np.array((h['PX0'],h['PY0'],h['ADCOverflow']))
+                    outphdr[bid*2+1, :, a] = np.array((h['PX1'],h['PY1'],h['ADCOverflow']))
                 power = struct.unpack(pp2,buf[88:88+768])
                 p1x,p1y,p2x,p2y,P1x,P1y,P2x,P2y = pspectra(power)
                 outp[ bid*2,   0, n*16:(n+1)*16, a] = p1x
@@ -473,7 +505,7 @@ def rd_jspec(filename):
             else:
                 # Some unknown packet?
                 pass
-        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross}
+        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr}
     return out
 
 def get_bl_order(n_ants):

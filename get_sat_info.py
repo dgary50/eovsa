@@ -11,6 +11,8 @@
 #      to return information only for the satellites matching the names
 #      list.  Names are converted to upper case for comparison, so case
 #      is not significant.
+#   2016-Aug-05  DG
+#      Update get_sat_info() for plotting if the doplot keyword is True.
 #
 import urllib2
 import numpy as np
@@ -48,7 +50,9 @@ def sat_info(name):
     out = {'name':satname, 'loc':satloc, 'freqlist':freq, 'pollist':poln}
     return out
 
-def get_sat_info(names=None):
+def get_sat_info(names=None,doplot=False):
+    import matplotlib.pylab as plt
+    from util import Time
     f = urllib2.urlopen('http://www.lyngsat.com/tracker/america.html')
     lines = f.readlines()
     f.close()
@@ -58,21 +62,30 @@ def get_sat_info(names=None):
         names = np.array([name.upper() for name in names])
     for line in lines:
         if line.find('<font face="Arial"><font size=2><a href="http://www.lyngsat.com/tracker/') != -1:
-            name = line.split('http://www.lyngsat.com/tracker/')[1].split('.html')[0]
-            if names is None:
-                # If no name list given, mark all satellites as found
-                found = True
-            else:
-                # Satellite is found if name is in names
-                found = len(np.where(name.upper() == names)[0]) == 1
-            if found:
-                found_names.append(name)
+            if line.find('bgcolor=#ffffff') == -1:
+                name = line.split('http://www.lyngsat.com/tracker/')[1].split('.html')[0]
+                if names is None:
+                    # If no name list given, mark all satellites as found
+                    found = True
+                else:
+                    # Satellite is found if name is in names
+                    found = len(np.where(name.upper() == names)[0]) == 1
+                if found:
+                    found_names.append(name)
     out = []
     for name in found_names:
         print 'Reading information for satellite',name,
         outi = sat_info(name)
         if outi is not None:
-            out.append(sat_info(name))
+            out.append(outi)
+    if doplot:
+        for i,sat in enumerate(out):
+            nf = len(sat['freqlist'])
+            plt.plot((float(sat['loc'])-118)*np.ones(nf),sat['freqlist'],'.')
+            plt.text(float(sat['loc'])-118,sat['freqlist'][0],str(i),ha='center',va='top')
+            plt.xlabel('HA [deg]')
+            plt.ylabel('Frequency [MHz]')
+            plt.title('Geosat Information for '+Time.now().iso)
     return out
 
 def print_sat_names(satlist, Freq1, Freq2):

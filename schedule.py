@@ -167,6 +167,44 @@
 #   2016-May-20  DG
 #      Starting a new scan now takes much longer (not sure why), so changed
 #      the wake_up() timer from 10 s to 15 s
+#   2016-Aug-17  DG
+#      Change to connect2roach() to minimize number of FTP accesses to 
+#      files on ACC.
+#   2016-Sep-07  DG
+#      Aborted the preceding, since it never worked, and the ACC is fixed...
+#   2016-Oct-26  DG
+#      Added $CAPTURE-1S command, to capture 1 s of data packets on dpp.
+#      Data recording must first be stopped, using $SCAN-STOP.
+#   2016-Nov-04  DG
+#      Add $SCAN-START NODATA option, so that a scan is set up for running
+#      but no data is recorded (needed prior to $CAPTURE-1S).
+#   2016-Nov-15  DG
+#      Implement two new commands, $PA-TRACK and $PA-STOP, to initiate and
+#      abort automatic tracking of the position angle setting of the 27-m
+#      focus rotation mechanism.  $PA-TRACK requires an antenna number, 
+#      which is the antenna from which to read the value of parallactic angle.
+#   2016-Nov-22  DG
+#      Changed the code to read delay centers from the database at the
+#      start of each scan (so code does not have to be reloaded every time).
+#      Note that it reads from the SQL database, not the ACC file
+#      /parm/delay_centers.txt, so proper procedures are needed to
+#      ensure that these are the same!  The dppxmp program uses that file.
+#   2016-Nov-25  DG
+#      Delays on ant 13 are still going negative.  Change Ant1 delay to
+#      11000, to counteract it.  I hope this does not drive other delays
+#      past 16000
+#   2016-Nov-26  DG
+#      Added CALPNTCAL command handling, to do 27-m pointing measurement on
+#      calibrators.
+#   2016-Dec-10  DG
+#      Added $PA-SWEEP command, which rotates the FRM from -PA to PA at
+#      a given rate.  Uses the same PA_thread variable so that $PA-STOP
+#      works to stop it, and it cannot run if $PA-TRACK is running (and
+#      vice versa).  Also fixed a number of problems where I was referring
+#      to np instead of numpy--there is no np in this module!
+#   2016-Dec-12  DG
+#      Changed autogen() to expect the first line to be an ACQUIRE line,
+#      second to be a PHASECAL, and third to be SUN.
 #
 
 import os, signal
@@ -198,6 +236,7 @@ import starburst
 from matplotlib.mlab import find
 import cal_header
 import adc_cal2
+import pcapture2
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
@@ -240,19 +279,27 @@ def init_scanheader_dict(version=37.0):
     aa.date = str(aa.date)[:11]+'00:00'  # Set date to 0 UT
     mjd0 = aa.date + 15019.5   # Convert from ephem date to mjd
 
+    #try:
+        ## Read delay center file from ACC
+        #dlafile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/delay_centers.txt',timeout=1)
+        #dcen = []
+        #dceny = []
+        #for line in dlafile.readlines():
+            #if line[0] != '#':
+                #ant,dx,dy = numpy.array(line.strip().split()).astype('float')
+                ## Skip comment lines and take second number as delay center [ns]
+                #dcen.append(dx)
+                #dceny.append(dy)
+    #except:
+        #print t.iso,'ACC connection for delay centers timed out.'
+        #dcen = [0]*16
     try:
-        # Read delay center file from ACC
-        dlafile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/delay_centers.txt',timeout=1)
-        dcen = []
-        dceny = []
-        for line in dlafile.readlines():
-            if line[0] != '#':
-                ant,dx,dy = numpy.array(line.strip().split()).astype('float')
-                # Skip comment lines and take second number as delay center [ns]
-                dcen.append(dx)
-                dceny.append(dy)
+        xml, buf = cal_header.read_cal(4)
+        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+        dcen  = dcenters[:,0]
+        dceny = dcenters[:,1]
     except:
-        print t.iso,'ACC connection for delay centers timed out.'
+        print t.iso,'SQL connection for delay centers failed.'
         dcen = [0]*16
     
     try:
@@ -676,6 +723,7 @@ class App():
         self.sensors = [{},{},{},{},{},{},{},{}]  # Empty ROACH sensor dictionaries
         self.delays = [{},{},{},{},{},{},{},{}]  # Empty ROACH delays dictionaries
         self.w = {} # Empty weather dictionary
+        self.PAthread = None
 
         # Start the clock ticking
         self.prev = time.time()
@@ -762,7 +810,11 @@ class App():
         for roach_ip in roach_ips:
             # Make connection to ROACHes
             rnum = int(roach_ip[5:6])-1
-            self.roaches.append(roachModule.Roach(roach_ip, boffile_name))
+            if len(self.roaches) > 0:
+                cfg = self.roaches[0].cfg
+            else:
+                cfg = None
+            self.roaches.append(roachModule.Roach(roach_ip, boffile_name))#, cfg))
             if self.roaches[-1].msg == 'Success':
                 print roach_ip,'is reachable'
                 self.roaches[-1].dlasweep = None
@@ -928,7 +980,7 @@ class App():
             for i,line in enumerate(lines):
                 self.L.insert(END, line.rstrip('\n'))
                 ctl_cmd = line.split()[2]
-                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'STARBURST':
+                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'STARBURST' or ctl_cmd == 'CALPNTCAL':
                     name = line.split()[3]
                     # Get start and stop time for this calibrator, as ephem-compatible strings
                     if i == self.lastline-1:
@@ -941,7 +993,7 @@ class App():
                     if ctl_cmd == 'STARBURST':
                         check_27m = True
                         check_2m = False
-                    elif ctl_cmd == 'PHASECAL':
+                    elif ctl_cmd == 'PHASECAL' or ctl_cmd == 'CALPNTCAL':
                         check_27m = True
                         check_2m = True
                     # Check visibility for source
@@ -1089,12 +1141,18 @@ class App():
         mjdrise, mjdset = suntimes(t)
         # First solar line starts at sunrise
         trise = util.Time(mjdrise,format='mjd')
+        line = self.L.get(2)
+        line = trise.iso[:19] + line[19:]
+        self.L.delete(2)
+        self.L.insert(2,line)
+        # First calibrator line starts 15 min earlier
+        trise = util.Time(mjdrise - 15.*60./86400.,format='mjd')
         line = self.L.get(1)
         line = trise.iso[:19] + line[19:]
         self.L.delete(1)
         self.L.insert(1,line)
-        # First calibrator line starts 15 min earlier
-        trise = util.Time(mjdrise - 15.*60./86400.,format='mjd')
+        # First calibrator ACQUIRE line starts 20 min earlier
+        trise = util.Time(mjdrise - 20.*60./86400.,format='mjd')
         line = self.L.get(0)
         line = trise.iso[:19] + line[19:]
         self.L.delete(0)
@@ -1203,6 +1261,14 @@ class App():
                             print src.name, jys, visible, src.ra, src.dec, '     ', src.az, src.alt
                 self.L.delete(i)
                 self.L.insert(i,line)
+                if i == 1:
+                    # Check if earlier line is ACQUIRE, and if so, make sure it goes to the same
+                    # calibrator!
+                    acline = self.L.get(0)
+                    if acline[20:27] == 'ACQUIRE':
+                        acline = acline[:28] + src.name
+                        self.L.delete(0)
+                        self.L.insert(0,acline)
 
     #============================
     def Insert(self):
@@ -1487,6 +1553,12 @@ class App():
                 print t.iso,msg
             except:
                 break
+        # Attempt to read from spawned task pcapture2.capture_1s() queue.
+        try:
+            msg = pcapture2.q.get_nowait()
+            print t.iso,msg
+        except:
+            pass
             
         # If this schedule is running the second subarray, confirm that Subarray1 is running; if it is not,
         # print a warning message to the log file.
@@ -1729,13 +1801,12 @@ class App():
         # Delay centers.  These are read from file 'delay_centers.txt' in the
         # ACC parm directory by init_scan_dict().
         # The 0.800 is because current clock frequency is 800 MHz.  This should be a
-        # parameter. The 9000.5 is to center delays mid-range (ROACHes have a range
-        # of 16,000), and provide integer delay.  The 0.5 is to make the astype(int) act
-        # as a round().
+        # parameter. The 11000 is to accomodate Ant 13, which has a large delay center
+        # value (ROACHes have a range of 16,000).  
         # ****** Send delay0, which is actually the delay for the next upcoming second ******
         adc_clk = self.brd_clk_freq*4./1000.
-        dlax = ((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 9000.5).astype(int)
-        dlay = ((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 9000.5).astype(int)
+        dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 11000)
+        dlay = numpy.round((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 11000)
         
         for r in self.roaches:
             if r.fpga:
@@ -1890,12 +1961,16 @@ class App():
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
+        elif cmds[0].upper() == 'CALPNTCAL':
+            sh_dict['project'] = 'CALPNTCAL'
+            sh_dict['source_id'] = cmds[1]
+            sh_dict['track_mode'] = 'RADEC '
         elif cmds[0].upper() == 'STARBURST':
             sh_dict['project'] = 'STARBURST'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
             print 'Source is',cmds[1]
-        elif cmds[0].upper() == 'GEOSAT':
+        elif cmds[0].upper() == 'GEOSAT' or cmds[0].upper() == 'DELAYCAL':
             sh_dict['project'] = 'GEOSAT'
             sh_dict['source_id'] = cmds[1].replace('_',' ')
             # These are geostationary satellites so far.  If/when we add
@@ -2084,8 +2159,21 @@ class App():
                     t = threading.Thread(target=adc_cal2.set_fem_attn, kwargs={'ant_str':ant_str})
                     t.daemon = True
                     t.start()
+                #==== CAPTURE-1S ====
+                elif ctlline.split(' ')[0].upper() == '$CAPTURE-1S':
+                    # Use $CAPTURE-1S <stem> where <stem> is a string to add to the end of the
+                    # capture filename.  The capture is done on the dpp.  This will take a few
+                    # seconds to complete.
+                    cmd, stem = ctlline.strip().split(' ')
+                    # Capture 1 s of data on dpp
+                    t = threading.Thread(target=pcapture2.capture_1s, kwargs={'stem':stem})
+                    t.daemon = True
+                    t.start()
                 #==== SCAN-START ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-START':
+                    # Command by itself is normal scan start, while $SCAN-START NODATA
+                    # means set up scan, but do not take data.  Used for some calibrations.
+                    nodata = ctlline.strip().split(' ')[-1].upper()
                     # Do any tasks here that are required to start a new scan
                     sys.stdout.write('Started new scan\n')
                     if self.subarray_name == 'Subarray1':
@@ -2100,6 +2188,18 @@ class App():
                             s.close()
                         except:
                             pass
+                    # Fetch current delay centers from SQL database (NB: there is no check
+                    # that these match the ACC file /parm/delay_centers.txt, which is used
+                    # by the dppxmp program, so follow procedures to create this file!
+                    xml, buf = cal_header.read_cal(4)
+                    try:
+                        xml, buf = cal_header.read_cal(4)
+                        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+                        sh_dict['dlacen']  = dcenters[:,0]
+                        sh_dict['dlaceny'] = dcenters[:,1]
+                    except:
+                        print t.iso,'SQL connection for delay centers failed.  Delay center not updated'
+
                     # We need an initial call to set_uvw() in order to set RA, Dec and HA
                     # coordinates in scan header dictionary.
                     srcname = sh_dict['source_id']
@@ -2180,8 +2280,11 @@ class App():
                             sys.stdout.flush()
                             self.error = 'Err: Cannot write scan header to SQL'
                     
-                    # Set scan state to on
-                    sf_dict['scan_state'] = 1
+                    if nodata == 'NODATA':
+                        pass
+                    else:
+                        # Set scan state to on
+                        sf_dict['scan_state'] = 1
                 #==== SCAN-RESTART ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-RESTART':
                     # This command is for restarting a scan with the same setup as the
@@ -2191,6 +2294,60 @@ class App():
                 #==== SCAN-STOP ====
                 elif ctlline.split(' ')[0].upper() == '$SCAN-STOP':
                     sf_dict['scan_state'] = -1
+                #==== PA-SWEEP ====
+                elif ctlline.split(' ')[0].upper() == '$PA-SWEEP':
+                    # Rotate 27-m focus rotation mechanism to sweep through a given angle 
+                    # range (does nothing if PA adjustment routine is already running)
+                    #   Usage: $PA-SWEEP PA rate, where angle is swept from -PA to PA at
+                    #                             rate of 1-degree-per-rate [s]
+                    print 'Got '+ctlline.split(' ')[0].upper()+' command.'
+                    if self.PAthread is None or not self.PAthread.is_alive():
+                        # Thread is not already running, so it is safe to proceed
+                        try:
+                            PA,rate = map(numpy.int,ctlline.strip().split()[-2:])
+                        except:
+                            # Reading arguments failed, so use defaults
+                            PA = 80
+                            rate = 3
+                        print 'PA and rate are ',PA,rate
+                        try:
+                            # Spawn the stateframe.PA_sweep() routine to update PA once/rate
+                            self.PAthread = threading.Thread(target=stateframe.PA_sweep,kwargs={'PA':PA,'rate':rate})
+                            self.PAthread.daemon = True
+                            self.PAthread.start()
+                            print 'PAthread started.'
+                        except:
+                            # Something went wrong
+                            print 'Error spawning PA_sweep task'
+                            pass
+                #==== PA-TRACK ====
+                elif ctlline.split(' ')[0].upper() == '$PA-TRACK':
+                    # Track 27-m focus rotation mechanism to correct for parallactic angle 
+                    # of given antenna (does nothing if antenna not correctly specified)
+                    #   Usage: $PA-TRACK ant4
+                    print 'Got '+ctlline.split(' ')[0].upper()+' command.'
+                    if self.PAthread is None or not self.PAthread.is_alive():
+                        # Thread is not already running, so it is safe to proceed
+                        antstr = ctlline.strip().split()[-1].upper()
+                        print 'Given antenna is '+antstr
+                        try:
+                            # Spawn the stateframe.PA_adjust() routine to update PA once/minute
+                            antn = pcapture2.ant_str2list(antstr)[0]
+                            print 'Antenna index is',antn
+                            self.PAthread = threading.Thread(target=stateframe.PA_adjust,kwargs={'ant':antn})
+                            self.PAthread.daemon = True
+                            self.PAthread.start()
+                            print 'PAthread started.'
+                        except:
+                            # Antenna not correctly specified, so do not spawn routine
+                            print 'Antenna specification no good?'
+                            pass
+                #==== PA-STOP ====
+                elif ctlline.split(' ')[0].upper() == '$PA-STOP':
+                    # Send Abort string to stateframe.PA_adjust() routine.  Note that
+                    # abort may not be acted upon until up to 1 s later.
+                    if self.PAthread and self.PAthread.is_alive():
+                        stateframe.q.put_nowait('Abort')
                 #==== TRIPS ====
                 elif ctlline.split(' ')[0].upper() == '$TRIPS':
                     try:
@@ -2401,7 +2558,7 @@ class App():
                     if fsequence == '':
                         print 'FSEQ file',cmds[1],'not successfully interpreted.'
                         # Default to allowing all channels in RFI mask
-                        sh_dict.update({'chanmask':np.array([1]*204800,'byte')})
+                        sh_dict.update({'chanmask':numpy.array([1]*204800,'byte')})
                     else:
                         sh_dict.update({'fsequence':fsequence[:-1]})   # -1 removes trailing ','
                         chanmask = cu.get_chanmask(fsequence[:-1])
@@ -2412,7 +2569,7 @@ class App():
                         for band in fseqlist:
                             ch = cu.chan_asmt(int(band))
                             item += ch
-                        sh_dict.update({'chan2wide':np.array(item)*sh_dict['chanmask']})
+                        sh_dict.update({'chan2wide':numpy.array(item)*sh_dict['chanmask']})
                         self.sequence2roach(fsequence[:-1])
                         self.sequence2dcmtable(fsequence[:-1])
 

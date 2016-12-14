@@ -20,6 +20,15 @@
 #  2016-06-30  DG
 #    Change to allow input of a file list to read_idb() in place of
 #    trange (used by the realtime pipeline).
+#  2016-07-23  DG
+#    Widen range of allowed SK to 0.7 - 1.5.
+#  2016-11-19  DG
+#    Fix glitches in uvw when averaging over time, by replacing
+#    missing values with nan before averaging.  Also added srcchk boolean
+#    to read_idb(), to skip the name check if False.  Also added the
+#    option to specify a source name, and changed behavior so that
+#    if a different source name is found, it just skips the file
+#    instead of bailing out.
 
 import aipy
 import os
@@ -29,9 +38,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import spectrogram_fit as sp
 import pcapture2 as p
+import eovsa_lst as el
 import copy
 
-def readXdata(filename, filter=False, tp_only=False):
+def readXdata(filename, filter=False, tp_only=False, src=None):
     ''' This routine reads the data from a single IDBfile.
         
         Optiona Keywords:
@@ -60,7 +70,15 @@ def readXdata(filename, filter=False, tp_only=False):
         uv.rewind()
 
     if 'source' in uv.vartable:
-        src = uv['source']
+        if src is None:
+            # If no source name is given, return the source from the file and keep going
+            src = uv['source']
+        elif src != uv['source']:
+            # If a specific source name is given, and it does not match the file, stop and return None
+            return uv['source']
+        else:
+            # If a source is given, and it matches the file, keep going
+            pass
     nf = len(good_idx)
     freq = uv['sfreq'][good_idx]
     npol = uv['npol']
@@ -75,6 +93,7 @@ def readXdata(filename, filter=False, tp_only=False):
     outm = np.zeros((nants,2,nf,600),dtype=np.int)
     uvwarray = np.zeros((nbl,600,3),dtype=np.float)
     timearray = []
+    lstarray = []
     l = -1
     tprev = 0
     tsav = 0
@@ -105,6 +124,10 @@ def readXdata(filename, filter=False, tp_only=False):
                         break
                     tprev = t
                     timearray.append(t)
+                    try:
+                        lstarray.append(uv['lst'])
+                    except:
+                        pass
                     xdata = uv['xsampler'].reshape(500,nants,3)
                     ydata = uv['ysampler'].reshape(500,nants,3)
                     outp[:,0,:,l] = np.swapaxes(xdata[good_idx,:,0],0,1)
@@ -161,7 +184,16 @@ def readXdata(filename, filter=False, tp_only=False):
     outm = outm[:,:,:,:nt]
     outa = outa[:,:,:,:nt]
     outx = outx[:,:,:,:nt]
-    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm}
+    if len(lstarray) != 0:
+        pass
+    else:
+        tarray = Time(timearray,format='jd')
+        for t in tarray:
+            lstarray.append(el.eovsa_lst(t))
+    ha = np.array(lstarray) - uv['ra']
+    ha[np.where(ha > 2*np.pi)] -= 2*np.pi
+    ha[np.where(ha < 0)] += 2*np.pi
+    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
     return out
 
 def readXdatmp(filename):
@@ -310,15 +342,21 @@ def get_IDBfiles(showthelast=10):
         IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
     return IDBfiles
     
-def read_idb(trange,navg=None,filter=True,tp_only=False):
+def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
     ''' This finds the IDB files within a given time range and concatenates 
         the times into a single dictionary.  If trange is not a Time() object,
         assume that it is the list of files to read.
         
-        Optiona Keywords:
-        filter   boolean--if True (default), returns only non-zero frequencies 
+        Keywords:
+          src      string--if not None, files in trange will be skipped unless
+                    their source name matches this string.
+        Optional Keywords:
+          filter   boolean--if True (default), returns only non-zero frequencies 
                     if False, returns uniform set of 500 frequencies, with gaps
-        tp_only  boolean--if True, returns only TP information
+          srcchk   boolean--if True (default), stops reading files when source 
+                    name is different from initial source name.  If set to
+                    False, only the source name in the first file is returned
+          tp_only  boolean--if True, returns only TP information
                     if False (default), returns everything (including 
                     auto & cross correlations)
     '''
@@ -329,51 +367,75 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
         files = trange
 
     datalist = []
-    src = ''
     for file in files:
-        #This will skip any files which give us errors.
+        #This will skip any files that give us errors.
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            out = readXdata(file,tp_only)
-            if src == '':
-                # This is the first file so set source name and frequency list
-                src = out['source']
-            if src != out['source']:
-                print 'Source name:',out['source'],'is different from initial source name:',src
-                print 'Will stop reading files.'
-                break
-            datalist.append(out)
+            out = readXdata(file,tp_only,src=src)
+            if type(out) is str:
+                print 'Source name:',out,'does not match requested name:',src+'.  Will skip',file
+            else:
+                if srcchk and src is None:
+                    # This is the first file, and we care about the source, so set source name
+                    src = out['source']
+                if navg:
+                    # Perform time average over navg seconds. Note that this does not do the
+                    # right thing over time gaps (yet)        
+                    # First set any time-frequency bins with M value 0 to nan
+                    badidx = np.where(out['m'][0,0] == 0)
+                    out['p'][:,:,badidx[0],badidx[1]] = np.nan
+                    out['p2'][:,:,badidx[0],badidx[1]] = np.nan
+                    if not tp_only:
+                        out['a'][:,:,badidx[0],badidx[1]] = np.nan
+                        out['x'][:,:,badidx[0],badidx[1]] = np.nan
+                        out['uvw'][:,badidx[1],:] = np.nan
+                    # Truncate arrays so that times are evenly divisible by navg
+                    nt = len(out['time'])
+                    nout = nt/navg
+                    ntnew = nout*navg
+                    out['m'] = out['m'][:,:,:,:ntnew]
+                    out['p'] = out['p'][:,:,:,:ntnew]
+                    out['p2'] = out['p2'][:,:,:,:ntnew]
+                    if not tp_only:
+                        out['a'] = out['a'][:,:,:,:ntnew]
+                        out['x'] = out['x'][:,:,:,:ntnew]
+                    out['time'] = out['time'][:ntnew]
+                    out['ha'] = out['ha'][:ntnew]
+                    out['uvw'] = out['uvw'][:,:ntnew,:]
+                    # Recast shape 
+                    out['m'].shape = out['m'].shape[0:3]+(nout,navg)
+                    out['p'].shape = out['p'].shape[0:3]+(nout,navg)
+                    out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
+                    if not tp_only:
+                        out['a'].shape = out['a'].shape[0:3]+(nout,navg)
+                        out['x'].shape = out['x'].shape[0:3]+(nout,navg)
+                    out['time'].shape = (nout,navg)
+                    out['ha'].shape = (nout,navg)
+                    out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
+                    # Perform the average (mean) power and add to out dictionary
+                    out.update({'meanp':np.nanmean(out['p'],4)})
+                    # Perform sum over m, p and p2, to preserve SK
+                    out['m'] = np.nansum(out['m'],4)
+                    out['p'] = np.nansum(out['p'],4)
+                    out['p2'] = np.nansum(out['p2'],4)
+                    if not tp_only:
+                        # Perform the average (mean), over non-nan values
+                        out['a'] = np.nanmean(out['a'],4)
+                        out['x'] = np.nanmean(out['x'],4)
+                    out['time'] = np.mean(out['time'],1)  # Weighted average time
+                    out['uvw'] = np.nanmean(out['uvw'],2)
+                    ha = np.mean(np.unwrap(out['ha']),1)  # Weighted average "unwrapped" ha
+                    # Wrap it again...
+                    ha[np.where(ha > 2*np.pi)] -= 2*np.pi
+                    ha[np.where(ha < 0)] += 2*np.pi
+                    out['ha'] = ha
+
+                datalist.append(out)
         except:
             print 'The problematic file is:',file
-    # Remove code that attempts to match frequencies--files will always have the full
-    # number of frequencies now
-    # # Sometimes an IDB file will be truncated early and have a number of frequencies
-    # # that is incompatible with the others, so make a list of the number of frequencies 
-    # # in each IDBdata and keep only those with the most common number.
-    # nflist = []
-    # # Find the maximum number of frequencies
-    # for out in datalist:
-        # nflist.append(len(out['fghz']))
-    # nflist = np.array(nflist)
-    # nfgood = np.median(nflist)
-    # badidx, = np.where(nflist != nfgood)
-    # if len(badidx) != 0 and len(nflist) < 3:
-        # print 'Files have different numbers of frequencies, and result is ambiguous.'
-        # print 'Will take the file with the higher number of frequencies'
-        # nfgood = nflist.max()
-    # # Make a list, nfbad, of entries with fewer than the max number of frequencies
-    # nfbad = (np.where(nfgood != nflist)[0]).tolist()
-    # for i in range(len(nflist)):
-        # if nflist[i] != nfgood: nfbad.append(i)
-    # # This loop will run only if length of nfbad > 0
-    # mybad = np.array(nfbad)
-    # for i in range(len(nfbad)):
-        # # Eliminate the entries in the list with too few frequencies
-        # datalist.pop(mybad[i])
-        # mybad -= 1
-        # print 'File',files[nfbad[i]],'eliminated due to too few frequencies.'
-    # Have to concatenate outa, outx, uvw, and time arrays
+            
+    # Have to concatenate outa, outx, uvw, time, and ha arrays
     outa = []
     outx = []
     outp = []
@@ -381,6 +443,7 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
     outm = []
     uvw = []
     time = []
+    ha = []
     # This could be a lot of data, so handle P data first to determine
     # frequencies to eliminate
     for out in datalist:
@@ -407,6 +470,7 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
         outm.append(out['m'])
         uvw.append(out['uvw'])
         time.append(out['time'])
+        ha.append(out['ha'])
     if tp_only:
         out['a'] = outa
         out['x'] = outx
@@ -417,57 +481,15 @@ def read_idb(trange,navg=None,filter=True,tp_only=False):
     out['m'] = np.concatenate(outm,3)
     out['uvw'] = np.concatenate(uvw,1)
     out['time'] = np.concatenate(time)
-    if navg:
-        # Perform time average over navg seconds. Note that this does not do the
-        # right thing over time gaps (yet)        
-        # First set any time-frequency bins with M value 0 to nan
-        badidx = np.where(out['m'][0,0] == 0)
-        out['p'][:,:,badidx[0],badidx[1]] = np.nan
-        out['p2'][:,:,badidx[0],badidx[1]] = np.nan
-        if not tp_only:
-            out['a'][:,:,badidx[0],badidx[1]] = np.nan
-            out['x'][:,:,badidx[0],badidx[1]] = np.nan
-        # Truncate arrays so that times are evenly divisible by navg
-        nt = len(out['time'])
-        nout = nt/navg
-        ntnew = nout*navg
-        out['m'] = out['m'][:,:,:,:ntnew]
-        out['p'] = out['p'][:,:,:,:ntnew]
-        out['p2'] = out['p2'][:,:,:,:ntnew]
-        if not tp_only:
-            out['a'] = out['a'][:,:,:,:ntnew]
-            out['x'] = out['x'][:,:,:,:ntnew]
-        out['time'] = out['time'][:ntnew]
-        out['uvw'] = out['uvw'][:,:ntnew,:]
-        # Recast shape 
-        out['m'].shape = out['m'].shape[0:3]+(nout,navg)
-        out['p'].shape = out['p'].shape[0:3]+(nout,navg)
-        out['p2'].shape = out['p2'].shape[0:3]+(nout,navg)
-        if not tp_only:
-            out['a'].shape = out['a'].shape[0:3]+(nout,navg)
-            out['x'].shape = out['x'].shape[0:3]+(nout,navg)
-        out['time'].shape = (nout,navg)
-        out['uvw'].shape = (out['uvw'].shape[0],nout,navg,3)
-        # Perform the average (mean) power and add to out dictionary
-        out.update({'meanp':np.nanmean(out['p'],4)})
-        # Perform sum over m, p and p2, to preserve SK
-        out['m'] = np.nansum(out['m'],4)
-        out['p'] = np.nansum(out['p'],4)
-        out['p2'] = np.nansum(out['p2'],4)
-        if not tp_only:
-            # Perform the average (mean), over non-nan values
-            out['a'] = np.nanmean(out['a'],4)
-            out['x'] = np.nanmean(out['x'],4)
-        out['time'] = np.mean(out['time'],1)  # Weighted average time
-        out['uvw'] = np.mean(out['uvw'],2)
+    out['ha'] = np.concatenate(ha)
     return out
     
 def flag_sk(out):
     bl2ord = p.bl_list()
     m = out['m']
     sk = (m+1.)/(m-1.)*(m*out['p2']/(out['p']**2) - 1)
-    u_lim = 1.25
-    l_lim = 0.75
+    u_lim = 1.5
+    l_lim = 0.7
     sk_flag = np.logical_or(sk > u_lim,sk < l_lim)
     nant,npol,nf,nt = m.shape
     for i in range(nant-1):

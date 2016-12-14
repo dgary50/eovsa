@@ -33,6 +33,29 @@
 #      a single dictionary. 
 #   2016-Jan-15  DG
 #      Cleaned up azel_from_stateframe() code to use extract().
+#   2016-Aug-12  DG
+#      Doh!  Subtle bug in parallactic angle calculation, doing lat**dtor 
+#      instead of lat*dtor!  All of the stateframe values up to now are
+#      wrong!  Now fixed...
+#   2016-Oct-20  DG
+#      Added hadec2altaz() routine, so that I can find parallactic angle
+#      more easily vs. HA, DEC.
+#   2016-Nov-15  DG
+#      Added PA_adjust() routine to continuously adjust the PA of the 
+#      27-m feed to track the parallactic angle of a given antenna.
+#   2016-Nov-16  DG
+#      Corrected long-standing problem with parallactic angle--apparently
+#      my hadec2altaz() routine was never completed, and never used to
+#      convert HA, Dec to Az, El.  Now it should work as intended.
+#   2016-Nov-20  DG
+#      Had to update hadec2altaz(), because my changes made it no longer
+#      work for array arguments.
+#   2016-Dec-10  DG
+#      Added PA_sweep() routine to sweep PA of 27-m feed from -PA to PA,
+#      at a specified rate.
+#   2016-Dec-12  DG
+#      Tweaked PA_sweep() to wait until initial PA is acquired before
+#      starting the sweep (or times out and starts sweep after 2 minutes).
 #
 
 import struct, sys
@@ -45,6 +68,8 @@ from util import Time
 from Tkinter import Tk
 from tkFileDialog import *
 import xml.etree.ElementTree as ET
+import Queue
+q = Queue.Queue()
 
 #============================
 def weather(attempt=0):
@@ -363,7 +388,12 @@ def azel_from_stateframe(sf, data, antlist=None):
             delv.append(el1 - el_req[i])
             el_act.append(el1)
 
-        chi.append(par_angle(el_act[i]*dtor,az_act[i]*dtor))
+        if ant in [8,9,10,12,13,14]:
+            # Case of equatorial mount antennas, convert HA, Dec to El, Az
+            eqel, eqaz = hadec2altaz(az_act[i]*dtor,el_act[i]*dtor)
+            chi.append(par_angle(eqel, eqaz))
+        else:
+            chi.append(par_angle(el_act[i]*dtor,az_act[i]*dtor))
 
     # Track limit is set at 1/10th of primary beam at 18 GHz
     tracklim = np.array([0.0555]*13+[0.0043]*2)       # 15-element array
@@ -386,10 +416,36 @@ def par_angle(alt, az):
        This is likely reversed in sign for a feed at prime focus.
     '''
     dtor = np.pi/180.
-    lat = 37.233170**dtor
+    lat = 37.233170*dtor
     chi = np.arctan2(-np.cos(lat)*np.sin(az),
                   np.sin(lat)*np.cos(alt) - np.cos(lat)*np.sin(alt)*np.cos(az))
     return chi
+
+#============================
+def hadec2altaz(ha, dec):
+    ''' Given an hour angle and declination, both in radians, return
+        the corresponding altitude and azimuth for OVRO
+    '''
+    lat = 37.233170*np.pi/180.
+    salt = np.sin(dec)*np.sin(lat) + np.cos(dec)*np.cos(lat)*np.cos(ha)
+    alt = np.arcsin(salt)
+    caz = (np.sin(dec) - np.sin(alt)*np.sin(lat)) / (np.cos(alt)*np.cos(lat))
+    if type(caz) is np.ndarray:
+        az = np.zeros(caz.shape,float)
+        for i,c in enumerate(caz):
+            if c >= 1 or c <= -1:
+                az[i] = np.pi
+            else:
+                az[i] = np.arccos(c)
+        if np.sin(ha[i]) > 0: 
+            az[i] = 2*np.pi - az[i]
+    else:
+        if caz >= 1 or caz <= -1:
+            az = np.pi
+        else:
+            az = np.arccos(caz)
+        if np.sin(ha) > 0: return alt, 2*np.pi - az
+    return alt, az
 
 #============================
 def azel_from_sqldict(sqldict, antlist=None):
@@ -440,6 +496,11 @@ def azel_from_sqldict(sqldict, antlist=None):
         el_act[good] = copy.deepcopy(el_req[good] + delv[good])
         daz.shape = delv.shape = az_act.shape = el_act.shape = rms
     chi = par_angle(el_act*dtor,az_act*dtor)
+    # Override equatorial antennas
+    for iant in [8,9,10,12,13,14]:
+        # Case of equatorial mount antennas, convert HA, Dec to El, Az
+        eqel, eqaz = hadec2altaz(az_act[:,iant]*dtor,el_act[:,iant]*dtor)
+        chi[:,iant] = par_angle(eqel, eqaz)
 
     # Track limit is set at 1/10th of primary beam at 18 GHz
     tracklim = np.array([0.0555]*13+[0.0043]*2)       # 15-element array
@@ -450,3 +511,152 @@ def azel_from_sqldict(sqldict, antlist=None):
     return {'dAzimuth':daz,   'ActualAzimuth':az_act,  'RequestedAzimuth':az_req,
             'dElevation':delv,'ActualElevation':el_act,'RequestedElevation':el_req,
             'ParallacticAngle':chi/dtor, 'TrackFlag':trackflag}
+            
+def PA_adjust(ant=None):
+    ''' Spawned task to check the changing parallactic angle of given
+        antenna and rotate the position angle of the focus rotation
+        mechanism on Ant14 to counteract it.  Checks for Abort message
+        once per second, and updates PA once per minute (if needed).
+        
+        This routine is invoked with $PA-TRACK command in the schedule,
+        and aborts with $PA-STOP command, or if Ant14 is removed from
+        the current subarray.
+    '''
+    import time
+    import adc_cal2
+    if ant is None:
+        q.put_nowait('No antenna specified. Exiting...')
+        return
+    accini = rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
+    sf = accini['sf']
+    sub1 = sf['LODM']['Subarray1']
+    chikey = sf['Schedule']['Data']['Chi']
+    timekey = sf['Schedule']['Data']['Timestamp']
+    pakey = sf['FEMA']['FRMServo']['PositionAngle']['Position']
+    while 1:
+        # Read stateframe from ACC
+        data, sfmsg = get_stateframe(accini)
+        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+            break
+        if extract(data,timekey) != 0:
+            # Do this only if stateframe timestamp is valid--otherwise just skip this update
+            # Get Chi for this antenna from the stateframe, converted to degrees
+            chi = extract(data,chikey)[ant]*180/np.pi
+            # Make sure it is in range...
+            if chi > 90.:
+                chi = 180. - chi
+            elif chi < -90:
+                chi = 180. + chi
+            pa_to_send = -np.int(chi)   # Desired rotation angle is -chi
+            current_pa = np.int(extract(data,pakey)+0.5)
+            if pa_to_send != current_pa:
+                # Current PA is different from new one, so rotate feed to new position.
+                adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
+        # Sleep for 1 minute (but checking for Abort message every second), 
+        # and then repeat
+        for i in range(60):
+            try:
+                msg = q.get_nowait()
+                if msg == 'Abort':
+                    # Got abort message, so exit.
+                    break
+            except:
+                pass
+            time.sleep(1)
+    # To get here, either Ant14 is not in the subarray, or else we got 
+    # an Abort message.  In either case, reset the PA to 0 and exit.
+    adc_cal2.send_cmds(['frm-set-pa 0 ant14'],acc)
+        
+def PA_sweep(PA=80,rate=3):
+    ''' Spawned task to rotate the 27-m focus rotation mechanism to
+        value given by negative of PA argument (waits up to 2 minutes to 
+        reach it), and then rotate the position angle at a rate given by 
+        the rate argument (units = s/deg) until PA is reached. Checks 
+        for Abort message once per second.
+        
+        This routine is invoked with $PA-SWEEP command in the schedule,
+        and aborts with $PA-STOP command, or if Ant14 is removed from
+        the current subarray.
+        
+        PA:  Initial PA is negative of this, and sweeps until PA is reached.
+               Default = 80, for full sweep from -80 to 80
+        rate: Rate of rotation, in seconds/degree. Default is 3, or 
+               20 degrees/minute (can acquire and complete -80 to 80 
+               sweep in 10 minutes)
+    '''
+    import time
+    import adc_cal2
+    if PA > 90:
+        # Make sure PA is not too big
+        PA = 90
+    # Initial PA is negative of argument given
+    pa_to_send = -PA
+    accini = rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
+    sf = accini['sf']
+    sub1 = sf['LODM']['Subarray1']
+    timekey = sf['Schedule']['Data']['Timestamp']
+    pakey = sf['FEMA']['FRMServo']['PositionAngle']['Position']
+    # Send FRM to initial position, and wait up to two minutes, checking every 5 s, until there
+    adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
+    current_pa = -999  # Start with impossible value for current_pa
+    msg = ''
+    for i in range(24):
+        data, sfmsg = get_stateframe(accini)
+        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+            msg = 'Abort'
+            break
+        if extract(data,timekey) != 0:
+            current_pa = np.round(extract(data,pakey)+0.5)
+        #print 'Current and target PAs:', current_pa, pa_to_send,
+        if pa_to_send != current_pa:
+            try:
+                msg = q.get_nowait()
+                if msg == 'Abort':
+                    # Got abort message, so exit.
+                    break
+            except:
+                pass
+            # Current PA is different from new one, so sleep 5 minutes
+            #print 'Not equal, so sleeping 5 s'
+            time.sleep(5)
+        else:
+            # We are on the desired PA, so proceed
+            #print 'Target PA reached...'
+            break
+    # When we get here, either we are on the desired PA, or the 2 min is up, or
+    # an Abort message was received.
+    while 1:
+        if msg == 'Abort':
+            # Handle case of abort while positioning in above loop
+            break
+        # Read stateframe from ACC
+        data, sfmsg = get_stateframe(accini)
+        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+            break
+        #print 'Sending command','frm-set-pa '+str(pa_to_send)+' ant14'
+        adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
+        # Sleep for number of seconds given by rate (but checking for Abort message every second), 
+        # and then repeat
+        for i in range(rate):
+            try:
+                msg = q.get_nowait()
+                if msg == 'Abort':
+                    # Got abort message, so exit.
+                    break
+            except:
+                pass
+            time.sleep(1)
+        # Time to increment the PA
+        pa_to_send += 1
+        # If PA is reached, then exit
+        if pa_to_send == PA:
+            break
+    # To get here, either Ant14 is not in the subarray, or we got 
+    # an Abort message, or the FRM has reached PA.  In any of these cases, 
+    # reset the PA to 0 and exit.
+    adc_cal2.send_cmds(['frm-set-pa 0 ant14'],acc)

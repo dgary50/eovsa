@@ -17,6 +17,9 @@
 #  2015-Jun-28  DG
 #    Added common_val_idx() from solpnt, so that I do not have to include
 #    the entire solpnt just for this!
+#  2016-Oct-19  DG
+#    Added nearest_val_idx(), which looks in second array for nearest values
+#    to those in first array.
 # * 
 
 import StringUtil as su
@@ -619,7 +622,7 @@ class datime():
             try:
                 hh, mm, ss = v_time.split(':')
             except:
-		# Failure indicates that no seconds were given, so handle
+        # Failure indicates that no seconds were given, so handle
                 # hour and minute, setting seconds to zero.
                 hh, mm = v_time.split(':')
                 ss = '0'
@@ -930,5 +933,22 @@ def common_val_idx(array1,array2):
     idx1 = searchsorted(array1,common)
     idx2 = searchsorted(array2,common)
     return idx1, idx2
+
+def nearest_val_idx(array1,array2):
+    ''' Find the nearest values in the second array to the values in the first array
+        and return the array of indexes of those nearest values in the second array.
+    '''
+    def find_nearest(array,value):
+        from numpy import intersect1d,searchsorted
+        from math import fabs
+        idx = searchsorted(array, value, side="left")
+        if idx > 0 and (idx == len(array) or fabs(value - array[idx-1]) < fabs(value - array[idx])):
+            return idx-1
+        else:
+            return idx
+    idx = []
+    for value in array1:
+        idx.append(find_nearest(array2,value))
+    return array(idx)
 
 
