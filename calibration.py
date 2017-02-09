@@ -61,6 +61,11 @@
 #    scans in a timerange.
 #   2017-Feb-05  DG
 #    Made changes to calpnt_multi() and calpntanal() to improve plots.
+#   2017-Feb-09  DG
+#    Still struggling with getting the right signs on updating offsets on antennas.
+#    I have verified that the old antennas 9, 10, 11 and 12 need to have the
+#    opposite sign for P1 correction (RA to HA involves inverting the sign).  This
+#    sign reversal is implemented in offsets2ants()
 #
 
 if __name__ == "__main__":
@@ -617,6 +622,7 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         antennas.  The antennas to update are specified with ant_str 
         (defaults to no antennas, for safety).        
     '''
+    oldant = [8,9,10,12]
     if ant_str is None:
         print 'No antenna list specified, so there is nothing to do!'
         return
@@ -641,7 +647,11 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
     p7_cur, = D15data['Ante_Cont_PointingCoefficient7']
     
     for i in antlist:
-        p1_inc = int(xoff[i]*10000)
+        if i in oldant:
+            # Change sign of RA offset to be HA, for old antennas (9, 10, 11 or 13)
+            p1_inc = int(-xoff[i]*10000)
+        else:
+            p1_inc = int(xoff[i]*10000)
         p7_inc = int(yoff[i]*10000)
         p1_new = p1_cur[i] + p1_inc
         p7_new = p7_cur[i] + p7_inc

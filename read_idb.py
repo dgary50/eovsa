@@ -195,7 +195,7 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
             src = source
         elif src != source:
             # If a specific source name is given, and it does not match the file, stop and return None
-            pass#return source
+            return source
         else:
             # If a source is given, and it matches the file, keep going
             pass
