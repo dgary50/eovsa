@@ -56,7 +56,7 @@ def lin_sample(fghz, ut, tsys):
     nf = len(fghz)
     fghzl = np.linspace(fghz[0],fghz[-1],nf)
     x, y = np.meshgrid(ut,fghzl)
-    fint = interpolate.interp2d(ut,fghz,tsys,kind='cubic')
+    fint = interpolate.interp2d(ut,fghz,tsys)#,kind='cubic')
     out = fint(ut,fghzl)
     return fghzl,out
 
@@ -166,8 +166,11 @@ class Spectrogram():
             2-element Time() trange.  The timerange is used to create a list 
             of Miriad database files to read, and the data are read.
         '''
-        # Read data
-        out = dump_tsys.rd_miriad_tsys(trange)
+        # Read data, assuming 16-element correlator if after 2016 May 1
+        if trange[0].lv > 3544905600.0:
+            out = dump_tsys.rd_miriad_tsys_16(trange)
+        else:
+            out = dump_tsys.rd_miriad_tsys(trange)
         nant, npol, nf, nt = out['tsys'].shape
         self.xdata = out['tsys'][:,0,:,:]
         self.ydata = out['tsys'][:,1,:,:]

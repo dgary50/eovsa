@@ -20,10 +20,12 @@
 #  2016-Oct-19  DG
 #    Added nearest_val_idx(), which looks in second array for nearest values
 #    to those in first array.
+#  2017-Jan-15  DG
+#    Added lobe() function to put phase into +/- pi range
 # * 
 
 import StringUtil as su
-from numpy import pi, sqrt, array, mat, matrix, dot
+from numpy import pi, sqrt, array, mat, matrix, dot, where, ndarray
 import datetime as dt
 from time import gmtime
 
@@ -951,4 +953,27 @@ def nearest_val_idx(array1,array2):
         idx.append(find_nearest(array2,value))
     return array(idx)
 
+def lobe(phi,mid=True):
+    # Ensures that value phi lies between -pi and pi (if mid = True)
+    # or 0 and 2*pi (if mid = False)
+    intype = ''
+    if isinstance(phi,list):
+        intype = 'list'
+        phi = array(phi)
+    if isinstance(phi,float) or isinstance(phi,int):
+        intype = 'float'
+        phi = array([phi])
+    if not isinstance(phi,ndarray):
+        raise TypeError('Wrong argument type for lobe:'+str(type(phi)))
+    phi = phi % (2*pi)
+    if mid:
+        phi[where(phi > pi)] -= 2*pi
+        phi[where(phi < -pi)] += 2*pi
+    else:
+        phi[where(phi < 0)] += 2*pi
+    if intype == 'list':
+        return phi.tolist()
+    elif intype == 'float':
+        return phi[0]
+    return phi
 

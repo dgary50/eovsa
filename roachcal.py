@@ -18,19 +18,23 @@
 #                                    fixed frequency (band23.fsq).  This
 #                                    is for measuring delays on each
 #                                    antenna relative to Ant 1.
+#  History
+#   2017-01-08  DG
+#     Changes to DCM_cal to make it more general, and to avoid messing up
+#     current attenuation table for antennas that are missing.  The default
+#     observing sequence is now the new gainseq.fsq, and ant15 is set as
+#     missing.
+#
 
 import pcapture2 as p
 import urllib2
 import numpy as np
 
-def DCM_cal(filename=None,fseqfile='solar.fsq',dcmattn=16,update=False):
+def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',update=False):
 
     if filename is None:
         return 'Must specify ADC packet capture filename, e.g. "/dppdata1/PRT/PRT<yyyymmddhhmmss>adc.dat"'
 
-    adc = p.rd_jspec(filename)
-    pwr = rollaxis(adc['phdr'],2)[:,:,:2]
-    fseqfile = 'solar.fsq'
     userpass = 'admin:observer@'
     fseq_handle = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fseqfile,timeout=0.5)
     lines = fseq_handle.readlines()
@@ -39,6 +43,13 @@ def DCM_cal(filename=None,fseqfile='solar.fsq',dcmattn=16,update=False):
         if line.find('LIST:SEQUENCE') != -1:
             line = line[14:]
             bandlist = np.array(map(int,line.split(',')))
+    if len(np.unique(bandlist)) != 34:
+        print 'Frequency sequence must contain all bands [1-34]'
+        return None
+    # Read packet capture file
+    adc = p.rd_jspec(filename)
+    pwr = rollaxis(adc['phdr'],2)[:,:,:2]
+    # Put measured power into uniform array arranged by band
     new_pwr = np.zeros((34,16,2))
     for i in range(34):
         idx, = np.where(bandlist-1 == i)
@@ -46,10 +57,25 @@ def DCM_cal(filename=None,fseqfile='solar.fsq',dcmattn=16,update=False):
             new_pwr[i] = np.median(pwr[idx],0)
     new_pwr.shape = (34,32)
     
-    orig_table = np.zeros((34,30)) + dcmattn
-    orig_table[:,26:] = 0
-
+    if dcmattn:
+        # A DCM attenuation value was given, which presumes a constant value
+        # so use it as the "original table."
+        orig_table = np.zeros((34,30)) + dcmattn
+        orig_table[:,26:] = 0
+    else:
+        # No DCM attenuation value was given, so read the current DCM master
+        # table from the database.
+        import cal_header
+        import stateframe
+        xml, buf = cal_header.read_cal(2)
+        orig_table = stateframe.extract(buf,xml['Attenuation'])
+        
     attn = np.log10(new_pwr[:,:-2]/1600.)*10.
+    # Zero any changes for missing antennas
+    if missing:
+        idx = p.ant_str2list(missing)
+        bad = np.sort(np.concatenate((idx*2,idx*2+1)))
+        attn[:,bad] = 0
     new_table = (np.clip(orig_table + attn,0,30)/2).astype(int)*2
     DCMlines = []
     DCMlines.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15')

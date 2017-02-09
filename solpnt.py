@@ -129,12 +129,12 @@ def get_solpnt(t=None):
             t1 = util.Time(tstamp,format='lv')
             print t1.iso,';',
         print ' '
-        good = np.where(tstamps >= timestamp)[0]
+        good, = np.where(tstamps >= timestamp)
         # This is the timestamp of the first SOLPNTCAL scan after given time
-        if good.shape[0] == 0: 
-            stimestamp = tstamps[0]
+        if len(good) == 1:
+            stimestamp = np.int(tstamps[good])
         else:
-            stimestamp = tstamps[good][0]
+            stimestamp = np.int(tstamps[good][0])
     else:
         print 'Warning: No SOLPNTCAL scan found, so interpreting given time as SOLPNTCAL time.' 
         stimestamp = timestamp

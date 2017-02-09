@@ -71,6 +71,12 @@
 #   2016-Nov-12  DG
 #      Clean up function call for adj_eq_auto() and set_eq_all() for more rational
 #      handling of missing arguments. 
+#   2017-Jan-03  DG
+#      Change to honor setting of eq coeff in config (ini) file.  Somehow this
+#      entry in the config file was not being used to set them.
+#   2017-Jan-05  DG
+#      Changed reading and writing format for eq coeff to allow signed values
+#      (changed 'H' to 'h').
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
@@ -470,15 +476,15 @@ class Roach():
         else:
             self.fpga.write_int('swreg_ctrl_x',(vect*pows).sum())
 
-        # Load X-engine output sequence
-        xop, self.msg = rd_ini(cfg,'xop',[1,11])
-        if dbg:
-            print 'X-engine output sequence',xop
-        else:
-            for i,op in enumerate(xop):
-                # Toggle in values and addresses by setting lsb to 1, then 0
-                self.fpga.write_int('swreg_x_op_select',(2**16)*i + (2**4)*op + 1)
-                self.fpga.write_int('swreg_x_op_select',0)
+        # # Load X-engine output sequence
+        # xop, self.msg = rd_ini(cfg,'xop',[1,11])
+        # if dbg:
+            # print 'X-engine output sequence',xop
+        # else:
+            # for i,op in enumerate(xop):
+                # # Toggle in values and addresses by setting lsb to 1, then 0
+                # self.fpga.write_int('swreg_x_op_select',(2**16)*i + (2**4)*op + 1)
+                # self.fpga.write_int('swreg_x_op_select',0)
 
         # Read X and P interface assignments
         dpp_P, self.msg = rd_ini(cfg,'dpp_P',[1,8])
@@ -574,27 +580,36 @@ class Roach():
         if print_arp:
             self.fpga.print_10gbe_core_details( 'Rx_Tx_FX1', arp = True )
 
+        cof, self.msg = rd_ini(self.cfg,'eq_coeff')
+        if cof is None:
+            cof = 32
+        if dbg:
+            print 'Eq Coefficient:',cof
+            
         # Reset 10 GbE cores
         if not dbg:
             self.fpga.write_int( 'swreg_rst', 1 )
 #            self.fpga.write_int( 'swreg_rst', 0 )  # Commented out to hold 10  GbE cores in reset state
 
-        # Set nominal values for multiplicative coefficients, in the case of the 16-antenna correlator
-        if nbds == 8:
-            for i in range(4): self.set_eq(xn=i,coeff=10)
-#            coefficients = numpy.ones(2**13, dtype='>I') << (10 + 6)
-#            for i in range(4): self.fpga.write('eq_x'+str(i)+'_coeffs',coefficients.tostring())
-            # Calibrate qdrs
-            devs = self.fpga.listdev()
-            # Look for string 'qdr' in list of devs
-            qdrs = [s for s in devs if 'qdr' in s]
-            if qdrs != []:
-                for qdrstr in qdrs:
-                    if qdrstr[5:] == 'ctrl':
-                        q = qdr.Qdr(self.fpga,qdrstr[:4])
-                        print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal(False)#verbosity=2)
-                        #print 'QDR',qdrstr[:4],'calibration skipped...'
-
+            # Set nominal values for multiplicative coefficients, in the case of the 16-antenna correlator
+            if nbds == 8:
+                cof, self.msg = rd_ini(self.cfg,'eq_coeff')
+                if cof is None:
+                    cof = 32
+                for i in range(4): self.set_eq(xn=i,coeff=cof)
+    #            coefficients = numpy.ones(2**13, dtype='>I') << (10 + 6)
+    #            for i in range(4): self.fpga.write('eq_x'+str(i)+'_coeffs',coefficients.tostring())
+                # Calibrate qdrs
+                devs = self.fpga.listdev()
+                # Look for string 'qdr' in list of devs
+                qdrs = [s for s in devs if 'qdr' in s]
+                if qdrs != []:
+                    for qdrstr in qdrs:
+                        if qdrstr[5:] == 'ctrl':
+                            q = qdr.Qdr(self.fpga,qdrstr[:4])
+                            print 'QDR',qdrstr[:4],'calibration status:',q.qdr_cal(False)#verbosity=2)
+                            #print 'QDR',qdrstr[:4],'calibration skipped...'
+    
         self.msg = 'Success'
 
 #======= Roach.set_delays ========
@@ -916,7 +931,7 @@ class Roach():
         # Read equalizer coefficients buffer from ROACH
         buf = self.fpga.read(eqname,8192*4)
         # Unpack coefficients to an array of 16-bit integers.
-        vals = numpy.array(struct.unpack('>16384H',buf),dtype='>H')
+        vals = numpy.array(struct.unpack('>16384h',buf),dtype='>h')
         # Complex representation as numpy complex array (length 8192)
         cvals = vals[::2] + 1j*vals[1::2]
         # Convert supplied coeff to complex value(s) scaled by 2**6
@@ -959,9 +974,9 @@ class Roach():
                 # Interpret supplied coeff as new values to replace existing
                 cvals[(ifb-1)*128:ifb*128] = newvals
         # Convert complex values in cvals to packed buffer, and write to ROACH
-        coefficients = numpy.zeros(16384,dtype='>H')
-        coefficients[::2] = numpy.real(cvals).astype('>H')
-        coefficients[1::2] = numpy.imag(cvals).astype('>H')        
+        coefficients = numpy.zeros(16384,dtype='>h')
+        coefficients[::2] = numpy.real(cvals).astype('>h')
+        coefficients[1::2] = numpy.imag(cvals).astype('>h')        
         self.fpga.write(eqname,coefficients.tostring())
         self.msg = 'Success'
    
@@ -1005,7 +1020,7 @@ class Roach():
                 # Read equalizer coefficients buffer from ROACH
                 buf = self.fpga.read(eqname[iant,ipol],8192*4)
                 # Unpack coefficients to an array of 16-bit integers.
-                vals = numpy.array(struct.unpack('>16384H',buf),dtype='>H')
+                vals = numpy.array(struct.unpack('>16384h',buf),dtype='>h')
                 # Complex representation as numpy complex array (length 8192)
                 cvals = vals[::2] + 1j*vals[1::2]
                 # Convert supplied coeff to complex value(s) scaled by 2**6
@@ -1026,9 +1041,9 @@ class Roach():
                         # Interpret supplied coeff as new values to replace existing
                         cvals[iband*128:(iband+1)*128] = newvals
                 # Convert complex values in cvals to packed buffer, and write to ROACH
-                coefficients = numpy.zeros(16384,dtype='>H')
-                coefficients[::2] = numpy.real(cvals).astype('>H')
-                coefficients[1::2] = numpy.imag(cvals).astype('>H')        
+                coefficients = numpy.zeros(16384,dtype='>h')
+                coefficients[::2] = numpy.real(cvals).astype('>h')
+                coefficients[1::2] = numpy.imag(cvals).astype('>h')        
                 self.fpga.write(eqname[iant,ipol],coefficients.tostring())
         self.msg = 'Success'
    
@@ -1157,12 +1172,13 @@ def reload(roach_list=None,pcycle=False):
     mcstart = 700
     if len(roach_list) == 8:
         mcstart = 350
+        #mcstart = 250 # 300 MHz
     print 'MCount is:',mc,'Future MCount should be:',mc+mcstart
     # Set mcount to desired start value
     mc = mcstart
     # Set mcount_start in all roaches for 16 s from now
     for roach in roach_list:
-        #roach.fpga.write_int('vacc_target_mcnt',mc)
+        roach.fpga.write_int('vacc_target_mcnt',mc)  # 300 MHz
         roach.fpga.write_int('swreg_mcount_start',mc)
     time.sleep(16)
     for i,roach in enumerate(roach_list):

@@ -56,6 +56,8 @@
 #   2016-Dec-12  DG
 #      Tweaked PA_sweep() to wait until initial PA is acquired before
 #      starting the sweep (or times out and starts sweep after 2 minutes).
+#   2017-Feb-01  DG
+#      Increase timeout for solar power stations from 0.2 to 0.4 s.
 #
 
 import struct, sys
@@ -134,7 +136,7 @@ def rd_solpwr(url='http://data.magnumenergy.com/MW5127'):
     '''
     # Read and decode the information from the power station at 12
     try:
-        f = urllib2.urlopen(url,timeout=0.2)
+        f = urllib2.urlopen(url,timeout=0.4)
     except:
         # Timeout error
         print Time.now().iso,'Solar Power connection timed out'
