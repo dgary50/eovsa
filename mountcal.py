@@ -696,8 +696,12 @@ def anta_mountcal(filename=None, param_string=None, star=True, stepsize=None, sf
     # line = f.readline()
     aligntab = param_string.strip().split() # Read old alignment parameters into ALIGNTAB
     # Read rest of file into lines
-    lines = f.readlines()
+    inlines = f.readlines()
     f.close()
+    lines = []
+    for line in inlines:
+        if line[0] != '#':
+            lines.append(line)
     nlines = len(lines)
 
 ##    !p.multi = [0,2,1,0,0]
@@ -725,7 +729,7 @@ def anta_mountcal(filename=None, param_string=None, star=True, stepsize=None, sf
     dtor = np.pi/180.
 
     for line in lines:
-        nam = line[:10]
+        nam = line[:8]
         info = map(float,line.strip().split()[3:7])
         ha,dec,dra,ddec = info
         ha = ha#*180/np.pi

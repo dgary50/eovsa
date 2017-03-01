@@ -637,7 +637,6 @@ def get_trange_files(trange):
     #  that time range, put them in a list, and return that list.
     #  This function is used in get_X_data(data).
     fstr = trange[0].iso
-    #folder = '/dppdata1/IDB'
     folder='/data1/eovsa/fits/IDB/'+fstr.replace('-','').split()[0]
     try:
         os.listdir(folder)

@@ -234,6 +234,7 @@ class Roach():
             # Configure KATADC registers
             addr = [0x0000, 0x0001, 0x0002, 0x0003, 0x0009, 0x000A, 0x000B, 0x000E, 0x000F]
             val  = [0x7FFF, 0xBAFF, 0x007F, 0x807F, 0x03FF, 0x007F, 0x807F, 0x00FF, 0x007F]
+            #val  = [0x7FFF, 0xB2FF, 0x007F, 0x807F, 0x03FF, 0x007F, 0x807F, 0x00FF, 0x007F]  # 300 MHz
             #if interleaved: val[4] = 0x23FF # Uncomment this line for interleaved mode
             for i in range(len(addr)):
                 print('Setting ADC register %04Xh to 0x%04X' % (addr[i], val[i]))
