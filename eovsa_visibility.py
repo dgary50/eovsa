@@ -5,9 +5,13 @@ Created on Wed Jun 18 18:14:41 2014
 @author: jackie
 """
 #   2015-May-29  DG
-#      Converted from using datime() to using Time() based on astropy.
+#     Converted from using datime() to using Time() based on astropy.
 #   2016-Dec-10  DG
-#      Added check for restricted range of "old" 2m antennas.
+#     Added check for restricted range of "old" 2m antennas.
+#   2017-Jan-31  DG
+#     27-m HA limit has to be less that -51 for now, due to cable tension
+#     problem discovered yesterday, so a check for that is added to
+#     check_27m_visible().
 
 from eovsa_lst import eovsa_ha
 from numpy import rad2deg
@@ -44,6 +48,9 @@ def check_27m_visible(ha,dec):
     #       only need to check ha against HAlim    
     HAlim = get_27m_HAlim(dec)
     if abs(ha)<HAlim:
+        if ha < -51:
+            # Temporary HA limit due to problem with HA cable on 27-m, 2017-01-31
+            return False
         return True
     else:
         return False

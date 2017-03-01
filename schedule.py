@@ -205,6 +205,36 @@
 #   2016-Dec-12  DG
 #      Changed autogen() to expect the first line to be an ACQUIRE line,
 #      second to be a PHASECAL, and third to be SUN.
+#   2016-Dec-18  DG
+#      Discovered that there is no difference between make_tracktable and 
+#      make_geosattable, so I eliminated the latter.  Also changed split(' ')
+#      to just split() everywhere, to remove pointless requirement of only
+#      one space between elements of schedule commands.
+#   2017-Jan-05  DG
+#      It turns out that there were some subtle but important differences
+#      in make_geosattable(), so I reinstated it.
+#   2017-Jan-06  DG
+#      Discovered that X and Y delays were being set independently, which
+#      made the difference in delay between X and Y change by 1 step.  This
+#      unwanted behavior explains the random changes in X vs. Y (and XX vs. YY)
+#      delay that we see in the data.  Now only X controls when delays are
+#      changed, and X and Y are changed together.
+#   2017-Feb-06  DG
+#      Major change to set all source coordinates as J2000 TOPOCENTRIC.  This
+#      means setting the EPOCH string in the scan_header to '2000', and converting
+#      RA and Dec coordinates from TOPOCENTRIC of DATE as follows:
+#         ra_j2000 = (src.ra - src.g_ra) + src.a_ra
+#         dec_j2000 = (src.dec - src.g_dec) + src.a_dec
+#      where src.ra and src.dec are the old topocentric coordinates of date,
+#      src.g_ra, src.g_dec are the geocentric coordinates of date, and
+#      src.a_ra, src.a_dec are the astrometric (J2000, geocentric) coordinates.
+#   2017-Feb-08  DG
+#      The above strategy did not work.  I determined that the call to check the 27-m 
+#      position was calling aa.set_jultime(), which has a side-effect of setting the 
+#      epoch to date.  I replaced that with a change to aa.date.  I also verified
+#      that uvw coordinates are calculated correctly with the current scheme.  Still
+#      not good enough.  The epoch is getting reset somewhere else.  I finally gave
+#      up and just set the epoch to J2000 once per second!
 #
 
 import os, signal
@@ -277,6 +307,7 @@ def init_scanheader_dict(version=37.0):
 
     aa = eovsa_array()
     aa.date = str(aa.date)[:11]+'00:00'  # Set date to 0 UT
+    #print t.iso,aa.epoch
     mjd0 = aa.date + 15019.5   # Convert from ephem date to mjd
 
     #try:
@@ -332,7 +363,7 @@ def init_scanheader_dict(version=37.0):
                'scan_type':'test',
                'source_id':'None',
                'track_mode':'PLANET',
-               'epoch':'DATE',
+               'epoch':'2000',
                'dra': 0.0, 'ddec': 0.0, 'ha': 0.0, 'dha': 0.0,
                'sun_info': mjd0,    # Solar P-angle, B0-angle, and radius will be calculated for this date
                'pol': [-5,-6,-7,-8],  # Default XX, YY, XY, YX polarization
@@ -383,8 +414,9 @@ def set_uvw(aa,t,srcname):
         if sf_dict['scan_state'] != 1:
             init_sched_dict()    
         return
-    mjd_ = t.mjd                         # Get mjd of Time() object (t+1)
-    aa.date = mjd_ - 15019.5             # Convert mjd to ephem time
+    mjd_ = t.mjd                 # Get mjd of Time() object (t+1)
+    aa.date = mjd_ - 15019.5     # Convert mjd to ephem timebase
+    aa.epoch = '2000/1/1 12:00'  # Seems silly to set epoch to J2000 every second, but it keeps getting set to date...
     if sf_dict['geosat']:
         try:
             # Newly calculate coordinates for geosat (an ephem.EarthSatellite object) 
@@ -403,12 +435,15 @@ def set_uvw(aa,t,srcname):
     # the future, since we have not yet "computed" for new time.
     src = aa.cat[srcname]
     src.compute(aa)
-    sh_dict['ra'] = src.ra
-    sh_dict['dec'] = src.dec
+    # Save coordinates as TOPOCENTRIC J2000.  These should agree with JPL Horizons astrometric
+    # coordinates for the OVRO site.
+    sh_dict['ra'] = (src.ra - src.g_ra) + src.a_ra
+    sh_dict['dec'] = (src.dec - src.g_dec) + src.a_dec
     sh_dict['ha'] = eovsa_ha(src)
 
     cat = aa.cat                           # Make a copy of catalog
     cat.compute(aa)                        # Compute for time t+1
+    #print t.iso,aa.epoch
     sf_dict['uvw'] = sf_dict['uvw1'].copy()       # Transfer previously calculated uvw (time t)
     sf_dict['delay'] = sf_dict['delay1'].copy()   # Transfer previously calculated delay (time t)
     sf_dict['timestamp'] = sf_dict['timestamp1']  # Transfer previous timestamp (time t)
@@ -707,6 +742,9 @@ class App():
         # uvw, delays, etc.
         sys.stdout.flush()
         self.aa = eovsa_cat.eovsa_array_with_cat()
+        #print t.iso,self.aa.epoch,' Initial epoch'
+
+        self.aa.epoch = '2000/1/1 12:00'      # Get coordinates in J2000 epoch
         sys.stdout.flush()
          
         self.Open('solar.scd')
@@ -1172,7 +1210,7 @@ class App():
 
         # Read calibrator database
         cal = readvlacaldb()
-        # Find sources within 15-35 deg of Sun (also returns antenna array aa)
+        # Find sources within 15-35 deg of Sun (also returns antenna array aa, not used)
         srclistnarrow, aa = findcal(cal,t=t,dtheta=[15,35])
         # Early and late in day, need a wider search window, 15-55 degrees of the Sun
         srclistwide, aa = findcal(cal,t=t,dtheta=[15,60])
@@ -1419,7 +1457,7 @@ class App():
         # get coords of Sun
         sun = self.aa.cat['Sun']
 #        sun = self.aa.cat['AMC-8 (GE-8)'] # for testing purposes can put name of geosat to avoid
-        self.aa.set_jultime() # set to present time
+        self.aa.date = util.Time.now().mjd - 15019.5  # set date to present time
         sun.compute(self.aa)
         sun_coords = (sun.ra,sun.dec)
         lst = self.aa.sidereal_time() # current LST
@@ -1806,7 +1844,7 @@ class App():
         # ****** Send delay0, which is actually the delay for the next upcoming second ******
         adc_clk = self.brd_clk_freq*4./1000.
         dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 11000)
-        dlay = numpy.round((sh_dict['dlaceny'] - sf_dict['delay'])*adc_clk + 11000)
+        dlay = dlax + sh_dict['dlaceny'] - sh_dict['dlacen']
         
         for r in self.roaches:
             if r.fpga:
@@ -2121,7 +2159,7 @@ class App():
                     #   be able to do this
                     starburst.execute_ctlline(self,ctlline,sh_dict,sf_dict,mjd1,mjd2)
                 #==== MK_TABLES ====
-                if ctlline.split(' ')[0].upper() == '$MK_TABLES':
+                if ctlline.split()[0].upper() == '$MK_TABLES':
                     cmd, fname, src = ctlline.split(' ')
                     if mjd1 is None:
                         d = util.datime()
@@ -2154,13 +2192,13 @@ class App():
                         print 'Error: Transfer of track table',fname,'failed!'
                         print tbl,'not equal\n',tbl_echo
                 #==== FEM-INIT ====
-                elif ctlline.split(' ')[0].upper() == '$FEM-INIT':
+                elif ctlline.split()[0].upper() == '$FEM-INIT':
                     ant_str = 'ant1-13'
                     t = threading.Thread(target=adc_cal2.set_fem_attn, kwargs={'ant_str':ant_str})
                     t.daemon = True
                     t.start()
                 #==== CAPTURE-1S ====
-                elif ctlline.split(' ')[0].upper() == '$CAPTURE-1S':
+                elif ctlline.split()[0].upper() == '$CAPTURE-1S':
                     # Use $CAPTURE-1S <stem> where <stem> is a string to add to the end of the
                     # capture filename.  The capture is done on the dpp.  This will take a few
                     # seconds to complete.
@@ -2170,7 +2208,7 @@ class App():
                     t.daemon = True
                     t.start()
                 #==== SCAN-START ====
-                elif ctlline.split(' ')[0].upper() == '$SCAN-START':
+                elif ctlline.split()[0].upper() == '$SCAN-START':
                     # Command by itself is normal scan start, while $SCAN-START NODATA
                     # means set up scan, but do not take data.  Used for some calibrations.
                     nodata = ctlline.strip().split(' ')[-1].upper()
@@ -2286,21 +2324,21 @@ class App():
                         # Set scan state to on
                         sf_dict['scan_state'] = 1
                 #==== SCAN-RESTART ====
-                elif ctlline.split(' ')[0].upper() == '$SCAN-RESTART':
+                elif ctlline.split()[0].upper() == '$SCAN-RESTART':
                     # This command is for restarting a scan with the same setup as the
                     # previously running scan, where only the scan state must be turned on
                     # Set scan state to on
                     sf_dict['scan_state'] = 1
                 #==== SCAN-STOP ====
-                elif ctlline.split(' ')[0].upper() == '$SCAN-STOP':
+                elif ctlline.split()[0].upper() == '$SCAN-STOP':
                     sf_dict['scan_state'] = -1
                 #==== PA-SWEEP ====
-                elif ctlline.split(' ')[0].upper() == '$PA-SWEEP':
+                elif ctlline.split()[0].upper() == '$PA-SWEEP':
                     # Rotate 27-m focus rotation mechanism to sweep through a given angle 
                     # range (does nothing if PA adjustment routine is already running)
                     #   Usage: $PA-SWEEP PA rate, where angle is swept from -PA to PA at
                     #                             rate of 1-degree-per-rate [s]
-                    print 'Got '+ctlline.split(' ')[0].upper()+' command.'
+                    print 'Got '+ctlline.split()[0].upper()+' command.'
                     if self.PAthread is None or not self.PAthread.is_alive():
                         # Thread is not already running, so it is safe to proceed
                         try:
@@ -2321,11 +2359,11 @@ class App():
                             print 'Error spawning PA_sweep task'
                             pass
                 #==== PA-TRACK ====
-                elif ctlline.split(' ')[0].upper() == '$PA-TRACK':
+                elif ctlline.split()[0].upper() == '$PA-TRACK':
                     # Track 27-m focus rotation mechanism to correct for parallactic angle 
                     # of given antenna (does nothing if antenna not correctly specified)
                     #   Usage: $PA-TRACK ant4
-                    print 'Got '+ctlline.split(' ')[0].upper()+' command.'
+                    print 'Got '+ctlline.split()[0].upper()+' command.'
                     if self.PAthread is None or not self.PAthread.is_alive():
                         # Thread is not already running, so it is safe to proceed
                         antstr = ctlline.strip().split()[-1].upper()
@@ -2343,13 +2381,13 @@ class App():
                             print 'Antenna specification no good?'
                             pass
                 #==== PA-STOP ====
-                elif ctlline.split(' ')[0].upper() == '$PA-STOP':
+                elif ctlline.split()[0].upper() == '$PA-STOP':
                     # Send Abort string to stateframe.PA_adjust() routine.  Note that
                     # abort may not be acted upon until up to 1 s later.
                     if self.PAthread and self.PAthread.is_alive():
                         stateframe.q.put_nowait('Abort')
                 #==== TRIPS ====
-                elif ctlline.split(' ')[0].upper() == '$TRIPS':
+                elif ctlline.split()[0].upper() == '$TRIPS':
                     try:
                         # Send commands to update antenna trip information
                         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -2362,7 +2400,7 @@ class App():
                     except:
                         pass
                 #==== DLASWEEP ====
-                elif ctlline.split(' ')[0].upper() == '$DLASWEEP':
+                elif ctlline.split()[0].upper() == '$DLASWEEP':
                     try:
                         vals = ctlline.split(' ')
                         print vals
@@ -2378,7 +2416,7 @@ class App():
                     except:
                         print 'Could not interpret $DLASWEEP command'
                 #==== WAIT ====
-                elif ctlline.split(' ')[0].upper() == '$WAIT':
+                elif ctlline.split()[0].upper() == '$WAIT':
                     # Need to wait for given number of seconds, so set self.waitmode to True,
                     # set self.nextctlline to point to next following line, and record duration
                     try:
@@ -2392,7 +2430,7 @@ class App():
                     print 'Initializing wait for',dur,'seconds'
                     #break
                 #==== PCYCLE ====
-                elif ctlline.split(' ')[0].upper() == '$PCYCLE':
+                elif ctlline.split()[0].upper() == '$PCYCLE':
                     # Cycle the power of some device (antenna controller, fem, or crio)
                     # for a given antenna.
                     device, ants = self.interpret_pcycle(ctlline)
@@ -2412,7 +2450,7 @@ class App():
                             t.daemon = True
                             t.start()
                 #==== KATADC_GET ====
-                elif ctlline.split(' ')[0].upper() == '$KATADC_GET':
+                elif ctlline.split()[0].upper() == '$KATADC_GET':
                     # Get the standard deviation for each KatADC (assumes frequency tuning is static)
                     # Note, takes about 0.2 s for each active ROACH
                     for r in self.roaches:
@@ -2425,7 +2463,7 @@ class App():
                             # In case of failure, set to empty dictionary
                             sh_dict['katadc'][rnum] = {}
                 #==== REWIND ====
-                elif ctlline.split(' ')[0].upper() == '$REWIND':
+                elif ctlline.split()[0].upper() == '$REWIND':
                     # Get date of first line of current schedule
                     # and increment by 1 day, then autogenerate a
                     # new schedule
@@ -2437,7 +2475,7 @@ class App():
                     self.Clear()
                     self.toggle_state()  # Turn schedule back on
                 #==== LNA_INIT ====
-                elif ctlline.split(' ')[0].upper() == '$LNA-INIT':
+                elif ctlline.split()[0].upper() == '$LNA-INIT':
                     # Get LNA_settings.txt file from ACC and send the series of
                     # commands needed to set the LNA voltages
                     userpass = 'admin:observer@'
@@ -2484,7 +2522,7 @@ class App():
                         print 'Error sending LNA_settings to ACC'
 
                 #==== SUBARRAY ====
-                elif ctlline.split(' ')[0].upper() == '$SUBARRAY':
+                elif ctlline.split()[0].upper() == '$SUBARRAY':
                     # run the SUBARRRAY1 command if this is the master schedule,
                     # otherwise run the SUBARRAY2 command
                     print '$SUBARRAY line is:',ctlline
@@ -2524,7 +2562,7 @@ class App():
                         sys.stdout.flush()
                         pass
             else:
-                cmds = ctlline.split(' ')
+                cmds = ctlline.split()
                 if cmds[0].upper() == 'FSEQ-FILE':
                     # This is an FSEQ-FILE command, so find and set frequency sequence
                     # Just FTP sequence file from ACC

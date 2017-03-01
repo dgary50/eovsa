@@ -55,6 +55,17 @@
 #    I had determined RA offsets in units of "cross-Dec," but in fact I want
 #    them in units of RA, so do not multiply by cos(Dec).  Also, I now write
 #    out HA and Dec in degrees instead of radians.
+#   2017-Jan-29  DG
+#    Updated calpntanal() to take a single time and find the relevant scan
+#    to analyze.  Also added calpnt_multi(), which calls calpntanal() for all
+#    scans in a timerange.
+#   2017-Feb-05  DG
+#    Made changes to calpnt_multi() and calpntanal() to improve plots.
+#   2017-Feb-09  DG
+#    Still struggling with getting the right signs on updating offsets on antennas.
+#    I have verified that the old antennas 9, 10, 11 and 12 need to have the
+#    opposite sign for P1 correction (RA to HA involves inverting the sign).  This
+#    sign reversal is implemented in offsets2ants()
 #
 
 if __name__ == "__main__":
@@ -66,21 +77,77 @@ if __name__ == "__main__":
 
 import numpy as np
 import solpnt
-from util import Time
+from util import Time, nearest_val_idx
 import struct, time, glob, sys, socket
 from disk_conv import *
 import dump_tsys
 
-def calpntanal(t,ant_str='ant1-13',do_plot=True):
+def calpnt_multi(trange,ant_str='ant1-13',do_plot=True):
+    ''' Runs calpntanal() for all scans within the given time range.
+    
+        trange   Time object with start and end time over which scans
+                   should be identified and analyzed.
+                   
+        Returns a list of dictionaries containing 
+           Source name, Time, HA, Dec, RA offset and Dec offset
+    '''
+    fdb = dump_tsys.rd_fdb(trange[0])
+    scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
+    scans,sidx = np.unique(fdb['SCANID'][scanidx],return_index=True)
+    tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
+    telist = Time(fdb['EN_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
+    out = []
+    k = -1
+    for i,t in enumerate(tlist):
+        if t.jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
+            k += 1  # Plot axis row pointer
+            if do_plot:
+                if k % 6 == 0:
+                    f, ax = plt.subplots(6,2)
+                    f.set_size_inches(7,12,forward=True)
+                    k = 0  # Reset row pointer to top of new plot
+                else:
+                    # Kill previous row's xaxis tick labels so that title is visible
+                    ax[k-1,0].xaxis.set_ticklabels([])
+                    ax[k-1,1].xaxis.set_ticklabels([])
+                    ax[k-1,0].set_xlabel('')
+                    ax[k-1,1].set_xlabel('')
+                out.append(calpntanal(t,ant_str=ant_str,do_plot=do_plot,ax=ax[k]))
+            else:
+                out.append(calpntanal(t,ant_str=ant_str))
+    # Print results in human-readable tabular form.
+    for src in out:
+        print '{:s} {:s}  {:6.2f}  {:6.2f} {:7.3f} {:7.3f}'.format(src['source'],src['time'].iso[:19],
+                                                                   src['ha'],src['dec'],src['rao'],src['deco'])
+    return out
+    
+def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
     ''' Does a complete analysis of CALPNTCAL, reading information from the SQL
         database, finding the corresponding Miriad IDB data, and doing the 
         gaussian fit to the beam, to return the beam and offset parameters.
+        
+        t   Time object with a time near the start of the desired scan (finds the scan
+              that starts closest time to the given time)
+
+        ax  If specified as a two-element array of axes, the plots will be placed
+              in an already existing window, allowing reuse of the same window.
+              Otherwise, a new figure is created (if do_plot is True).
+        Returns a dictionary containing 
+           Source name, Time, HA, Dec, RA offset and Dec offset
     '''
     import matplotlib.pyplot as plt
     import read_idb
-    bl2ord = read_idb.p.bl_list()
+    bl2ord = read_idb.bl2ord
+    tdate = t.iso.replace('-','')[:8]
+    fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
+    fdb = dump_tsys.rd_fdb(t)
+    scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
+    scans,sidx = np.unique(fdb['SCANID'][scanidx],return_index=True)
+    tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
+    idx, = nearest_val_idx([t.jd],tlist.jd)
+    filelist = [fdir+f for f in fdb['FILE'][np.where(fdb['SCANID'] == scans[idx])]]
     # Read pointing data (timerange t must be accurate)
-    out = read_idb.read_idb(t, navg=30)
+    out = read_idb.read_idb(filelist, navg=30)
     # Determine wanted baselines with ant 14 from ant_str
     idx = read_idb.p.ant_str2list(ant_str)
     # Do appropriate sums over frequency and baseline
@@ -98,10 +165,11 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True):
     decdat = pntdata[8:]
     plsqr, xr, yr = solpnt.gausfit(rao, radat)
     plsqd, xd, yd = solpnt.gausfit(deco, decdat)
-    midtime = Time((t[1].lv + t[0].lv)/2.,format='lv')
+    midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
     if (do_plot):
-        f, ax = plt.subplots(1,2)
-        f.set_size_inches(7,3.5,forward=True)
+        if ax is None:
+            f, ax = plt.subplots(1,2)
+            f.set_size_inches(7,3.5,forward=True)
         ax[0].errorbar(rao,radat,yerr=stdev[:8],fmt='.')
         ax[0].plot(xr,yr)
         ax[0].axvline(x=0,color='k')
@@ -113,13 +181,18 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True):
         for j in range(2):
             ax[j].set_xlim(-0.3, 0.3)
             ax[j].grid()
-        ax[0].text(0.6,0.9,'RAO :'+str(plsqr[1])[:5],transform=ax[0].transAxes)
-        ax[0].text(0.6,0.85,'FWHM:'+str(plsqr[2])[:5],transform=ax[0].transAxes)
+        ax[0].text(0.05,0.9,'RAO :'+str(plsqr[1])[:5],transform=ax[0].transAxes)
+        ax[0].text(0.55,0.9,'FWHM:'+str(plsqr[2])[:5],transform=ax[0].transAxes)
         ax[0].set_xlabel('RA Offset [deg]')
-        ax[1].text(0.6,0.9,'DECO:'+str(plsqd[1])[:5],transform=ax[1].transAxes)
-        ax[1].text(0.6,0.85,'FWHM:'+str(plsqd[2])[:5],transform=ax[1].transAxes)
+        ax[1].text(0.05,0.9,'DECO:'+str(plsqd[1])[:5],transform=ax[1].transAxes)
+        ax[1].text(0.55,0.9,'FWHM:'+str(plsqd[2])[:5],transform=ax[1].transAxes)
         ax[1].set_xlabel('Dec Offset [deg]')
-        f.suptitle('Pointing on '+out['source']+' at '+midtime.iso)
+        if ax is None:
+            f.suptitle('Pointing on '+out['source']+' at '+midtime.iso)
+        else:
+            ax[0].set_title(out['source']+' at')
+            ax[1].set_title(midtime.iso[:16])
+        plt.pause(0.5)
     return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
                'rao':plsqr[1],'deco':plsqd[1],'time':midtime}
     
@@ -549,6 +622,7 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         antennas.  The antennas to update are specified with ant_str 
         (defaults to no antennas, for safety).        
     '''
+    oldant = [8,9,10,12]
     if ant_str is None:
         print 'No antenna list specified, so there is nothing to do!'
         return
@@ -573,9 +647,13 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
     p7_cur, = D15data['Ante_Cont_PointingCoefficient7']
     
     for i in antlist:
-        p1_inc = int(xoff[i]*10000)
+        if i in oldant:
+            # Change sign of RA offset to be HA, for old antennas (9, 10, 11 or 13)
+            p1_inc = int(-xoff[i]*10000)
+        else:
+            p1_inc = int(xoff[i]*10000)
         p7_inc = int(yoff[i]*10000)
-        p1_new = p1_cur[i] - p1_inc
+        p1_new = p1_cur[i] + p1_inc
         p7_new = p7_cur[i] + p7_inc
         print 'Updating P1 for Ant',i+1,'P1_old =',p1_cur[i],'P1_inc =',p1_inc,'P1_new =',p1_new
         cmd1 = 'pointingcoefficient1 '+str(p1_new)+' ant'+str(i+1)

@@ -41,9 +41,11 @@ nschanx = 0
 #ifbw = 600.
 #gifbw = 500.
 #nschanx = 341
-nsavg = [64,97,131,162,200,227,262]+[284]*27
+#nsavg = [64,97,131,162,200,227,262]+[284]*27
+nsavg = [64,97,131,162,200,227,262]+[284]*3+[160]+[284]+[160]+[284]+[160]+[284]*19 #double # of channels in 11, 13, 15
+#nsavg = [64,97,131,162,200,50,262]+[400]*28 #temporarily increase the number of science channels on band 6, channel width reduced from 25 MHz to 5 MHz
 #nsavg = [64,97,131,162,40,227,262]+[568]*27 #temporarily increase the number of science channels on band 5
-#nsavg = [64,97,131,162,200,227,262]+[568]*15+[20]+[568]*21 #temporarily increase the number of science channels on band 23 
+#nsavg = [64,97,131,162,200,227,262]+[400]*15+[50]+[400]*21 #temporarily increase the number of science channels on band 23 
 
 def update_nsavg():
     #update each value in nsavg in order to cover all the good if bandwidth

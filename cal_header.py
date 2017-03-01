@@ -41,6 +41,10 @@
 #      Added dla_censql2table() routine to read a delay center calibration
 #      from the SQL database and (optionally) send it to the ACC, which
 #      is needed for dppxmp. Also renamed dla_cen2sql() -> dla_centable2sql().
+#   2017-01-08  DG
+#      Fixed bug where XY delay in dla_update2sql() was being treated as 
+#      relative to ant 1Y.  It is already relative to ant 1X, but ant 1Y 
+#      has to be able to change.
 #
 import struct, util
 import stateframe as sf
@@ -825,9 +829,9 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
     # Apply corrections, forcing them to be relative to ant 1 (reference antenna),
     # converting input units in "steps" to ns (each step is 1.25 ns)
     rel_dla_ns = (dla_update-dla_update[0])*1.25
-    rel_xy_dla_ns = (xy_delay - xy_delay[0])*1.25
+    xy_dla_ns = xy_delay*1.25    # XY delay is not relative to Ant 1
     dcen[:14,0] -= rel_dla_ns
-    dcen[:14,1] -= rel_dla_ns + rel_xy_dla_ns
+    dcen[:14,1] -= rel_dla_ns + xy_dla_ns
 
     # Write timestamp 
     buf = struct.pack('d',int(t.lv))

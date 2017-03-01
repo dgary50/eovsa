@@ -55,6 +55,12 @@
 #     Added code to read and display last CRIO command (and error)
 #   2016-Mar-17  DG
 #     Changed display of FEM voltage to FEM power
+#   2017-Jan-18  DG
+#     Added ant 14 tracking and receiver information to CryoRX display page
+#   2017-Feb-09  DG
+#     Changed antlist to remove ant 15, which is no longer planned to be used.
+#     Also removed ant 15 (index 14) from definition of altantindex in update_display()
+#     Also expanded space for FSeqFile display, to allow for longer FSEQ filenames
 #
 
 from Tkinter import *
@@ -149,7 +155,7 @@ class App():
         fantcn = []    # Frame for Central Status info for each antenna
         fanttrip = []  # Frame for text widgets for trip info for each antenna
         fantctrl = []  # Frame for text widgets for controller stateframe info
-        self.antlist = np.array([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15])
+        self.antlist = np.array([1,2,3,4,5,6,7,8,9,10,11,12,13,14])
         nants = len(self.antlist)
         nlab = 20
         # 2-d array (of zeros) to hold labels
@@ -1054,11 +1060,11 @@ class App():
             self.L3.itemconfig(END,bg=self.colors['error'])
 
         antn = [' 1 ',' 2 ',' 3 ',' 4 ',' 5 ',' 6 ',' 7 ',' 8 ',' 9 ','10 ','11 ','12 ','13 ',' A ',' B ']
-        altantindex = np.array([0,1,2,3,4,5,6,7,11,8,9,10,12,13,14])
+        altantindex = np.array([0,1,2,3,4,5,6,7,11,8,9,10,12,13])
         # Expected STOW coordinates for the different types of antenna.  If/when Ant 12 is changed to
         # the old mount, its values must be changed.
         azstow = np.array([180,180,180,180,180,180,180,180,0,0,0,180,0,0,0])
-        elstow = np.array([88,88,88,88,88,88,88,88,37,37,37,88,37,20,20])
+        elstow = np.array([88,88,88,88,88,88,88,88,37,37,37,88,37,29,29])
 
         azel = stf.azel_from_stateframe(sf,data)
         antindex = self.antlist - 1
@@ -1144,8 +1150,12 @@ class App():
                 line += " "+'{:+8.4f}'.format(azel['dElevation'][i])
                 azoff, eloff = stf.extract(data,c['AzOffset'])/10000., stf.extract(data,c['ElOffset'])/10000.
                 raoff, decoff = stf.extract(data,c['RAOffset'])/10000.,stf.extract(data,c['DecOffset'])/10000.
-                line += "  "+'{:+4.1f} {:+4.1f}'.format(azoff,eloff)
-                line += "  "+'{:+4.1f} {:+4.1f}'.format(raoff,decoff)
+                if i > 12:
+                    line += " "+'{:+5.2f}{:+5.2f}'.format(azoff,eloff)
+                    line += " "+'{:+5.2f}{:+5.2f}'.format(raoff,decoff)
+                else:
+                    line += "  "+'{:+4.1f} {:+4.1f}'.format(azoff,eloff)
+                    line += "  "+'{:+4.1f} {:+4.1f}'.format(raoff,decoff)
                 ra = RA_Angle(stf.extract(data,c['RAVirtualAxis'])/10000.,'degrees')
                 line += "  "+ra.get('hms')[:10]
                 dec = Dec_Angle(stf.extract(data,c['DecVirtualAxis'])/10000.,'degrees')
@@ -1253,7 +1263,7 @@ class App():
 
         heading = 'Frequency Tuning'
         if not self.sectionDisplayState[2]:
-            line = '{:.8} <{:.9}> {:.30}'.format(status,fseqfile,errmsg).center(100-len(heading)-len(expand),'_')
+            line = '{:.8} <{:.19}> {:.30}'.format(status,fseqfile,errmsg).center(100-len(heading)-len(expand),'_')
             headline = '_'+heading+line+expand
             self.L3.insert(END,headline)
             self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
@@ -1262,13 +1272,13 @@ class App():
             self.L3.insert(END,headline)
             self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
 
-            head = 'LO1A Sweep Status  FSeqFile   ESR STB  Err   ErrorMsg'
+            head = 'LO1A Sweep Status  FSeqFile             ESR STB  Err   ErrorMsg'
             self.L3.insert(END,head)
             self.L3.itemconfig(END,bg=self.colors['colhead'])
 
             esr = str(stf.extract(data,sf['LODM']['LO1A']['ESR']))
             stb = str(stf.extract(data,sf['LODM']['LO1A']['STB']))
-            line = '    {:9.8}      {:10.9}  {:3} {:3} {:5} {:5}'.format(status,fseqfile,esr,stb,errno,errmsg)
+            line = '    {:9.8}      {:20.19}  {:3} {:3} {:5} {:5}'.format(status,fseqfile,esr,stb,errno,errmsg)
             self.L3.insert(END,line)
 
         # ================= Section 4: Phase Tracking ===================
@@ -1494,7 +1504,8 @@ class App():
         '''
         onoff = ['  OFF  ','  ON   ']
         self.cryoLB.delete(0,END)
-        cryos = [self.accini['sf']['FEMA'], self.accini['sf']['FEMB']]
+        sf = self.accini['sf']
+        cryos = [sf['FEMA']] #, sf['FEMB']]
         cryostr = ['FEMA','FEMB']
         for k,cryo in enumerate(cryos):
             ps = cryo['PowerStrip']
@@ -1551,6 +1562,8 @@ class App():
                 self.cryoLB.insert(END,line)
             # Section on Temperatures
             rt = cryo['Thermal']
+            fe14temp = stf.extract(data,sf['Antenna'][13]['Frontend']['FEM']['Temperature'])
+
             line = 'Temps:  FocusBox  RadShield  2ndStage  1stStage  HiFrqPlate  LoFrqHorn  HiFrqHorn  LoFrqLNA  HiFrqLNA'
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
@@ -1558,7 +1571,7 @@ class App():
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
             line = '        '
-            line += '  {:5.1f}  '.format(stf.extract(data,rt['FocusBoxTemp']))
+            line += '  {:5.1f}  '.format(fe14temp)
             line += '   {:5.1f}  '.format(stf.extract(data,rt['RadiationShieldTemp']))
             line += '   {:5.1f}  '.format(stf.extract(data,rt['SecondStageTemp']))
             line += '   {:5.1f}   '.format(stf.extract(data,rt['FirstStageTemp']))
@@ -1601,7 +1614,167 @@ class App():
             line = ''
             self.cryoLB.insert(END,line)
             self.cryoLB.insert(END,line)
-            
+
+        pswitch = ['OFF','ON ','-ERROR--']
+        rmode = ['STOP    ','POSITION','VELOCITY','---NA---','TRACK   ','-ERROR--']
+        rctrl = ['STANDBY','OPERATE','-ERROR--']
+        dmode = ['AZ-EL ','RA-DEC','-ERROR--']
+
+        antn = [' A ']#,' B ']
+        altantindex = np.array([13])#,14])
+        # Expected STOW coordinates for the different types of antenna.  If/when Ant 12 is changed to
+        # the old mount, its values must be changed.
+
+        azel = stf.azel_from_stateframe(sf,data)
+        antindex = altantindex
+
+        sub1 = stf.extract(data,sf['LODM']['Subarray1'])
+        sub2 = stf.extract(data,sf['LODM']['Subarray2'])
+        subarray1 = []
+        subarray2 = []
+        for i in range(16):
+            subarray1.append(sub1 & (1<<i) > 0)
+            subarray2.append(sub1 & (1<<i) > 0)
+
+        self.cryoLB.insert(END,'====== Ant 14 Tracking ======')
+        head  = 'a# ---HA--Act--Dec--  ---HA--Req--Dec--  ---HA--Err--Dec--  Az-Off-El  RA-Off-Dc  ---RA---Req---Dec---'
+        templ = '   xxx.xxxx sxx.xxxx  xxx.xxxx sxx.xxxx  sxx.xxxx sxx.xxxx  xx.x xx.x  xx.x xx.x  xx xx xx.x sxx xx xx'
+        self.cryoLB.insert(END,head)
+        self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
+        for k,i in enumerate(altantindex):
+            c = sf['Antenna'][i]['Controller']
+            fe = sf['Antenna'][i]['Frontend']
+            # If bit 9 of central status is set, dish is going to STOW
+            tostow = stf.extract(data,c['CentralStatus']) & 256
+            # If dish is in POSITION mode and the requested 
+            # AZ, EL are 225, 15, dish is going to SERVICE
+            toservice = (int(azel['RequestedAzimuth'][i] + 0.5) == 225 and 
+                         int(azel['RequestedElevation'][i] + 0.5) == 15 and
+                         rmode[stf.extract(data,c['RunMode'])] == 'POSITION')
+            # If dish is at AZ, EL 180, 88, dish is AT STOW 
+            atstow = (int(azel['ActualAzimuth'][i] + 0.5) == 0 and 
+                         int(azel['ActualElevation'][i] + 0.5) == 29)
+            # If dish is at AZ, EL 225, 15, dish is AT SERVICE
+            atservice = (int(azel['ActualAzimuth'][i] + 0.5) == 225 and 
+                         int(azel['ActualElevation'][i] + 0.5) == 15)
+            line = antn[k]+'{:8.4f}'.format(azel['ActualAzimuth'][i])
+            line += " "+'{:+8.4f}'.format(azel['ActualElevation'][i])
+            bs = stf.extract(data,fe['BrightScram']['State'])
+            ws = stf.extract(data,fe['WindScram']['State'])
+            if bs:
+                line += "    BRIGHTSCRAM    "
+            elif ws:
+                line += "     WINDSCRAM     "
+            elif tostow:
+                line += "      TO STOW      "
+            elif atstow:
+                line += "      AT STOW      "
+            elif atservice:
+                line += "     AT SERVICE    "
+            elif toservice:
+                line += "     TO SERVICE    "
+            else:
+                line += "  "+'{:8.4f}'.format(azel['RequestedAzimuth'][i])
+                line += " "+'{:+8.4f}'.format(azel['RequestedElevation'][i])
+            line += "  "+'{:+8.4f}'.format(azel['dAzimuth'][i])
+            line += " "+'{:+8.4f}'.format(azel['dElevation'][i])
+            azoff, eloff = stf.extract(data,c['AzOffset'])/10000., stf.extract(data,c['ElOffset'])/10000.
+            raoff, decoff = stf.extract(data,c['RAOffset'])/10000.,stf.extract(data,c['DecOffset'])/10000.
+            line += " "+'{:+5.2f}{:+5.2f}'.format(azoff,eloff)
+            line += " "+'{:+5.2f}{:+5.2f}'.format(raoff,decoff)
+            ra = RA_Angle(stf.extract(data,c['RAVirtualAxis'])/10000.,'degrees')
+            line += "  "+ra.get('hms')[:10]
+            dec = Dec_Angle(stf.extract(data,c['DecVirtualAxis'])/10000.,'degrees')
+            line += " "+dec.get('dms')[:9]
+            self.cryoLB.insert(END,line)
+            if abs(azoff) > 0 or abs(eloff) > 0 or abs(raoff) > 0 or abs(decoff) > 0:
+                # Antennas with non-zero offsets (color orange)
+                self.cryoLB.itemconfig(END,bg=self.colors['offsets'])
+            if abs(azel['dAzimuth'][i]) > 0.005 or abs(azel['dElevation'][i]) > 0.005:
+                # Antennas with tracking error > 0.005 (color yellow)
+                self.cryoLB.itemconfig(END,bg=self.colors['warn'])
+            if abs(azel['dAzimuth'][i]) > 0.02 or abs(azel['dElevation'][i]) > 0.02:
+                # Antennas with tracking error > 0.02 (color red)
+                self.cryoLB.itemconfig(END,bg=self.colors['error'])
+            if ws + bs:
+                # Antennas with wind or bright scram (color red)
+                self.cryoLB.itemconfig(END,bg=self.colors['error'])
+            if not subarray1[i]:
+                # Antennas out of service (color gray)
+                self.cryoLB.itemconfig(END,bg=self.colors['na'])
+            else:
+                # Antennas are in service, so check ra,dec coordinates for zeros
+                # (indicates cRIO not reporting)
+                if ra.get() == 0.0 and dec.get() == 0.0:
+                    self.cryoLB.itemconfig(END,bg=self.colors['error'])
+
+        self.cryoLB.insert(END,' ') # Blank line
+        self.cryoLB.insert(END,'====== Ant 14 Communication ======')
+        head = 'a# Pwr  Runctrl  Runmode  Datamode   cRIO_Time     Ant_Time     cRIO--TDIF--Ant'
+        self.cryoLB.insert(END,head)
+        self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
+        t = Time(stf.extract(data,sf['Timestamp'])+0.000001,format='lv')
+        mjd = t.mjd
+
+        for k,i in enumerate(antindex):
+            c = sf['Antenna'][i]['Controller']
+            criomjd = int(mjd) + stf.extract(data,c['cRIOClockms'])/86400000.
+            if criomjd == 0.0:
+                criotimestr = '1904-01-01 00:00:00.000'
+            else:
+                criotimestr = Time(criomjd,format='mjd').iso
+            # Controller MJD occasionally glitches to very large values, so limit it to no larger than today's MJD
+            antmjd = min(stf.extract(data,c['SystemClockMJDay']),int(mjd)) + stf.extract(data,c['SystemClockms'])/86400000.
+            if antmjd == 0.0:
+                anttimestr = '1904-01-01 00:00:00.000'
+            else:
+                anttimestr = Time(antmjd,format='mjd').iso
+            criotdif = (criomjd - mjd)*86400.
+            anttdif = (antmjd - mjd)*86400.
+            line = antn[k]+pswitch[np.clip(stf.extract(data,c['PowerSwitch']),0,2)]
+            line += "  "+rctrl[np.clip(stf.extract(data,c['RunControl']),0,2)]
+            line += "  "+rmode[np.clip(stf.extract(data,c['RunMode']),0,5)]
+            line += "  "+dmode[np.clip(stf.extract(data,c['DataMode']),0,2)]
+            line += "  "+criotimestr[11:]+"  "+anttimestr[11:]+'{:8.3f}  {:8.3f}'.format(criotdif,anttdif)
+            self.cryoLB.insert(END,line)
+            if abs(criotdif) > 1.0 or abs(anttdif) > 1.0 or line.find('-ERROR--') != -1:
+                self.cryoLB.itemconfig(END,bg=self.colors['error'])
+            if not subarray1[i]:
+                # Antennas out of service (color gray)
+                self.cryoLB.itemconfig(END,bg=self.colors['na'])
+
+        self.cryoLB.insert(END,' ') # Blank line
+        self.cryoLB.insert(END,'====== Ant 14 Power and Attenuation ======')
+        head = '     Frontend:  --H-Channel---  --V-Channel---   Backend:  --H-Channel---  --V-Channel---'
+        self.cryoLB.insert(END,head)
+        self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
+        head = 'a#              --dBm-- -Attn-  --dBm-- -Attn-             -Volts- -Attn-  -Volts- -Attn-'
+        self.cryoLB.insert(END,head)
+        self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
+        for k,i in enumerate(antindex):
+            fe = sf['Antenna'][i]['Frontend']['FEM']
+            hpv = stf.extract(data,fe['HPol']['Power'])
+            vpv = stf.extract(data,fe['VPol']['Power'])
+            ndon = ' '
+            if stf.extract(data,fe['ND']) == 1:
+                ndon = '**ND-ON**'
+            be = sf['DCM'][i]
+            line = '{:2d}  {:>9}  {:7.4f} {:3d} {:3d} {:7.4f} {:3d} {:3d}            {:7.4f} {:5d}   {:7.4f} {:5d}'.format(i+1,ndon,
+                hpv,stf.extract(data,fe['HPol']['Attenuation']['First']),
+                stf.extract(data,fe['HPol']['Attenuation']['Second']),
+                vpv,stf.extract(data,fe['VPol']['Attenuation']['First']),
+                stf.extract(data,fe['VPol']['Attenuation']['Second']),
+                stf.extract(data,be['HPol']['Voltage']),stf.extract(data,be['HPol']['Attenuation']),
+                stf.extract(data,be['VPol']['Voltage']),stf.extract(data,be['VPol']['Attenuation']))
+            self.cryoLB.insert(END,line)
+            if hpv == 0.0 or vpv == 0.0:
+                self.cryoLB.itemconfig(END,bg=self.colors['error'])
+            if ndon != ' ':
+                self.cryoLB.itemconfig(END,bg=self.colors['warn'])
+            if not subarray1[i]:
+                # Antennas out of service (color gray)
+                self.cryoLB.itemconfig(END,bg=self.colors['na'])
+                
     def plottemp(self):
         ''' Just a simple routine to see if I can plot something once a second...
         '''

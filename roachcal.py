@@ -18,19 +18,26 @@
 #                                    fixed frequency (band23.fsq).  This
 #                                    is for measuring delays on each
 #                                    antenna relative to Ant 1.
+#  History
+#   2017-01-08  DG
+#     Changes to DCM_cal to make it more general, and to avoid messing up
+#     current attenuation table for antennas that are missing.  The default
+#     observing sequence is now the new gainseq.fsq, and ant15 is set as
+#     missing.
+#   2017-02-11  DG
+#     Added routine xydla() to return (and optionally update) X vs. Y
+#     delay from ndon capture file.
+#
 
 import pcapture2 as p
 import urllib2
 import numpy as np
 
-def DCM_cal(filename=None,fseqfile='solar.fsq',dcmattn=16,update=False):
+def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',update=False):
 
     if filename is None:
         return 'Must specify ADC packet capture filename, e.g. "/dppdata1/PRT/PRT<yyyymmddhhmmss>adc.dat"'
 
-    adc = p.rd_jspec(filename)
-    pwr = rollaxis(adc['phdr'],2)[:,:,:2]
-    fseqfile = 'solar.fsq'
     userpass = 'admin:observer@'
     fseq_handle = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fseqfile,timeout=0.5)
     lines = fseq_handle.readlines()
@@ -39,6 +46,13 @@ def DCM_cal(filename=None,fseqfile='solar.fsq',dcmattn=16,update=False):
         if line.find('LIST:SEQUENCE') != -1:
             line = line[14:]
             bandlist = np.array(map(int,line.split(',')))
+    if len(np.unique(bandlist)) != 34:
+        print 'Frequency sequence must contain all bands [1-34]'
+        return None
+    # Read packet capture file
+    adc = p.rd_jspec(filename)
+    pwr = rollaxis(adc['phdr'],2)[:,:,:2]
+    # Put measured power into uniform array arranged by band
     new_pwr = np.zeros((34,16,2))
     for i in range(34):
         idx, = np.where(bandlist-1 == i)
@@ -46,10 +60,25 @@ def DCM_cal(filename=None,fseqfile='solar.fsq',dcmattn=16,update=False):
             new_pwr[i] = np.median(pwr[idx],0)
     new_pwr.shape = (34,32)
     
-    orig_table = np.zeros((34,30)) + dcmattn
-    orig_table[:,26:] = 0
-
+    if dcmattn:
+        # A DCM attenuation value was given, which presumes a constant value
+        # so use it as the "original table."
+        orig_table = np.zeros((34,30)) + dcmattn
+        orig_table[:,26:] = 0
+    else:
+        # No DCM attenuation value was given, so read the current DCM master
+        # table from the database.
+        import cal_header
+        import stateframe
+        xml, buf = cal_header.read_cal(2)
+        orig_table = stateframe.extract(buf,xml['Attenuation'])
+        
     attn = np.log10(new_pwr[:,:-2]/1600.)*10.
+    # Zero any changes for missing antennas
+    if missing:
+        idx = p.ant_str2list(missing)
+        bad = np.sort(np.concatenate((idx*2,idx*2+1)))
+        attn[:,bad] = 0
     new_table = (np.clip(orig_table + attn,0,30)/2).astype(int)*2
     DCMlines = []
     DCMlines.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15')
@@ -132,4 +161,49 @@ def getphasecor(data, ant_str='ant1-14', polist=[0,1], crange=[0,4095], pplot=Fa
         return phasecor[:,0]
     return phasecor
 
-
+def xydla(filename,ant_str='ant1-14',apply=False):
+    ''' Determine X vs. Y delay based on packet capture with Noise Diode on
+    
+        filename    Name and path of a PRT (packet capture) file taken with ND-ON,
+                      using a fixed band, e.g. band15.fsq.
+                      
+        Returns xy  14-element list of delays to apply, for use in second argument
+                      of cal_header.dla_update2sql()
+                      
+        Optional argument:
+        ant_str     If supplied, is the standard specification of antennas to include.
+                       Antennas not included are updated with 0 (i.e. no change)
+        apply       If True, calls cal_header.dla_update2sql() and 
+                                   cal_header.dla_censql2table()
+                      to update X vs. Y delays
+    '''
+    import matplotlib.pylab as plt
+    from util import lobe
+    f, ax = plt.subplots(4,4)
+    ants = p.ant_str2list(ant_str)
+    ax.shape = (16)
+    if type(filename) is dict:
+        # Interpret input as an already read dictionary, rather than a filename, and skip
+        # the slow process of reading it again.
+        out = filename
+    else:
+        out = p.rd_jspec(filename)
+    xy = []
+    chrange = np.arange(2100,3900)  # Portion of 4096 sub-channel range to use for the fit
+    npts = len(chrange)
+    x = np.linspace(0,np.pi*npts/4096.,1800)  # This makes phase slope come out in units of delay steps
+    for i in range(14):
+        if i in ants:
+            ax[i].plot(np.angle(out['a'][i,2,:,30]),'y.',label='Ant '+str(i+1))
+            res = np.polyfit(x,np.unwrap(np.angle(out['a'][i,2,chrange,30])),1)
+            ax[i].plot(chrange,lobe(np.polyval(res,x)),'r.')
+            ax[i].set_ylim(-4,4)
+            ax[i].legend(fontsize=9,loc='best', fancybox=True, framealpha=0.5)
+        else:
+            res = [0.,0.]
+        xy.append(res[0])
+    if apply:
+        import cal_header as ch
+        ch.dla_update2sql(np.zeros(14,np.float),np.array(xy))
+        ch.dla_censql2table()
+    return np.array(xy)
