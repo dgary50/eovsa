@@ -48,6 +48,11 @@
 #      Add sk_flag to xdata display.
 #   2016-Aug-04  DG
 #      After update of numpy, my medians no longer worked.  Changed to nanmedian.
+#   2017-Mar-20  DG
+#      Changes to get this working for 300 MHz correlator.  Skip SK flagging, skip
+#      call to flaremeter() [just takes too long!], and skip get_history() call.
+#   2017-Apr-06  DG
+#      Changes to put identifying text on plot for more types of calibration.
 #
 import numpy as np
 from util import Time
@@ -143,6 +148,8 @@ def xdata_display(t,ax=None):
         on the axis specified by ax, or on a new plot if no ax. If the requested
         time is more than 10 minutes after the last file of that scan, returns
         None to indicate no plot.
+        
+        Skip SK flagging [2017-Mar-20 DG]
     '''
     import time
     import dump_tsys
@@ -197,7 +204,7 @@ def xdata_display(t,ax=None):
                 files[i] = '/data1/IDB/'+files[i]
             # data, uvw, fghz, times = gd.get_X_data(files)
             out = ri.read_idb(files)
-            out = ri.flag_sk(out)
+            #out = ri.flag_sk(out)  # Skip flagging for sk
             fghz = out['fghz']
             times = Time(out['time'],format='jd')
             data = out['x']
@@ -206,9 +213,12 @@ def xdata_display(t,ax=None):
                 ax.set_xlabel('Time [UT on '+datstr+']')
                 ax.set_ylabel('Frequency [GHz]')
                 ax.set_title('EOVSA Summed Cross-Correlation Amplitude for '+datstr)
-            sp.plot_spectrogram(fghz, times, sum(sum(abs(data[0:11,:]),1),0), 
-                                ax=ax, logsample=None, xdata=True, cbar=True)
-            tlevel, bflag = flaremeter(data)
+            pdata = np.sum(np.sum(np.abs(data[0:11,:]),1),0)  # Spectrogram to plot
+            X = np.sort(pdata.flatten())   # Sorted, flattened array
+            dmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+            sp.plot_spectrogram(fghz, times, pdata, 
+                                ax=ax, logsample=None, xdata=True, cbar=True, dmax=dmax)
+            #tlevel, bflag = flaremeter(data)
         else:
             print 'Time',dt.sec,'is > 1200 s after last file of last NormalObserving scan.  No plot created.'
             scan = None
@@ -302,37 +312,45 @@ def get_history(times, tlevel, bflag):
 
 if __name__ == "__main__":
     ''' For non-interactive use, use a backend that does not require a display
-        Usage python /common/python/current/flare_monitor.py "2014-12-20"
+        Usage python /common/python/current/flare_monitor.py "2014-12-20" <skip>
+        If optional argument skip is given, the time-consuming creation of the
+        xdata spectrum (XSP file) is skipped.
     '''
     import glob, shutil
     import matplotlib, sys, util
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    known = ['GAIN','PHAS','SOLP']  # known calibration types (first 4 letters)
     t = Time.now()
-    print t.iso[:19],': ',
-    if len(sys.argv) == 2:
+    skip = False
+    if len(sys.argv) >= 2:
         try:
             t = Time(sys.argv[1])
         except:
             print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
             exit()
+        if len(sys.argv) == 3:
+            skip = True
+    print t.iso[:19],': ',
     if (t.mjd % 1) < 3./24:
         # Special case of being run at or before 3 AM (UT), so change to late "yesterday" to finish out
         # the previous UT day
         imjd = int(t.mjd)
         t = Time(float(imjd-0.001),format='mjd')
 
-    # Check if cross-correlation plot already exists
-    f, ax = plt.subplots(1,1)
-    f.set_size_inches(14,5)
-    scanid, tlevel, bflag, times = xdata_display(t,ax)
-    plt.savefig('/common/webplots/flaremon/XSP20'+scanid+'.png',bbox_inches='tight')
-    plt.close(f)
-    print 'Plot written to /common/webplots/flaremon/XSP20'+scanid+'.png'
-    bflag = cleanup(bflag)
-    # See if a file for this date already exists, and if so, read it and 
-    # append or replace with the newly determined levels
-    times, tlevel, bflag = get_history(times, tlevel, bflag)
+    tlevel = None
+    if not skip:
+        # Check if cross-correlation plot already exists
+        f, ax = plt.subplots(1,1)
+        f.set_size_inches(14,5)
+        scanid, tlevel, bflag, times = xdata_display(t,ax)
+        plt.savefig('/common/webplots/flaremon/XSP20'+scanid+'.png',bbox_inches='tight')
+        plt.close(f)
+        print 'Plot written to /common/webplots/flaremon/XSP20'+scanid+'.png'
+        bflag = cleanup(bflag)
+        # See if a file for this date already exists, and if so, read it and 
+        # append or replace with the newly determined levels
+        #times, tlevel, bflag = get_history(times, tlevel, bflag)
 
     ut, fl, projdict = flare_monitor(t)
     if fl == []:
@@ -341,14 +359,15 @@ if __name__ == "__main__":
     f, ax = plt.subplots(1,1)
     f.set_size_inches(10,3)
     plt.plot_date(ut,fl,'b')
-    plt.plot_date(times.plot_date,tlevel,'r,')
+    if tlevel:
+        plt.plot_date(times.plot_date,tlevel,'r,')
     ax.set_xlabel('Time [UT]')
     ax.set_ylabel('RF Detector [arb. units]')
     ax.set_title('EOVSA Flare Monitor for '+t.iso[:10])
     ymax = 1.4
     if np.max(fl) > ymax: ymax = np.max(fl)
     # Get level max, ignoring nan and inf
-    lmax = np.max(tlevel[np.isfinite(tlevel)])
+    #lmax = np.max(tlevel[np.isfinite(tlevel)])
     #if lmax > ymax: ymax = lmax
     ax.set_ylim(0.8,ymax)
     ax.set_xlim(int(ut[0])+13/24.,int(ut[0])+26/24.)  # Time plot ranges from 13 UT to 02 UT
@@ -363,20 +382,26 @@ if __name__ == "__main__":
             uti = SOS[i]*np.array([1.,1.])
             plt.plot_date(uti,yran,'g',lw=0.5)
             if projdict['Project'][i] == 'NormalObserving' or projdict['Project'][i] == 'Normal Observing':
-                ax.text(uti[0],yran[1]*0.955,'SUN',fontsize=8)
+                ax.text(uti[0],yran[1]*0.935,'SUN',fontsize=8)
             elif projdict['Project'][i] == 'None':
-                ax.text(uti[0],yran[1]*0.965,'IDLE',fontsize=8)
+                ax.text(uti[0],yran[1]*0.975,'IDLE',fontsize=8)
+            elif projdict['Project'][i][:4] == 'GAIN':
+                ax.text(uti[0],yran[1]*0.955,'GCAL',fontsize=8)
+            elif projdict['Project'][i] == 'SOLPNTCAL':
+                ax.text(uti[0],yran[1]*0.955,'TPCAL',fontsize=8)
+            elif projdict['Project'][i] == 'PHASECAL':
+                ax.text(uti[0],yran[1]*0.955,'PCAL',fontsize=8)
             else:
-                ax.text(uti[0],yran[1]*0.975,'CAL',fontsize=8)
+                ax.text(uti[0],yran[1]*0.975,projdict['Project'][i],fontsize=8)
         if len(projdict['EOS']) == nscans:
             for i in range(nscans):
                 uti = EOS[i]*np.array([1.,1.])
                 plt.plot_date(uti,yran,'r--',lw=0.5)
                 uti = np.array([SOS[i],EOS[i]])
                 if projdict['Project'][i] == 'NormalObserving':
-                    plt.plot_date(uti,yran[1]*np.array([0.95,0.95]),ls='-',marker='None',color='#aaffaa',lw=2,solid_capstyle='butt')
-                elif projdict['Project'][i] == 'None':
-                    plt.plot_date(uti,yran[1]*np.array([0.96,0.96]),ls='-',marker='None',color='#aaaaff',lw=2,solid_capstyle='butt')
+                    plt.plot_date(uti,yran[1]*np.array([0.93,0.93]),ls='-',marker='None',color='#aaffaa',lw=2,solid_capstyle='butt')
+                elif projdict['Project'][i][:4] in known:
+                    plt.plot_date(uti,yran[1]*np.array([0.95,0.95]),ls='-',marker='None',color='#aaaaff',lw=2,solid_capstyle='butt')
                 else:
                     plt.plot_date(uti,yran[1]*np.array([0.97,0.97]),ls='-',marker='None',color='#ffaaaa',lw=2,solid_capstyle='butt')
     datstr = t.iso[:10].replace('-','')

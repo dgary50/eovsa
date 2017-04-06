@@ -56,6 +56,8 @@
 #    Fixed some bugs associated with tp_only.
 #  2017-Feb-01  DG
 #    Added read_udb() routine.
+#  2017-Apr-04  DG
+#    Added read_npz() routine to read and concatenate multiple NPZ files.
 
 import aipy
 import os
@@ -609,6 +611,46 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
     out['ha'] = np.concatenate(ha)
     return out
     
+def read_npz(files):
+    ''' This reads already-processed data from Numpy compressed files
+        in the given file-list, and concatenates the times into a single 
+        dictionary.  The result is the same as read_idb() on several files.
+        
+        files     A list of npz files.
+    '''
+    # Have to concatenate outa, outx, uvw, time, and ha arrays
+    outa = []
+    outx = []
+    outp = []
+    outp2 = []
+    outm = []
+    uvw = []
+    time = []
+    ha = []
+    for file in files:
+        f = open(file,'rb')
+        data = np.load(f)
+        if file == files[0]:
+            out = data[data.keys()[0]].item()
+        outp.append(data[data.keys()[0]].item()['p'])
+        outa.append(data[data.keys()[0]].item()['a'])
+        outx.append(data[data.keys()[0]].item()['x'])
+        outp2.append(data[data.keys()[0]].item()['p2'])
+        outm.append(data[data.keys()[0]].item()['m'])
+        uvw.append(data[data.keys()[0]].item()['uvw'])
+        time.append(data[data.keys()[0]].item()['time'])
+        ha.append(data[data.keys()[0]].item()['ha'])
+        f.close()
+    out['p'] = np.concatenate(outp,3)
+    out['a'] = np.concatenate(outa,3)
+    out['x'] = np.concatenate(outx,3)
+    out['p2'] = np.concatenate(outp2,3)
+    out['m'] = np.concatenate(outm,3)
+    out['uvw'] = np.concatenate(uvw,1)
+    out['time'] = np.concatenate(time)
+    out['ha'] = np.concatenate(ha)
+    return out
+    
 def flag_sk(out):
     m = out['m']
     sk = (m+1.)/(m-1.)*(m*out['p2']/(out['p']**2) - 1)
@@ -1103,6 +1145,7 @@ def funrot_miriad(filename,timeit=False,post=''):
     # Set chi = 0 for equatorial antennas (and for non-existent ants 15 & 16)
     eq = np.array([8,9,10,12,13,14,15])
     chiant = chi.astype(np.float)
+    #chiant = -chi.astype(np.float)  # Test reversing sign of chi...
     chiant[:,eq] = 0.0
     # Next open the information on non-ideal feed behavior (these are constants for each
     # feed).  For now, just create an array with nominal values in place. This will become

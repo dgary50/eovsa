@@ -22,6 +22,18 @@
 #      Looks like dppxmp does not like going past the end of the nominal
 #      500 MHz band, so set gifb back to 350 MHz and 2148 in get_chanmask().
 #      This results in only four good frequencies per band at higher freqs.
+#   2017-Mar-05  DG
+#      Changed to work with 300 MHz design.  Changes marked.  To convert
+#      back to 200 MHz, comment out lines with "300 MHz design" and uncomment
+#      lines starting with ##.  Since the frequency order is swapped,
+#      I added a swap of chan_asmt() output if ifbw = 600.
+#   2017-Mar-06  DG
+#      Changed the code so that the SOLE change between 200 MHz and 300 MHz
+#      design is the value of ifbw.  Also, see if the order of channels
+#      can be accounted for simply by returning a negative bandwidth
+#   2017-Mar-07  DG
+#      Something is not kosher with chanmask, so for now I am setting no mask.
+#      See bottom of this file for relevant line.
 #
 
 import pdb
@@ -34,15 +46,21 @@ global nschan, ifbw, gifbw, nschanx, nsavg
 # gifbw: usable IF bandwidth in MHz, now excluding 50 MHz at the IF edge on one side (the other side is folded over for now) 
 # nschanx: channels to skip at the beginning of each IF
 # nsavg: number of spectral channels to average for each science channel
+
+# ---------- SOLE CHANGE FOR DESIGN SPEED, SWAP THIS ONE COMMENT --------------
+ifbw = 400.    # 200 MHz design
+##ifbw = 600.   # 300 MHz design
+if ifbw == 400.:
+    # 200 MHz design
+    gifbw = 350.
+    nschanx = 0
+elif ifbw == 600.:
+    # 300 MHz design
+    gifbw = 500.
+    nschanx = 341
 nschan = 4096
-ifbw = 400.
-gifbw = 350.
-nschanx = 0
-#ifbw = 600.
-#gifbw = 500.
-#nschanx = 341
-#nsavg = [64,97,131,162,200,227,262]+[284]*27
-nsavg = [64,97,131,162,200,227,262]+[284]*3+[160]+[284]+[160]+[284]+[160]+[284]*19 #double # of channels in 11, 13, 15
+nsavg = [64,97,131,162,200,227,262]+[284]*27
+#nsavg = [64,97,131,162,200,227,262]+[284]*3+[160]+[284]+[160]+[284]+[160]+[284]*19 #double # of channels in 11, 13, 15
 #nsavg = [64,97,131,162,200,50,262]+[400]*28 #temporarily increase the number of science channels on band 6, channel width reduced from 25 MHz to 5 MHz
 #nsavg = [64,97,131,162,40,227,262]+[568]*27 #temporarily increase the number of science channels on band 5
 #nsavg = [64,97,131,162,200,227,262]+[400]*15+[50]+[400]*21 #temporarily increase the number of science channels on band 23 
@@ -110,7 +128,11 @@ def chan_asmt(bnd):
         chasmt += [i+nsci+1]*nsavg[band]
     nrest = 4096 - len(chasmt)
     chasmt += [0]*nrest
-    return chasmt
+    if ifbw == 400:
+        return chasmt
+    else:
+        # Reverse order of channel assignment for 300 MHz design
+        return chasmt[::-1]
 
 def start_freq(band):
     # Input band (bnd) ranges from 1-34
@@ -145,6 +167,12 @@ def sci_bw(band):
     scibw = [nsavg[band-1]*df/1000.]*nscichan
 
     return scibw
+    #if ifbw == 400:
+    #    return scibw
+    #else:
+    #    # Reverse sign of bandwidth for 300 MHz design
+    #    scibw = [-x for x in scibw]
+    #    return scibw
 
 def plt_chan():
     bands=np.arange(34)+1
@@ -227,9 +255,10 @@ def get_chanmask(fsequence,t=None):
     for i,band in enumerate(bands):
         # Transfers the 4096 values for band into the ith slot of chanmask
         chanmask[i,:] = copy.copy(bandmask[band,:])
-        chanmask[i,:2148] = 0  # Temporary--flag all overlapped channels for 800 MHz clock
+        if ifbw == 400.:
+            chanmask[i,:2148] = 0  # Temporary--flag all overlapped channels for 800 MHz clock
     chanmask.shape = (204800)
+    # NB: This line overrides everything done above!  I.e. there are no masked channels.
+    if ifbw == 600.:
+        chanmask = np.ones(204800,'byte')
     return chanmask
-            
-        
-        

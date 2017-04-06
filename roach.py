@@ -77,11 +77,16 @@
 #   2017-Jan-05  DG
 #      Changed reading and writing format for eq coeff to allow signed values
 #      (changed 'H' to 'h').
+#   2017-Mar-05  DG
+#       Added writing of sync time to a file on the ACC, which will be read
+#       by scan_header() to add the information to the scan header.
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
+from ftplib import FTP
 from katcp import Message
 from pwr_cycle import pwr_cycle, pwr_off
+from util import Time
 
 # Start of ROACH object definition
 # ========================
@@ -354,7 +359,7 @@ class Roach():
 
         # Set accumulation start and length (calculate from ADC clock)
         acc_start = int(0.001 * clkHz / 8192.) + 54   # ~1 ms delay
-        # Swap comments here when 300 MHz design is to be configured.
+        # If statement handles 200 vs 300 MHz design configuration.
         if clk == 800:
             acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration (200 MHz)
         else:
@@ -423,11 +428,12 @@ class Roach():
                 devs = self.fpga.listdev()
                 ip0 = [s for s in devs if 'ip0' in s]
                 for j in range(8):
-                    # Swap comments here when 300 MHz design is to be configured.
                     if ip0[0] == 'ip0':
+                        # 300 MHz design
                         self.fpga.write_int('ip0',ip2int(fx[0,j]),offset=j)
                         self.fpga.write_int('ip1',ip2int(fx[1,j]),offset=j)
                     else:
+                        # 200 MHz design
                         self.fpga.write_int('swreg_ip0_roach'+str(j),ip2int(fx[0,j]))
                         self.fpga.write_int('swreg_ip1_roach'+str(j),ip2int(fx[1,j]))
                 
@@ -655,17 +661,7 @@ class Roach():
         ''' Sets frequency sequence (called once each scan change)
             The bands is an array of 0-based band numbers
         '''
-        # Swap comments here when 300 MHz design is to be configured.
         pass
-        #if self.fpga.is_connected():
-        #    for i in range(10):
-        #        idx = i * 5
-        #        sw_reg_name = 'swreg_sky_freq' + str(i)
-        #        sw_reg_value = bands[idx:idx+5]*(2**numpy.array([0,6,12,18,24]))
-        #        self.fpga.write_int(sw_reg_name, sw_reg_value.sum())
-        #    self.msg = 'Success'
-        #else:
-        #    self.msg = 'Could not set frequency sequence--client not connected'
 
 #======= Roach.get_katadc_dict ========
     def get_katadc_dict(self):
@@ -1079,6 +1075,8 @@ def arm(roach_list=None):
         # Wait for turn of second (+ 200 ms) to ensure arming well
         # before next 1 pps tick
         time.sleep(1 - (time.time() % 1) + 0.1)
+        # Predict future time when accumulations start
+        tacc0 = Time(Time.now().iso[:19]).mjd + 2./86400.  # experience shows that arm occurs at 2nd tick
         for roach in roach_list:
             roach.fpga.write_int('swreg_arm',3)
         time.sleep(0.1)
@@ -1095,6 +1093,25 @@ def arm(roach_list=None):
                 print roach.roach_ip,'synced =',True
             else:
                 print roach.roach_ip,'synced =',False
+        mjd_str = '{:16.10f}'.format(tacc0)
+        line = mjd_str+'     # MJD sync time: '+Time(tacc0,format='mjd').iso+'\n'
+        print line
+        f = open('/tmp/acc0time.txt','w')
+        f.write(line)
+        f.close()
+        time.sleep(0.1)
+        try:
+            f = open('/tmp/acc0time.txt','r')
+            acc = FTP('acc.solar.pvt')
+            acc.login('admin','observer')
+            acc.cwd('parm')
+            # Send ACC0 time to ACC
+            print acc.storlines('STOR acc0time.txt',f)
+            f.close()
+            print 'Successfully wrote acc0time.txt to ACC'
+        except:
+            print 'Cannot FTP acc0time.txt to ACC'
+        
 
 def reload(roach_list=None,pcycle=False):
     ''' This routine reloads and arms a list of boards given by either
@@ -1179,7 +1196,7 @@ def reload(roach_list=None,pcycle=False):
     mc = mcstart
     # Set mcount_start in all roaches for 16 s from now
     for roach in roach_list:
-        roach.fpga.write_int('vacc_target_mcnt',mc)  # 300 MHz
+        roach.fpga.write_int('vacc_target_mcnt',mc)
         roach.fpga.write_int('swreg_mcount_start',mc)
     time.sleep(16)
     for i,roach in enumerate(roach_list):

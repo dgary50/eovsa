@@ -235,6 +235,19 @@
 #      that uvw coordinates are calculated correctly with the current scheme.  Still
 #      not good enough.  The epoch is getting reset somewhere else.  I finally gave
 #      up and just set the epoch to J2000 once per second!
+#    2017-Mar-05  DG
+#      The 300 MHz correlator is working!  However, that led me to discover that
+#      a 200 MHz board clock speed was hard-coded here.  I have changed it to
+#      check the ADC clock speed in the ROACH config file (attached to the
+#      roach objects when connecting to the ROACHes), and set it to 1/4 of that.
+#      If for some reason that fails, the clock speed defaults to 300 MHz.  I
+#      also increased the delay offset to 16000.  Also added reading of new ACC
+#      file with the ROACH sync time, in init_scanheader_dict(), which replaces 
+#      the erroneous value we have been using in the scan_header.  I also changed
+#      time reference time of the uvw to correspond to the current second.
+#    2017-Mar-06 DG
+#      Changed delay offset to scale with adc_clk frequency, so that it works for
+#      either 200 or 300 MHz design.
 #
 
 import os, signal
@@ -276,6 +289,7 @@ else: # use a different log file name for the 2nd subarray (schedule_Subarray2.l
 
 # Show the scanheader dictionary as undefined
 global sh_dict, sf_dict
+userpass = 'admin:observer@'
 sh_dict = {}
 sf_dict = {}
 
@@ -300,7 +314,7 @@ def init_scanheader_dict(version=37.0):
     '''
     global sh_dict
 
-    userpass = 'admin:observer@'
+    #userpass = 'admin:observer@'
     t = util.Time.now()
     mjd_ = t.mjd      # Get mjd of Time() object
     timestamp = t.lv  # Get LabVIEW timestamp
@@ -309,6 +323,17 @@ def init_scanheader_dict(version=37.0):
     aa.date = str(aa.date)[:11]+'00:00'  # Set date to 0 UT
     #print t.iso,aa.epoch
     mjd0 = aa.date + 15019.5   # Convert from ephem date to mjd
+
+    try:
+        f = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/acc0time.txt',timeout=1)
+        mjdacc0 = np.double(f.readline().split()[0])
+        f.close()
+    except:
+        print t.iso,'ACC connection for acc0 time timed out.  Reading from /tmp/acc0time.txt'
+        f = open('/tmp/acc0time.txt','r')
+        mjdacc0 = np.double(f.readline().split()[0])
+        f.close()
+      
 
     #try:
         ## Read delay center file from ACC
@@ -373,8 +398,8 @@ def init_scanheader_dict(version=37.0):
                'subbw': 0.4/4096,   # Case of 400 MHz IF bandwidth (not used?)
                'dlacen': numpy.array(dcen),
                'dlaceny': numpy.array(dceny),
-               'time_at_acc0':util.Time.now(),
-               'roach_brd_clk':[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
+               'time_at_acc0': Time(mjdacc0,format='mjd'),
+               'roach_brd_clk': [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],
                'katadc':[{},{},{},{},{},{},{},{}]}   # Empty dictionaries (one for each ROACH) for katadc sensor data
 
 #============================
@@ -827,7 +852,7 @@ class App():
             roach_ips = ('roach1.solar.pvt','roach2.solar.pvt','roach3.solar.pvt','roach4.solar.pvt',
                          'roach5.solar.pvt','roach6.solar.pvt','roach7.solar.pvt','roach8.solar.pvt')
             boffile_name = self.accini['boffile']
-            self.brd_clk_freq = 200
+            self.brd_clk_freq = None   # Start with no clock defined
             #self.brd_clk_freq = 200
         elif self.subarray_name == 'Starburst': # STARBURST ONLY: connect to Starburst ROACHs
             roachModule = starburst.roach
@@ -848,10 +873,16 @@ class App():
         for roach_ip in roach_ips:
             # Make connection to ROACHes
             rnum = int(roach_ip[5:6])-1
-            if len(self.roaches) > 0:
-                cfg = self.roaches[0].cfg
-            else:
-                cfg = None
+            #if len(self.roaches) > 0:
+                #cfg = self.roaches[0].cfg
+                #for line in cfg:
+                    #if line.find('adc clock') != -1:
+                        #self.brd_clk_freq = int(line.strip().split('=')[1])/4
+                        #break
+            #else:
+                #cfg = None
+            #if self.brd_clk_freq is None:
+                #self.brd_clk_freq = 300
             self.roaches.append(roachModule.Roach(roach_ip, boffile_name))#, cfg))
             if self.roaches[-1].msg == 'Success':
                 print roach_ip,'is reachable'
@@ -859,6 +890,9 @@ class App():
                 try:
                     self.roaches[-1].brd_clk = self.roaches[-1].fpga.est_brd_clk()
                     print roach_ip,'clock is',self.roaches[-1].brd_clk
+                    if self.brd_clk_freq is None:
+                        # Board clock has not been set yet, so set it once (from first ROACH)
+                        self.brd_clk_freq = int(self.roaches[-1].brd_clk)
                     if abs(self.roaches[-1].brd_clk-self.brd_clk_freq)>1:
                         print roach_ip,'clock NOT', self.brd_clk_freq, 'MHz.'
                 except:
@@ -1613,8 +1647,7 @@ class App():
         try:
             # Generate a Time() object at exactly the next upcoming second (time t+1)
             t2 = util.Time.now()
-            # ******* Temporary--try using delays 1 and 2 seconds into the future *******
-            tsec = util.Time(t2.mjd  + (2 - t2.datetime.microsecond/1000000.)/86400.,format='mjd')
+            tsec = util.Time(t2.mjd  + (1 - t2.datetime.microsecond/1000000.)/86400.,format='mjd')
             src = self.aa.cat[srcname]        # This causes KeyError if source is not found
         except KeyError:
             # The current scan header source ID is not in the source catalog
@@ -1838,12 +1871,13 @@ class App():
         global sh_dict, sf_dict
         # Delay centers.  These are read from file 'delay_centers.txt' in the
         # ACC parm directory by init_scan_dict().
-        # The 0.800 is because current clock frequency is 800 MHz.  This should be a
-        # parameter. The 11000 is to accomodate Ant 13, which has a large delay center
-        # value (ROACHes have a range of 16,000).  
+        # The delay center offset (dlaoff) is now scaled to adc_clk, so that it is
+        # 11,000 for 800 MHz, and 16,500 for 1200 MHz. 
+        # (800 MHz design has a range of 16,000, while 1200 MHz design has a range of 32,000).  
         # ****** Send delay0, which is actually the delay for the next upcoming second ******
         adc_clk = self.brd_clk_freq*4./1000.
-        dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + 11000)
+        dlaoff = int(16500.*adc_clk/1.2)
+        dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + dlaoff)
         dlay = dlax + sh_dict['dlaceny'] - sh_dict['dlacen']
         
         for r in self.roaches:
@@ -1996,6 +2030,10 @@ class App():
             sh_dict['source_id'] = 'Sun'
             sh_dict['track_mode'] = 'PLANET'
         elif cmds[0].upper() == 'PHASECAL':
+            sh_dict['project'] = 'PHASECAL'
+            sh_dict['source_id'] = cmds[1]
+            sh_dict['track_mode'] = 'RADEC '
+        elif cmds[0].upper() == 'PACAL':
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
@@ -2183,7 +2221,7 @@ class App():
                     acc.storlines('STOR '+fname,f)
                     acc.close()
                     f.close()
-                    userpass = 'admin:observer@'
+                    #userpass = 'admin:observer@'
                     f = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fname)
                     tbl_echo = ''
                     for line in f.readlines():
@@ -2291,6 +2329,19 @@ class App():
                             sh_dict['roach_brd_clk'][rnum] = 0                            
                             sys.stdout.write('FPGA communication failed\n')
                             sys.stdout.flush()
+                            
+                    # Read acc0time.txt file from ACC and update scan header
+                    try:
+                        f = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/acc0time.txt',timeout=1)
+                        mjdacc0 = np.double(f.readline().split()[0])
+                        f.close()
+                    except:
+                        print t.iso,'ACC connection for acc0 time timed out.  Reading from /tmp/acc0time.txt'
+                        f = open('/tmp/acc0time.txt','r')
+                        mjdacc0 = np.double(f.readline().split()[0])
+                        f.close()
+                    sh_dict['time_at_acc0'] = Time(mjdacc0,format='mjd')
+
                     if self.subarray_name == 'Starburst':
                         # get a dictionary with any Starburst-specific scan header data and add it to sh_dict
                         sh_dict_starburst = starburst.get_sh_dict(self,ctlline)
@@ -2478,7 +2529,7 @@ class App():
                 elif ctlline.split()[0].upper() == '$LNA-INIT':
                     # Get LNA_settings.txt file from ACC and send the series of
                     # commands needed to set the LNA voltages
-                    userpass = 'admin:observer@'
+                    #userpass = 'admin:observer@'
                     lnafile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/LNA_settings.txt',timeout=1)
                     lines = lnafile.readlines()
                     lnafile.close()
@@ -2566,7 +2617,6 @@ class App():
                 if cmds[0].upper() == 'FSEQ-FILE':
                     # This is an FSEQ-FILE command, so find and set frequency sequence
                     # Just FTP sequence file from ACC
-                    userpass = 'admin:observer@'
                     fseqfile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+cmds[1])
                     nrpt = None     # Initially not defined
                     fsequence = ''  # Initially empty
