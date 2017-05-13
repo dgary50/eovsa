@@ -27,6 +27,12 @@
 #     Added output of timestamp array (in Julian date) to gain_state(). Also
 #     added routines and changed DCM_master_attn_cal() to ensure that the
 #     desired tuning sequence and DCM-switching is active.
+#   2017-Mar-06  DG
+#     I split out some of the code in DCM_master_attn_cal() to their own
+#     separate routines, fseqfile2bandlist() and bandlist2dcmtable(), since
+#     those have uses on their own, and they also aid in debugging.  I still
+#     have some sort of bug, since the DCM_master_table is different when
+#     I use solar.fsq vs. when I use solarhi.fsq, and they should NOT be.
 #
 
 import time
@@ -287,10 +293,15 @@ def fseq_is_running(fseqfile,accini=None):
     result = fseq == fseqfile and stf.extract(buf,accini['sf']['LODM']['LO1A']['SweepStatus']) == 8
     return result
 
-def bandlist2dcmtable(bandlist):
+def bandlist2dcmtable(bandlist, toACC=False):
     '''Use list of bands representing a frequency sequence, to set 
-       dcmtable.txt from the DCM_master_table, and send to ACC
-       The sequence numbers are 1-based band numbers
+       dcmtable.txt from the DCM_master_table, and return the lines
+       of the table.  Optionally, the table is sent to ACC.
+       
+       Input:
+          bandlist   numpy 50-element integer array of band numbers, 1-34
+          toACC      optional boolean.  If True, sends results to ACC and 
+                       the SQL database.  Default is False (does not send)
     '''
     import stateframe as stf
     import cal_header as ch
@@ -302,26 +313,58 @@ def bandlist2dcmtable(bandlist):
     dcm_m_attn = stf.extract(buf,dcm['Attenuation'])
     dcm_attn = dcm_m_attn[bands]
     lines = []
-    g = open('DCM_table.txt','w')
+    g = open('/tmp/DCM_table.txt','w')
     for line in dcm_attn:
         l = ' '.join(map(str,line))
         lines.append(l)
         g.write(l+'\n')
     g.close()
-    ch.dcm_table2sql(lines)
-    # Connect to ACC /parm directory and transfer scan_header files
-    try:
-        g = open('DCM_table.txt','r')
-        acc = FTP('acc.solar.pvt')
-        acc.login('admin','observer')
-        acc.cwd('parm')
-        # Send DCM table lines to ACC
-        print acc.storlines('STOR dcm.txt',g)
-        g.close()
-        print 'Successfully wrote dcm.txt to ACC'
-    except:
-        print 'Cannot FTP dcm.txt to ACC'
+    if toACC:
+        ch.dcm_table2sql(lines)
+        # Connect to ACC /parm directory and transfer scan_header files
+        try:
+            g = open('/tmp/DCM_table.txt','r')
+            acc = FTP('acc.solar.pvt')
+            acc.login('admin','observer')
+            acc.cwd('parm')
+            # Send DCM table lines to ACC
+            print acc.storlines('STOR dcm.txt',g)
+            g.close()
+            print 'Successfully wrote dcm.txt to ACC'
+        except:
+            print 'Cannot FTP dcm.txt to ACC'
+    return lines
     
+def fseqfile2bandlist(fseqfile=None):
+    ''' Reads named fseqfile from ACC and returns the list of bands for
+        the 50 slots of each 1-s sequence.
+        
+        Input:
+           fseqfile    string filename (must exist in ACC:/parm folder.
+        
+        Returns:
+           bandlist    numpy 50-element integer array of band numbers, 1-34
+    '''
+    import urllib2
+    if fseqfile is None:
+        print 'Must specify a frequency sequence.'
+        return None
+    userpass = 'admin:observer@'
+    fseq_handle = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fseqfile,timeout=0.5)
+    lines = fseq_handle.readlines()
+    fseq_handle.close()
+    for line in lines:
+        if line.find('LIST:SEQUENCE') != -1:
+            line = line[14:]
+            bands = np.array(map(int,line.split(',')))
+        elif line.find('LIST:DWELL') != -1:
+            line = line[11:]
+            dwellist = np.array(map(float,line.split(',')))
+    bandlist = []
+    for band in bands:
+        bandlist += [band]*int(np.round(dwellist[band-1]/0.02))
+    return np.array(bandlist)
+
 def DCM_master_attn_cal(fseqfile=None,dcmattn=None,update=False):
     ''' New version of this command, which uses the power values in
         the 10gbe packet headers instead of the very slow measurement
@@ -336,18 +379,10 @@ def DCM_master_attn_cal(fseqfile=None,dcmattn=None,update=False):
     import dbutil as db
     import cal_header as ch
     import stateframe as stf
-    import urllib2
-    if fseqfile is None:
+    bandlist = fseqfile2bandlist(fseqfile)
+    if bandlist is None:
         print 'Must specify a frequency sequence.'
         return None
-    userpass = 'admin:observer@'
-    fseq_handle = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fseqfile,timeout=0.5)
-    lines = fseq_handle.readlines()
-    fseq_handle.close()
-    for line in lines:
-        if line.find('LIST:SEQUENCE') != -1:
-            line = line[14:]
-            bandlist = np.array(map(int,line.split(',')))
 
     # Make sure this sequence is actually running, or start it if not
     accini = stf.rd_ACCfile()
@@ -357,7 +392,7 @@ def DCM_master_attn_cal(fseqfile=None,dcmattn=None,update=False):
         send_cmds(['FSEQ-INIT'],accini)
         send_cmds(['FSEQ-FILE '+fseqfile],accini)
         send_cmds(['FSEQ-ON'],accini)
-        bandlist2dcmtable(bandlist)
+        bandlist2dcmtable(bandlist, toACC=True)
         time.sleep(3)
         if not fseq_is_running(fseqfile,accini):
             print 'Frequency sequence could not be started.'

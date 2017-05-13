@@ -45,6 +45,13 @@
 #      Fixed bug where XY delay in dla_update2sql() was being treated as 
 #      relative to ant 1Y.  It is already relative to ant 1X, but ant 1Y 
 #      has to be able to change.
+#   2017-03-05  DG
+#      Given the latest methods for determining delays (using delay_widget()),
+#      the dla_update2sql() routine is changed to expect delays in ns, and
+#      already relative to Ant 1.  A non-zero Ant1 delay issues an error.
+#   2017-04-13  DG
+#      Changed order of parameters in dla_censql2table() so that first one
+#      is time.  This guards against accidentally writing a file to the ACC.
 #
 import struct, util
 import stateframe as sf
@@ -810,11 +817,14 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
         with the timestamp given by Time() object t (or current time, if none)
         
         Input:
-          dla_update   a 14-element array of delay differences measured on
-                          a geosynchronous satellite
-          xy_delay     an optional 14-element array of delay differences in 
-                          Y relative to X, measured from an ND-ON packet capture
+          dla_update   a 14-element array of delay differences [ns], already
+                          coverted to be relative to Ant 1
+          xy_delay     an optional 14-element array of delay differences [ns] in 
+                          Y relative to X
     '''
+    if dla_update[0] != 0.0:
+        print 'First delay in list is not zero.  Delays must be relative to Ant 1'
+        return False
     typedef = 4
     ver = cal_types()[typedef][2]
     if t is None:
@@ -827,9 +837,8 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
     xml, buf = read_cal(4,t)
     dcen = sf.extract(buf,xml['Delaycen_ns'])
     # Apply corrections, forcing them to be relative to ant 1 (reference antenna),
-    # converting input units in "steps" to ns (each step is 1.25 ns)
-    rel_dla_ns = (dla_update-dla_update[0])*1.25
-    xy_dla_ns = xy_delay*1.25    # XY delay is not relative to Ant 1
+    rel_dla_ns = dla_update
+    xy_dla_ns = xy_delay    # XY delay is not relative to Ant 1
     dcen[:14,0] -= rel_dla_ns
     dcen[:14,1] -= rel_dla_ns + xy_dla_ns
 
@@ -843,7 +852,7 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
         buf += struct.pack('2f',*dcen[i])
     return write_cal(typedef,buf,t)
     
-def dla_censql2table(acc=True, t=None):
+def dla_censql2table(t=None, acc=True):
     ''' Reads current database contents for delay centers and writes
         them out as a text table to a fixed location, /tmp/delay_centers.txt,
         and optionally sends the file to the ACC (for use by dppxmp).

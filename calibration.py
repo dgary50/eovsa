@@ -66,6 +66,14 @@
 #    I have verified that the old antennas 9, 10, 11 and 12 need to have the
 #    opposite sign for P1 correction (RA to HA involves inverting the sign).  This
 #    sign reversal is implemented in offsets2ants()
+#   2017-Apr-11  DG
+#    Some changes to calpnt_multi() to survive a bad scan, and write results
+#    to a file as it goes along.  This should allow restarting where we left
+#    off in case of a crash or looking at results before the entire set of
+#    observations is done.
+#   2017-Apr-28  DG
+#    Began work on calpntanal() to perform on either CALPNTCAL or CALPNT2M data
+#    with automatic adjustment based on scans in fdb file.
 #
 
 if __name__ == "__main__":
@@ -77,12 +85,12 @@ if __name__ == "__main__":
 
 import numpy as np
 import solpnt
-from util import Time, nearest_val_idx
-import struct, time, glob, sys, socket
+from util import Time, nearest_val_idx, lobe
+import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
 
-def calpnt_multi(trange,ant_str='ant1-13',do_plot=True):
+def calpnt_multi(trange,ant_str='ant1-13',do_plot=True,outfile=None):
     ''' Runs calpntanal() for all scans within the given time range.
     
         trange   Time object with start and end time over which scans
@@ -91,34 +99,106 @@ def calpnt_multi(trange,ant_str='ant1-13',do_plot=True):
         Returns a list of dictionaries containing 
            Source name, Time, HA, Dec, RA offset and Dec offset
     '''
+    import read_idb
+
     fdb = dump_tsys.rd_fdb(trange[0])
     scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
+    calpnt2m = False   # Flag to indicate whether we are doing CALPNT2M analysis
+    if scanidx.size == 0:
+        # No CALPNTCAL scans, so search for CALPNT2M
+        scanidx, = np.where(fdb['PROJECTID'] == 'CALPNT2M')
+        if scanidx.size == 0:
+            print 'No CALPNTCAL or CALPNT2M project IDs found for date'+t.iso[:10]
+            return {}
+        calpnt2m = True
     scans,sidx = np.unique(fdb['SCANID'][scanidx],return_index=True)
     tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
     telist = Time(fdb['EN_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
+    idx = read_idb.p.ant_str2list(ant_str)
     out = []
+    if outfile is None:
+        outfile = '/common/tmp/Pointing/'+tlist[0].iso[:10].replace('-','')+'_calpnt.txt'
     k = -1
+    # First find out how many pointings there will be
+    npt = 0
     for i,t in enumerate(tlist):
         if t.jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
-            k += 1  # Plot axis row pointer
+            npt += 1
+
+    for i,t in enumerate(tlist):
+        if t.jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
+            k += 1  # Plot-axis row pointer
             if do_plot:
                 if k % 6 == 0:
-                    f, ax = plt.subplots(6,2)
-                    f.set_size_inches(7,12,forward=True)
+                    nrows = min(npt-k,6)  # Number of rows in this plot--up to 6
+                    if calpnt2m:
+                        f, ax = plt.subplots(nrows,2*idx.size)
+                        f.set_size_inches(2.5*idx.size,1.5*nrows,forward=True)
+                        plt.subplots_adjust(left=0.03, right=0.97, top=0.89, bottom=0.3, wspace=0.1, hspace=0.3)
+                    else:
+                        f, ax = plt.subplots(nrows,2)
+                        f.set_size_inches(2.5,1.5*nrows,forward=True)
                     k = 0  # Reset row pointer to top of new plot
                 else:
                     # Kill previous row's xaxis tick labels so that title is visible
-                    ax[k-1,0].xaxis.set_ticklabels([])
-                    ax[k-1,1].xaxis.set_ticklabels([])
-                    ax[k-1,0].set_xlabel('')
-                    ax[k-1,1].set_xlabel('')
-                out.append(calpntanal(t,ant_str=ant_str,do_plot=do_plot,ax=ax[k]))
+                    if calpnt2m:
+                        for j in range(idx.size*2):
+                            ax[k-1,j].xaxis.set_ticklabels([])
+                            ax[k-1,j].set_xlabel('')
+                    else:
+                        for j in range(2):
+                            ax[k-1,j].xaxis.set_ticklabels([])
+                            ax[k-1,j].set_xlabel('')
+                try:
+                    out.append(calpntanal(t,ant_str=ant_str,do_plot=do_plot,ax=ax[k]))
+                except:
+                    out.append({})
             else:
-                out.append(calpntanal(t,ant_str=ant_str))
-    # Print results in human-readable tabular form.
-    for src in out:
-        print '{:s} {:s}  {:6.2f}  {:6.2f} {:7.3f} {:7.3f}'.format(src['source'],src['time'].iso[:19],
-                                                                   src['ha'],src['dec'],src['rao'],src['deco'])
+                try:
+                    out.append(calpntanal(t,ant_str=ant_str))
+                except:
+                    out.append({})
+            src = out[-1]
+            if src == {}:
+                print 'Scan starting at',t.iso,'failed.'
+            else:
+                if calpnt2m:
+                    if k == 0:
+                        # Print heading to screen and to file
+                        heading = ' Source     Date     Time       HA     Dec   '
+                        for iant in idx:
+                            heading += '     Ant {:2d}     '.format(iant+1)
+                        print heading
+                        # Write heading to file only if the file has not been opened/created yet.
+                        if not os.path.isfile(outfile):
+                            f = open(outfile,'w')
+                            f.write(heading+'\n')
+                            f.close()
+                    rao_deco = ''
+                    for j in range(idx.size):
+                        rao_deco += ' {:7.3f} {:7.3f}'.format(src['rao'][j],src['deco'][j])
+                    line = '{:s} {:s}  {:6.2f}  {:6.2f}'.format(src['source'],
+                                                                src['time'].iso[:19],
+                                                                src['ha'],src['dec'])
+                    line += rao_deco
+                else:
+                    if k == 0:
+                        # Print heading to screen and to file
+                        heading = ' Source     Date     Time       HA     Dec        Ant 14'
+                        print heading
+                        # Write heading to file only if the file has not been opened/created yet.
+                        if not os.path.isfile(outfile):
+                            f = open(outfile,'w')
+                            f.write(heading+'\n')
+                            f.close()
+                    line = '{:s} {:s}  {:6.2f}  {:6.2f} {:7.3f} {:7.3f}'.format(src['source'],
+                                                                                src['time'].iso[:19],
+                                                                                src['ha'],src['dec'],
+                                                                                src['rao'],src['deco'])
+                print line
+                f = open(outfile,'a')   # This should create the file if it does not exist, or append otherwise.
+                f.write(line+'\n')
+                f.close()
     return out
     
 def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
@@ -136,12 +216,31 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
            Source name, Time, HA, Dec, RA offset and Dec offset
     '''
     import matplotlib.pyplot as plt
+    from matplotlib.transforms import Bbox
     import read_idb
+    import dbutil as db
     bl2ord = read_idb.bl2ord
     tdate = t.iso.replace('-','')[:8]
     fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
     fdb = dump_tsys.rd_fdb(t)
     scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
+    # Set offset coordinates appropriate to the type of PROJECTID found
+    if scanidx.size == 0:
+        # No CALPNTCAL scans, so search for CALPNT2M
+        scanidx, = np.where(fdb['PROJECTID'] == 'CALPNT2M')
+        if scanidx.size == 0:
+            print 'No CALPNTCAL or CALPNT2M project IDs found for date'+t.iso[:10]
+            return {}
+        else:
+            # Found CALPNT2M, so set offset coordinates to match calpnt2m.trj
+            rao = np.array([-5.00, -2.0, -1.0, -0.5, 0.00, 0.5, 1.0, 2.0])
+            deco = np.array([-2.0, -1.0, -0.5, 0.00, 0.5, 1.0, 2.0, 5.00])
+            pltfac = 10.
+    else:
+        # Found CALPNTCAL, so set offset coordinates to match calpnt.trj
+        rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])
+        deco = np.array([-0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 1.00])
+        pltfac = 1.
     scans,sidx = np.unique(fdb['SCANID'][scanidx],return_index=True)
     tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
     idx, = nearest_val_idx([t.jd],tlist.jd)
@@ -150,51 +249,134 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
     out = read_idb.read_idb(filelist, navg=30)
     # Determine wanted baselines with ant 14 from ant_str
     idx = read_idb.p.ant_str2list(ant_str)
-    # Do appropriate sums over frequency and baseline
-    pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)
-    # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
-    # sum over these
-    pntdata.shape = (16,3)
-    stdev = np.std(pntdata,1)
-    pntdata = np.sum(pntdata,1)
-    # Multiply by cos(dec) to convert to "Cross-dec" sky coordinates -- NO, leave in RA units
-    #rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])*np.cos(out['dec'])
-    rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])
-    radat = pntdata[:8]
-    deco = np.array([-0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 1.00])
-    decdat = pntdata[8:]
-    plsqr, xr, yr = solpnt.gausfit(rao, radat)
-    plsqd, xd, yd = solpnt.gausfit(deco, decdat)
+    idx1 = idx[idx>7]  # Ants > 8
+    idx2 = idx[idx<8]  # Ants <= 8
+    # Determine parallactic angle for azel antennas (they are all the same, so find median).  
+    #    If 0 < abs(chi) < 30, use channel XX
+    #    If 30 < abs(chi) < 60, use sum of channel XX and XY
+    #    If 60 < abs(chi) < 90, use channel XY
     midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
-    if (do_plot):
-        if ax is None:
-            f, ax = plt.subplots(1,2)
-            f.set_size_inches(7,3.5,forward=True)
-        ax[0].errorbar(rao,radat,yerr=stdev[:8],fmt='.')
-        ax[0].plot(xr,yr)
-        ax[0].axvline(x=0,color='k')
-        ax[0].axvline(x=plsqr[1],linestyle='--')
-        ax[1].errorbar(deco,decdat,yerr=stdev[8:],fmt='.')
-        ax[1].plot(xd,yd)
-        ax[1].axvline(x=0,color='k')
-        ax[1].axvline(x=plsqd[1],linestyle='--')
-        for j in range(2):
-            ax[j].set_xlim(-0.3, 0.3)
-            ax[j].grid()
-        ax[0].text(0.05,0.9,'RAO :'+str(plsqr[1])[:5],transform=ax[0].transAxes)
-        ax[0].text(0.55,0.9,'FWHM:'+str(plsqr[2])[:5],transform=ax[0].transAxes)
-        ax[0].set_xlabel('RA Offset [deg]')
-        ax[1].text(0.05,0.9,'DECO:'+str(plsqd[1])[:5],transform=ax[1].transAxes)
-        ax[1].text(0.55,0.9,'FWHM:'+str(plsqd[2])[:5],transform=ax[1].transAxes)
-        ax[1].set_xlabel('Dec Offset [deg]')
-        if ax is None:
-            f.suptitle('Pointing on '+out['source']+' at '+midtime.iso)
+    times, chi = db.get_chi(Time([midtime.lv+1,midtime.lv + 10],format='lv'))
+    abschi = abs(lobe(np.median(chi[0,0:8])))
+    if pltfac == 1.:
+        # Case of 27m antenna pointing
+        # Do appropriate sums over frequency, polarization and baseline
+        if abschi >= 0 and abschi < np.pi/6:
+            pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)  # Use only XX
+        elif abschi >= np.pi/6 and abschi < np.pi/3:
+            pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
+            pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2)),0)  # Use sum of XX and XY for ants <= 8
+            pntdata = pntdata1 + np.sum(pntdata2[np.array([0,2])],0)
         else:
-            ax[0].set_title(out['source']+' at')
-            ax[1].set_title(midtime.iso[:16])
-        plt.pause(0.5)
-    return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
-               'rao':plsqr[1],'deco':plsqd[1],'time':midtime}
+            pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
+            pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1)),0)  # Use sum of XY for ants <= 8
+            pntdata = pntdata1 + pntdata2
+        # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
+        # sum over these
+        pntdata.shape = (16,3)
+        stdev = np.std(pntdata,1)
+        pntdata = np.sum(pntdata,1)
+        radat = pntdata[:8]
+        decdat = pntdata[8:]
+        plsqr, xr, yr = solpnt.gausfit(rao, radat)
+        plsqd, xd, yd = solpnt.gausfit(deco, decdat)
+        midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
+        if (do_plot):
+            if ax is None:
+                f, ax = plt.subplots(1,2)
+                f.set_size_inches(2.5,1.5,forward=True)
+            ax[0].errorbar(rao,radat,yerr=stdev[:8],fmt='.')
+            ax[0].plot(xr,yr)
+            ax[0].axvline(x=0,color='k')
+            ax[0].axvline(x=plsqr[1],linestyle='--')
+            ax[1].errorbar(deco,decdat,yerr=stdev[8:],fmt='.')
+            ax[1].plot(xd,yd)
+            ax[1].axvline(x=0,color='k')
+            ax[1].axvline(x=plsqd[1],linestyle='--')
+            for j in range(2):
+                ax[j].set_xlim(-0.3, 0.3)
+                ax[j].grid()
+            ax[0].text(0.05,0.9,'RAO :'+str(plsqr[1])[:5],transform=ax[0].transAxes)
+            ax[0].text(0.55,0.9,'FWHM:'+str(plsqr[2])[:5],transform=ax[0].transAxes)
+            ax[0].set_xlabel('RA Offset [deg]')
+            ax[1].text(0.05,0.9,'DECO:'+str(plsqd[1])[:5],transform=ax[1].transAxes)
+            ax[1].text(0.55,0.9,'FWHM:'+str(plsqd[2])[:5],transform=ax[1].transAxes)
+            ax[1].set_xlabel('Dec Offset [deg]')
+            if ax is None:
+                f.suptitle('Pointing on '+out['source']+' at '+midtime.iso)
+            else:
+                ax[0].set_title(out['source']+' at')
+                ax[1].set_title(midtime.iso[:16])
+            plt.pause(0.5)
+        return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
+                   'rao':plsqr[1],'deco':plsqd[1],'time':midtime,'antidx':13}
+    else:
+        # Case of 2m antenna pointing
+        # Do appropriate sum over frequency and polarization but not baseline
+        if abschi >= 0 and abschi < np.pi/6:
+            pntdata = np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1))  # Use only XX
+        elif abschi >= np.pi/6 and abschi < np.pi/3:
+            pntdata1 = np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1))  # Use XX only for ants > 8
+            pntdata2 = np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2))  # Use sum of XX and XY for ants <= 8
+            pntdata = np.concatenate((pntdata1,np.sum(pntdata2[:,np.array([0,2])],1)),0)
+        else:
+            pntdata1 = np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1))  # Use XX only for ants > 8
+            pntdata2 = np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1))  # Use sum of XY for ants <= 8
+            pntdata = np.concatenate((pntdata1,pntdata2),0)
+        # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
+        # sum over these
+        pntdata.shape = (idx.size,16,3)
+        stdev = np.std(pntdata,2)
+        pntdata = np.sum(pntdata,2)
+        rao_fit = np.zeros(idx.size,float)
+        deco_fit = np.zeros(idx.size,float)
+        if (do_plot):
+            if ax is None:
+                f, ax = plt.subplots(1,2*idx.size)
+                f.set_size_inches(2.5*idx.size,1.5,forward=True)
+                plt.subplots_adjust(left=0.03, right=0.97, top=0.89, bottom=0.3, wspace=0.1, hspace=0.1)
+        for k in range(idx.size):
+            radat = pntdata[k,:8]
+            decdat = pntdata[k,8:]
+            plsqr, xr, yr = solpnt.gausfit(rao, radat)
+            plsqd, xd, yd = solpnt.gausfit(deco, decdat)
+            midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
+            if (do_plot):
+                ax[k*2+0].errorbar(rao,radat,yerr=stdev[k,:8],fmt='.')
+                ax[k*2+0].plot(xr,yr)
+                ax[k*2+0].axvline(x=0,color='k')
+                ax[k*2+0].axvline(x=plsqr[1],linestyle='--')
+                ax[k*2+1].errorbar(deco,decdat,yerr=stdev[k,8:],fmt='.')
+                ax[k*2+1].plot(xd,yd)
+                ax[k*2+1].axvline(x=0,color='k')
+                ax[k*2+1].axvline(x=plsqd[1],linestyle='--')
+                for j in range(2):
+                    ax[k*2+j].set_xlim(-3.0, 3.0)
+                    ax[k*2+j].grid()
+                ax[k*2+0].text(0.05,0.7,'RAO :'+str(plsqr[1])[:5],transform=ax[k*2+0].transAxes,fontsize=9)
+                ax[k*2+0].text(0.05,0.5,'FWHM:'+str(plsqr[2])[:5],transform=ax[k*2+0].transAxes,fontsize=9)
+                ax[k*2+0].set_xlabel('RAO [deg]',fontsize=9)
+                ax[k*2+1].text(-0.2,0.85,'Ant :'+str(idx[k]+1),transform=ax[k*2+1].transAxes,fontsize=9)
+                ax[k*2+1].text(0.05,0.7,'DECO:'+str(plsqd[1])[:5],transform=ax[k*2+1].transAxes,fontsize=9)
+                ax[k*2+1].text(0.05,0.5,'FWHM:'+str(plsqd[2])[:5],transform=ax[k*2+1].transAxes,fontsize=9)
+                ax[k*2+1].set_yticklabels([])
+                ax[k*2+1].set_xlabel('DECO [deg]',fontsize=9)
+                if k == idx.size-1:
+                    ax[k+0].set_title(out['source']+' at',fontsize=9)
+                    ax[k+1].set_title(midtime.iso[:16],fontsize=9)
+                # Adjust the pairs of subplots to group RA/Dec for each antenna together 
+                ax[k*2+0].set_position(Bbox(ax[k*2+0].get_position().get_points() + np.array([[0.0025,0],[0.0025,0]])))
+                ax[k*2+1].set_position(Bbox(ax[k*2+1].get_position().get_points() + np.array([[-0.0025,0],[-0.0025,0]])))
+                # Set to the same amplitude scale
+                ymin = min(ax[k*2+0].get_ylim()[0],ax[k*2+1].get_ylim()[0])
+                ymax = max(ax[k*2+0].get_ylim()[1],ax[k*2+1].get_ylim()[1])
+                ax[k*2+0].set_ylim(ymin,ymax)
+                ax[k*2+1].set_ylim(ymin,ymax)
+                plt.pause(0.5)
+            rao_fit[k] = plsqr[1]
+            deco_fit[k] = plsqd[1]
+        return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
+                   'rao':rao_fit,'deco':deco_fit,'time':midtime,'antidx':idx}
     
     
 def solpntanal(t,udb=False):

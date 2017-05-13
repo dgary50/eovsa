@@ -32,6 +32,16 @@
 #   2017-Jan-06  DG
 #      Another update of Bz, based on observations on Dec. 22.  Also update of Bx and By
 #      based on today's observations on 3C273.
+#   2017-Mar-26  DG
+#      Update Bx, By, after adjustment of timing for phase correction (apparently was off
+#      by 1 s).
+#   2017-Mar-27  DG
+#      Errors above were in m, forgot to divide by mperns to convert to ns.
+#   2017-Apr-04  DG
+#      Update to Ant 13 Bx and By, and the Bz values for all antennas, based on 2017 Apr. 1 data.
+#   2017-Apr-16  DG
+#      Final (?) update of Bx, By, and Bz based on very precise measurements on 2017 Apr. 16 
+#      But Ant 12 not working, so final numbers for it are still needed.
 #
 
 import aipy, ephem, numpy
@@ -127,7 +137,18 @@ def bl_cor(x, y, z, iant):
     # Update based on obs. on 2017 Jan 06, in ns (ant 7 not in service).  Ant 13 not a good fit.
     dx += numpy.array([0.00, 0.017, 0.003,-0.037,-0.027, 0.050, 0.0, 0.160,-0.027,-0.057,-0.060,-0.010,-0.130,-0.027,0.0,0.0])
     dy += numpy.array([0.00, 0.00 ,-0.007, 0.00 , 0.00 ,-0.003, 0.0,-0.057, 0.020, 0.023, 0.027, 0.010,-0.010, 0.017,0.0,0.0])
-
+    # Update based on obs. on 2017 Mar 23, in ns (ant 12 not in service).  This mainly updates for previous clock error.  Ant 4 is a guess.
+    # Doh!  Errors were given in m, so need to divide by mperns to convert to ns.
+    dx += numpy.array([0.00,-0.007, 0.000,-0.002,-0.001,-0.018,-0.011,-0.024,-0.025,-0.006,-0.080,0.0,-0.121,-0.102,0.0,0.0])/mperns
+    dy += numpy.array([0.00,-0.002, 0.001, 0.000, 0.004,-0.004,-0.012, 0.001,-0.022, 0.014,-0.015,0.0, 0.050,-0.018,0.0,0.0])/mperns
+    # Additional update to Ant 13
+    dx[12] += 0.033/mperns
+    dy[12] += 0.019/mperns
+    dz += numpy.array([0.00, 0.010, 0.002, 0.001, 0.002,-0.005,-0.048,-0.143, 0.003, 0.000, 0.005,0.0,-0.025,0.007,0.0,0.0])/mperns
+    # Very precise corrections based on 2017 Apr. 16 observations [Ant 12 not working]:
+    dx += numpy.array([0.00, 0.024,-0.015, 0.014, 0.010, 0.024, 0.012, 0.029,-0.020,-0.008, 0.012,0.0, 0.020, 0.020,0.0,0.0])
+    dy += numpy.array([0.00, 0.014,-0.003, 0.000, 0.000, 0.006, 0.009, 0.016, 0.005,-0.002, 0.003,0.0, 0.010, 0.002,0.0,0.0])
+    dz += numpy.array([0.00,-0.003,-0.017,-0.013, 0.004,-0.010,-0.011,-0.015,-0.010,-0.013,-0.018,0.0, 0.035,-0.018,0.0,0.0])
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]
