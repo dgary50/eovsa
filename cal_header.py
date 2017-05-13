@@ -1139,8 +1139,7 @@ def refcal2sql(rfcal, ver=1.0, t=None):
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            for k in range(34):
-                buf += struct.pack('f', *rrfcal[i, j, k])
+            buf += struct.pack('34f', *rrfcal[i, j])
     # Write imag part of table
     irfcal = np.imag(rfcal)
     buf += struct.pack('I', 34)
@@ -1148,6 +1147,5 @@ def refcal2sql(rfcal, ver=1.0, t=None):
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            for k in range(34):
-                buf += struct.pack('f', *irfcal[i, j, k])
+            buf += struct.pack('34f', *irfcal[i, j])
     return write_cal(typedef, buf, t)
