@@ -53,7 +53,7 @@
 #      Changed order of parameters in dla_censql2table() so that first one
 #      is time.  This guards against accidentally writing a file to the ACC.
 #   2017-05-13  SJ
-#      Added a eighth cal type for reference calibration, and routines
+#      Added an eighth cal type for reference calibration, and routines
 #      refcal2sql() and refcal2xml()
 #
 import struct, util
