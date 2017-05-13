@@ -1042,18 +1042,11 @@ def eq_gain2sql(coeff, ver=1.0, t=None):
     buf += struct.pack('I', 2)
     for i in range(2):
         for j in range(2):
-<<<<<<< HEAD
-            buf += struct.pack('34f',*coeff[i,j])
-    return write_cal(typedef,buf,t)
-    
-def dcm_attn2sql(attn, ver=1.0, t=None):
-=======
             buf += struct.pack('34f', *coeff[i, j])
     return write_cal(typedef, buf, t)
 
 
 def dcm_attn_val2sql(attn, ver=1.0, t=None):
->>>>>>> origin/master
     ''' Write measured DCM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1085,18 +1078,11 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
     buf += struct.pack('I', 16)
     for i in range(16):
         for j in range(2):
-<<<<<<< HEAD
-            buf += struct.pack('4f',*iattn[i,j])
-    return write_cal(typedef,buf,t)
-    
-def fem_attn2sql(attn=None, ver=1.0, t=None):
-=======
             buf += struct.pack('4f', *iattn[i, j])
     return write_cal(typedef, buf, t)
 
 
 def fem_attn_val2sql(attn, ver=1.0, t=None):
->>>>>>> origin/master
     ''' Write measured FEM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1138,7 +1124,6 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
                 buf += struct.pack('5f', *rattn[i, j, k])
     # Write imag part of table
     iattn = np.imag(attn)
-<<<<<<< HEAD
     buf += struct.pack('I',5)
     buf += struct.pack('I',2)
     buf += struct.pack('I',2)
@@ -1148,17 +1133,6 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
             for k in range(2):
                 buf += struct.pack('5f',*iattn[i,j,k])
     return buf #write_cal(typedef,buf,t)
-=======
-    buf += struct.pack('I', 4)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 16)
-    for i in range(16):
-        for j in range(2):
-            for k in range(2):
-                buf += struct.pack('5f', *iattn[i, j, k])
-    return write_cal(typedef, buf, t)
-
 
 def refcal2sql(rfcal, ver=1.0, t=None):
     ''' Write reference calibration to SQL server table
@@ -1195,4 +1169,3 @@ def refcal2sql(rfcal, ver=1.0, t=None):
             buf += struct.pack('34f', *irfcal[i, j])
     return write_cal(typedef, buf, t)
     # return buf
->>>>>>> origin/master
