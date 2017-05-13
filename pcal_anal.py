@@ -92,7 +92,7 @@ def graph(f,navg=None,path=None):
     out = ri.read_idb(f,navg=navg)
     fig, ax = plt.subplots(4,13,sharex=True, sharey=True)
     trange = Time([ri.fname2mjd(f[0]),ri.fname2mjd(f[-1]) + ten_minutes],format='mjd')
-    times, wscram = db.a14_wscram(trange)
+    times, wscram, avgwind = db.a14_wscram(trange)
     nwind = len(wscram)
     nbad = np.sum(wscram)
     if nbad != 0:

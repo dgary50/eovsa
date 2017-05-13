@@ -39,6 +39,9 @@
 #      Errors above were in m, forgot to divide by mperns to convert to ns.
 #   2017-Apr-04  DG
 #      Update to Ant 13 Bx and By, and the Bz values for all antennas, based on 2017 Apr. 1 data.
+#   2017-Apr-16  DG
+#      Final (?) update of Bx, By, and Bz based on very precise measurements on 2017 Apr. 16 
+#      But Ant 12 not working, so final numbers for it are still needed.
 #
 
 import aipy, ephem, numpy
@@ -142,6 +145,10 @@ def bl_cor(x, y, z, iant):
     dx[12] += 0.033/mperns
     dy[12] += 0.019/mperns
     dz += numpy.array([0.00, 0.010, 0.002, 0.001, 0.002,-0.005,-0.048,-0.143, 0.003, 0.000, 0.005,0.0,-0.025,0.007,0.0,0.0])/mperns
+    # Very precise corrections based on 2017 Apr. 16 observations [Ant 12 not working]:
+    dx += numpy.array([0.00, 0.024,-0.015, 0.014, 0.010, 0.024, 0.012, 0.029,-0.020,-0.008, 0.012,0.0, 0.020, 0.020,0.0,0.0])
+    dy += numpy.array([0.00, 0.014,-0.003, 0.000, 0.000, 0.006, 0.009, 0.016, 0.005,-0.002, 0.003,0.0, 0.010, 0.002,0.0,0.0])
+    dz += numpy.array([0.00,-0.003,-0.017,-0.013, 0.004,-0.010,-0.011,-0.015,-0.010,-0.013,-0.018,0.0, 0.035,-0.018,0.0,0.0])
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]

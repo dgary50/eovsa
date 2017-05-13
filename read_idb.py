@@ -58,6 +58,15 @@
 #    Added read_udb() routine.
 #  2017-Apr-04  DG
 #    Added read_npz() routine to read and concatenate multiple NPZ files.
+#  2017-Apr-14  DG
+#    Very occasional 0-filled record in IDB file was throwing 
+#    off summed times when navg was set in read_idb().  Now readXdata()
+#    detects this and skips that record (a 1-s data gap).
+#  2017-Apr-27  DG
+#    Added allday_udb() routine, to read all UDB files for a given
+#    day and optionally make a nice overview plot of the data.
+#  2017-May-02  DG
+#    Added saving of allday_udb() figure if requested by savfig keyword.
 
 import aipy
 import os
@@ -65,6 +74,7 @@ from util import Time, nearest_val_idx
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
 import spectrogram_fit as sp
 import pcapture2 as p
 import eovsa_lst as el
@@ -244,6 +254,10 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
             if len(data.nonzero()[0]) == nf:
                 if t != tprev:
 #                    print preamble
+                    if t == 2440587.5:
+                        # Time is 1970-01-01, which means a zero-filled record, so skip
+                        # the entire thing.
+                        continue
                     # New time 
                     l += 1
                     if l == 600:
@@ -276,6 +290,10 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
         else:
             if t != tprev:
                 # New time 
+                if t == 2440587.5:
+                    # Time is 1970-01-01, which means a zero-filled record, so skip
+                    # the entire thing.
+                    continue
                 l += 1
                 if l == 600:
                     break
@@ -454,6 +472,35 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
         ai = ant_list[i]
         ax[i,i].text(0.5,0.5,str(ai+1),ha='center',va='center',transform=ax[i,i].transAxes,fontsize=14)
 
+def allday_udb(t=None, doplot=True, savfig=False):
+    # Plots (and returns) UDB data for an entire day
+    if t is None:
+        t = Time.now()
+    date = t.iso[:10].replace('-','')
+    year = date[:4]
+    files = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date+'*')
+    files.sort()
+    for i,file in enumerate(files):
+        if file[-6] != '0':
+            break
+    files = files[i:]
+    out = read_idb(files,src='Sun')
+    if doplot:
+        f, ax = plt.subplots(1,1)
+        f.set_size_inches(14,5)
+        pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+        X = np.sort(pdata.flatten())   # Sorted, flattened array
+        vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
+        ax.xaxis_date()
+        ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        ax.set_xlabel('Time [UT]')
+        ax.set_ylabel('Frequency [GHz]')
+        ax.set_title('EOVSA 1-min Data for '+t.iso[:10])
+        if savfig:
+            plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
+    return out
+        
 def get_IDBfiles(showthelast=10):
     #This will return the most recent IDB files saved to the 
     #  directory /data1/IDB/. They will be returned in a list

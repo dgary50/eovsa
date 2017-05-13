@@ -27,6 +27,8 @@
 #   2017-02-11  DG
 #     Added routine xydla() to return (and optionally update) X vs. Y
 #     delay from ndon capture file.
+#   2017-04-09  DG
+#     Fixed DCM_cal() to use fixed 24-db attenuation for Ant14.
 #
 
 import pcapture2 as p
@@ -51,7 +53,7 @@ def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',up
         return None
     # Read packet capture file
     adc = p.rd_jspec(filename)
-    pwr = rollaxis(adc['phdr'],2)[:,:,:2]
+    pwr = np.rollaxis(adc['phdr'],2)[:,:,:2]
     # Put measured power into uniform array arranged by band
     new_pwr = np.zeros((34,16,2))
     for i in range(34):
@@ -64,7 +66,8 @@ def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',up
         # A DCM attenuation value was given, which presumes a constant value
         # so use it as the "original table."
         orig_table = np.zeros((34,30)) + dcmattn
-        orig_table[:,26:] = 0
+        orig_table[:,26:28] = 24
+        orig_table[:,28:] = 0
     else:
         # No DCM attenuation value was given, so read the current DCM master
         # table from the database.
@@ -72,6 +75,8 @@ def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',up
         import stateframe
         xml, buf = cal_header.read_cal(2)
         orig_table = stateframe.extract(buf,xml['Attenuation'])
+        # Replace orig_table values for Ant14 with 24, which is the fixed values we use
+        # orig_table[:,26:28] = 24
         
     attn = np.log10(new_pwr[:,:-2]/1600.)*10.
     # Zero any changes for missing antennas

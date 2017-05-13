@@ -23,6 +23,9 @@
 #      Made get_chi() and a14_wsram() version independent.
 #   2016-Nov-26  DG
 #      Added get_motor_currents().
+#   2017-Apr-27  DG
+#      Added return of average wind speed to a14_wscram()
+#
 
 import stateframedef
 import util
@@ -148,19 +151,32 @@ def do_query(cursor,query):
     return result,msg
     
 def a14_wscram(trange):
-    ''' Get the Antenna 14 windscram state for a given time range
-        (returns times and wsram state, 0 = not in wind scram, 1 = in windscram)
+    ''' Get the Antenna 14 windscram state, and the average wind speed, for a 
+        given time range.
+        
+        Returns:
+           times      as a Time() object, or error message if failure
+           wscram     array of windscram state, 0 = not in wind scram, 1 = in windscram
+           avgwind    array of average wind speeds, in MPH, or error message if failure
     '''
     tstart,tend = [str(i) for i in trange.lv]
     cursor = get_cursor()
     ver = find_table_version(cursor,trange[0].lv)
     query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
     data, msg = do_query(cursor, query)
-    cursor.close()
     if msg == 'Success':
         times = Time(data['Timestamp'].astype('int'),format='lv')
         wscram = data['Ante_Fron_Wind_State']
-    return times,wscram
+    else:
+        return 'Error: '+msg, None, None
+    query = 'select Timestamp,Sche_Data_Weat_AvgWind from fV'+ver+'_vD1 where Timestamp between '+tstart+' and '+tend
+    data, msg = do_query(cursor, query)
+    if msg == 'Success':
+        avgwind = data['Sche_Data_Weat_AvgWind']
+    else:
+        return times,wscram,'Error: '+msg
+    cursor.close()
+    return times,wscram,avgwind
     
 def get_chi(trange):
     ''' Get the parallactic angle for all antennas (ntimes x 16) for a

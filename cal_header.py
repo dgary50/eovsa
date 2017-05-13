@@ -49,6 +49,9 @@
 #      Given the latest methods for determining delays (using delay_widget()),
 #      the dla_update2sql() routine is changed to expect delays in ns, and
 #      already relative to Ant 1.  A non-zero Ant1 delay issues an error.
+#   2017-04-13  DG
+#      Changed order of parameters in dla_censql2table() so that first one
+#      is time.  This guards against accidentally writing a file to the ACC.
 #
 import struct, util
 import stateframe as sf
@@ -849,7 +852,7 @@ def dla_update2sql(dla_update,xy_delay=None,t=None):
         buf += struct.pack('2f',*dcen[i])
     return write_cal(typedef,buf,t)
     
-def dla_censql2table(acc=True, t=None):
+def dla_censql2table(t=None, acc=True):
     ''' Reads current database contents for delay centers and writes
         them out as a text table to a fixed location, /tmp/delay_centers.txt,
         and optionally sends the file to the ACC (for use by dppxmp).

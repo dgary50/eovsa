@@ -248,6 +248,8 @@
 #    2017-Mar-06 DG
 #      Changed delay offset to scale with adc_clk frequency, so that it works for
 #      either 200 or 300 MHz design.
+#    2017-Apr-22  DG
+#      Updated $CAPTURE-1S handling to allow it to work when no <stem> argument is given.
 #
 
 import os, signal
@@ -2240,7 +2242,11 @@ class App():
                     # Use $CAPTURE-1S <stem> where <stem> is a string to add to the end of the
                     # capture filename.  The capture is done on the dpp.  This will take a few
                     # seconds to complete.
-                    cmd, stem = ctlline.strip().split(' ')
+                    try:
+                        cmd, stem = ctlline.strip().split(' ')
+                    except:
+                        # Must be no stem given, so use ''
+                        stem = ''
                     # Capture 1 s of data on dpp
                     t = threading.Thread(target=pcapture2.capture_1s, kwargs={'stem':stem})
                     t.daemon = True

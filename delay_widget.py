@@ -15,6 +15,9 @@
 #      The new 300 MHz correlator is working!  Delays determined based
 #      on data from that correlator have flipped signs!  So I made the
 #      change on saving them.
+#   2017-Apr-07  DG
+#      Cleaned up the "show" button output, and set the default directory
+#      for npz files to the phasecal web directory (/common/webplots/phasecal)
 
 from Tkinter import *
 from tkFileDialog import askopenfile
@@ -181,22 +184,20 @@ class App():
     def show(self):
         delays_str = '   '
         xydelays_str = '   '
-        delays = self.delays[0] - self.delays
+        delays = np.append(self.delays[0] - self.delays,self.delays[0])
         # Do not change delays where both delays and xydelays are zero
         # which is taken as a missing antenna
         bad, = np.where(self.delays == 0)
         bad2, = np.where(self.xydelays == 0)
         idx1,idx2 = common_val_idx(bad,bad2)
         delays[bad[idx1]] = 0.0
-        self.label1.configure(text='Ant  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14')
-        
-        for delay in delays:
-            delays_str += str(delay)+', '
-        self.label2.configure(text=delays_str)
-        for xydelay in self.xydelays:
-            xydelays_str += str(xydelay)+','
-        xydelays_str += str(self.dla14.get())
-        self.label3.configure(text=xydelays_str)
+        self.label1.configure(text='Ant    1,    2,    3,    4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14')
+        fmt = '{:5.1f},'*14
+        delays_str = fmt.format(*delays)
+        self.label2.configure(text='   '+delays_str[:-1])
+        xydelays = np.append(self.xydelays,-float(self.dla14.get()))
+        xydelays_str = fmt.format(*xydelays)
+        self.label3.configure(text='   '+xydelays_str[:-1])
 
     def up(self):
         ant_str = self.ant.get()
@@ -307,7 +308,7 @@ class App():
         self.canvas.draw()
 
     def Opennpz(self):
-        init_dir = os.getcwd()
+        init_dir = '/common/webplots/phasecal/'
         f = askopenfile(initialdir = init_dir, mode = 'r',
                         filetypes = [('NPZ files','*.npz'),('all files','*.*')])
         if f is None:
