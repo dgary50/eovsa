@@ -52,6 +52,10 @@
 #   2017-04-13  DG
 #      Changed order of parameters in dla_censql2table() so that first one
 #      is time.  This guards against accidentally writing a file to the ACC.
+#   2017-05-13  DG
+#      Changed names of fem_attn* and dcm_attn* routines to remove "val" from
+#      the names.  Updated fem_attn2sql() to create a default table if called
+#      without a table.
 #
 import struct, util
 import stateframe as sf
@@ -73,8 +77,8 @@ def cal_types():
             3:['DCM base attenuation table [units=dB]','dcm_table2xml',1.0],
             4:['Delay centers [units=ns]','dlacen2xml',1.0],
             5:['Equalizer gains','eq_gain2xml',1.0],
-            6:['DCM attenuator values [units=dB]','dcm_attn_val2xml',1.0],
-            7:['FEM attenuator values [units=dB]','fem_attn_val2xml',1.0]}
+            6:['DCM attenuator values [units=dB]','dcm_attn2xml',1.0],
+            7:['FEM attenuator values [units=dB]','fem_attn2xml',1.0]}
 
 def str2bin(string):
     ''' Convert the given string to a binary packed byte buffer '''
@@ -386,7 +390,7 @@ def dcm_attn_val2xml():
     return buf
 
 
-def fem_attn_val2xml():
+def fem_attn2xml():
     ''' Writes the XML description of the FEM attenuator values as 
         measured by FEMATTNTEST, and analyzed by FEM_attn_anal().  The
         values are complex numbers, in dB, for each of the attenuator 
@@ -955,7 +959,7 @@ def eq_gain2sql(coeff, ver=1.0, t=None):
             buf += struct.pack('34f',*coeff[i,j])
     return write_cal(typedef,buf,t)
     
-def dcm_attn_val2sql(attn, ver=1.0, t=None):
+def dcm_attn2sql(attn, ver=1.0, t=None):
     ''' Write measured DCM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -990,11 +994,20 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
             buf += struct.pack('4f',*iattn[i,j])
     return write_cal(typedef,buf,t)
     
-def fem_attn_val2sql(attn, ver=1.0, t=None):
+def fem_attn2sql(attn=None, ver=1.0, t=None):
     ''' Write measured FEM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
         
+        attn   a complex array of attenuator values, in dB, of shape 
+               (16,2,2,5) corresponding to (nant, natt, npol, nbits)
+               where 
+                   nant = 16    is number of antennas, 
+                   npol = 2     is number of polarizations, 
+                   natt = 2     is number of attenuators, and
+                   nbits = 5    is number of attn bits, i.e. 1, 2, 4, 8, and 16.
+               If attn is None, or omitted, a nominal table is created.
+
         This kind of record is type definition 7.
     '''
     typedef = 7
@@ -1002,6 +1015,10 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     if t is None:
         t = util.Time.now()
 
+    if attn is None:
+        # Create a default table, with nominal values
+        attnvals = np.array([1,2,4,8,16],np.complex)  # The 5 bits of each attenuator
+        attn = np.moveaxis(np.repeat(attnvals,4*16).reshape(5,16,2,2),0,-1)  # results in shape (16,2,2,5)
     # Write timestamp 
     buf = struct.pack('d',int(t.lv))
     # Write version number
@@ -1019,7 +1036,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
                 buf += struct.pack('5f',*rattn[i,j,k])
     # Write imag part of table
     iattn = np.imag(attn)
-    buf += struct.pack('I',4)
+    buf += struct.pack('I',5)
     buf += struct.pack('I',2)
     buf += struct.pack('I',2)
     buf += struct.pack('I',16)
@@ -1027,5 +1044,4 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
         for j in range(2):
             for k in range(2):
                 buf += struct.pack('5f',*iattn[i,j,k])
-    return write_cal(typedef,buf,t)
-    
+    return buf #write_cal(typedef,buf,t)
