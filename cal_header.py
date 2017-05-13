@@ -1148,4 +1148,5 @@ def refcal2sql(rfcal, ver=1.0, t=None):
     for i in range(15):
         for j in range(2):
             buf += struct.pack('34f', *irfcal[i, j])
-    return write_cal(typedef, buf, t)
+    # return write_cal(typedef, buf, t)
+    return buf
