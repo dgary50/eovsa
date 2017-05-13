@@ -488,7 +488,7 @@ def refcal2xml():
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Real</Name>')
     buf += str2bin(
-        '<Dimsize>15</Dimsize><Dimsize>2</Dimsize><Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # List of imaginary part of reference calibration (nband x npol x nant) (34 x 2 x 15).
@@ -496,7 +496,7 @@ def refcal2xml():
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
     buf += str2bin(
-        '<Dimsize>15</Dimsize><Dimsize>2</Dimsize><Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
