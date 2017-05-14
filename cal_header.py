@@ -691,18 +691,18 @@ def read_calX(caltype, t=None):
     if t is None:
         t = util.Time.now()
 
-    if len(t)==1:
+    if t is not list:
         timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
         xmldict, ver = read_cal_xml(caltype, t)
     else:
         timestamp = [int(ll.lv) for ll in t]
-        timestamp = [timestamp[0],timestamp[-1]]
+        timestamp = [timestamp[0], timestamp[-1]]
         xmldict, ver = read_cal_xml(caltype, t[0])
 
     cursor = dbutil.get_cursor()
 
     if xmldict != {}:
-        if len(t) == 1:
+        if t is not list:
             query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
                 caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
         else:
@@ -717,7 +717,7 @@ def read_calX(caltype, t=None):
                 print 'Error: Query returned no records.'
                 print query
                 return {}, None
-            if len(t)==1:
+            if t is not list:
                 buf = sqldict['Bin'][0]  # Binary representation of data
                 return xmldict, str(buf)
             else:
