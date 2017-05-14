@@ -67,6 +67,10 @@
 #    day and optionally make a nice overview plot of the data.
 #  2017-May-02  DG
 #    Added saving of allday_udb() figure if requested by savfig keyword.
+#  2017-May-13 BC
+#    Added summary_plot_pcal() to plot only baselines correlating with Ant 14
+#    Added "quackint" parameter in read_idb() to get rid of first quackint seconds of each file 
+#    Truncate out['uvw'] to have the same shape of the time axis as out['time']
 
 import aipy
 import os
@@ -326,6 +330,7 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     outp = outp[:,:,:,:nt]
     outp2 = outp2[:,:,:,:nt]
     outm = outm[:,:,:,:nt]
+    uvwarray = uvwarray[:,:nt]
     if not tp_only:
         outa = outa[:,:,:,:nt]
         outx = outx[:,:,:,:nt]
@@ -472,6 +477,44 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
         ai = ant_list[i]
         ax[i,i].text(0.5,0.5,str(ai+1),ha='center',va='center',transform=ax[i,i].transAxes,fontsize=14)
 
+def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
+    ''' Makes a summary amplitude or phase plot for all baselines from ants in ant_str
+        in out dictionary.
+    '''
+    import matplotlib.pyplot as plt
+    ha=out['ha']
+    fghz=out['fghz']
+    ant_list = p.ant_str2list(ant_str)
+    nant = len(ant_list)
+    if ptype != 'amp' and ptype != 'phase':
+        print "Invalid plot type.  Must be 'amp' or 'phase'."
+        return
+    poloff = 0
+    if pol != 'XX-YY':
+        poloff = 2
+    f, ax = plt.subplots(nant-1,2,figsize=(5,8))
+    #f.subplots_adjust(hspace=0,wspace=0)
+    for axrow in ax:
+        for a in axrow:
+            a.xaxis.set_visible(False)
+            a.yaxis.set_visible(False)
+    for i in range(nant-1):
+        ai = ant_list[i]
+        if ptype == 'phase':
+            #ax[i,0].pcolormesh(ha,fghz,np.angle(out['x'][bl2ord[ai,13],0+poloff]))
+            #ax[i,1].pcolormesh(ha,fghz,np.angle(out['x'][bl2ord[ai,13],1+poloff]))
+            ax[i,0].imshow(np.angle(out['x'][bl2ord[ai,13],0+poloff]))
+            ax[i,1].imshow(np.angle(out['x'][bl2ord[ai,13],1+poloff]))
+        elif ptype == 'amp':
+            #ax[i,0].pcolormesh(ha,fghz,np.abs(out['x'][bl2ord[ai,13],0+poloff]))
+            #ax[i,1].pcolormesh(ha,fghz,np.abs(out['x'][bl2ord[ai,13],1+poloff]))
+            ax[i,0].imshow(np.abs(out['x'][bl2ord[ai,13],0+poloff]))
+            ax[i,1].imshow(np.abs(out['x'][bl2ord[ai,13],1+poloff]))
+        ax[i,0].text(-0.1,0.5,str(ai+1),ha='center',va='center',transform=ax[i,0].transAxes,fontsize=14)
+        polstr=pol.split('-')
+        for j in range(2):
+            ax[0,j].text(0.5,1.3,polstr[j],ha='center',va='center',transform=ax[0,j].transAxes,fontsize=14)
+
 def allday_udb(t=None, doplot=True, savfig=False):
     # Plots (and returns) UDB data for an entire day
     if t is None:
@@ -515,7 +558,7 @@ def get_IDBfiles(showthelast=10):
         IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
     return IDBfiles
     
-def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
+def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_only=False):
     ''' This finds the IDB files within a given time range and concatenates 
         the times into a single dictionary.  If trange is not a Time() object,
         assume that it is the list of files to read.
@@ -638,6 +681,20 @@ def read_idb(trange,navg=None,filter=True,srcchk=True,src=None,tp_only=False):
                 out['a'] = out['a'][:,:,goodidx]
                 out['x'] = out['x'][:,:,goodidx]
             out['fghz'] = out['fghz'][goodidx]
+        if quackint > 0.:
+            # time interval between data points in seconds
+            dt = np.nanmedian(np.diff(out['time']))*86400.             
+            nt = np.rint(quackint/dt).astype('int')
+            print 'number of points to skip: ',nt
+            # check if nt is too large
+            if nt < len(out['time']):
+                out['a']=out['a'][:,:,:,nt:]
+                out['x']=out['x'][:,:,:,nt:]
+                out['p2']=out['p2'][:,:,:,nt:]
+                out['m']=out['m'][:,:,:,nt:]
+                out['uvw']=out['uvw'][:,nt:]
+                out['time']=out['time'][nt:]
+                out['ha']=out['ha'][nt:]
         outa.append(out['a'])
         outx.append(out['x'])
         outp2.append(out['p2'])
