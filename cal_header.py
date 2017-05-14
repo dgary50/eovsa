@@ -463,7 +463,7 @@ def fem_attn2xml():
 
 def refcal2xml():
     ''' Writes the XML description of the reference calibration table.
-        The values are complex numbers, in [arbitrary, rad]
+        The values are complex numbers.
         Returns a binary representation of the xml text file, for 
         putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
@@ -474,7 +474,7 @@ def refcal2xml():
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>REFCAL</Name>')
-    buf += str2bin('<NumElts>4</NumElts>')
+    buf += str2bin('<NumElts>5</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
@@ -490,20 +490,28 @@ def refcal2xml():
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
 
-    # List of real part of reference calibration (nband x npol x nant) (34 x 2 x 15).
+    # List of real part of reference calibration (nband x npol x nant) (34 x 15 x 2).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Real</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>34</Dimsize><Dimsize>15</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of reference calibration (nband x npol x nant) (34 x 2 x 15).
+    # List of imaginary part of reference calibration (nband x npol x nant) (34 x 15 x 2).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>34</Dimsize><Dimsize>15</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of flags of reference calibration (nband x npol x nant) (34 x 15 x 2).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Flag</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>15</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -1105,8 +1113,8 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
 
     if attn is None:
         # Create a default table, with nominal values
-        attnvals = np.array([1,2,4,8,16],np.complex)  # The 5 bits of each attenuator
-        attn = np.moveaxis(np.repeat(attnvals,4*16).reshape(5,16,2,2),0,-1)  # results in shape (16,2,2,5)
+        attnvals = np.array([1, 2, 4, 8, 16], np.complex)  # The 5 bits of each attenuator
+        attn = np.moveaxis(np.repeat(attnvals, 4 * 16).reshape(5, 16, 2, 2), 0, -1)  # results in shape (16,2,2,5)
     # Write timestamp 
     buf = struct.pack('d', int(t.lv))
     # Write version number
@@ -1124,17 +1132,18 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
                 buf += struct.pack('5f', *rattn[i, j, k])
     # Write imag part of table
     iattn = np.imag(attn)
-    buf += struct.pack('I',5)
-    buf += struct.pack('I',2)
-    buf += struct.pack('I',2)
-    buf += struct.pack('I',16)
+    buf += struct.pack('I', 5)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 16)
     for i in range(16):
         for j in range(2):
             for k in range(2):
-                buf += struct.pack('5f',*iattn[i,j,k])
-    return buf #write_cal(typedef,buf,t)
+                buf += struct.pack('5f', *iattn[i, j, k])
+    return buf  # write_cal(typedef,buf,t)
 
-def refcal2sql(rfcal, ver=1.0, t=None):
+
+def refcal2sql(rfcal, flag, ver=1.0, t=None):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1154,18 +1163,29 @@ def refcal2sql(rfcal, ver=1.0, t=None):
     # Write real part of table
     rrfcal = np.real(rfcal)
     buf += struct.pack('I', 34)
-    buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
-    for i in range(15):
-        for j in range(2):
+    buf += struct.pack('I', 2)
+    for i in range(2):
+        for j in range(15):
             buf += struct.pack('34f', *rrfcal[i, j])
+
     # Write imag part of table
     irfcal = np.imag(rfcal)
     buf += struct.pack('I', 34)
-    buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
-    for i in range(15):
-        for j in range(2):
+    buf += struct.pack('I', 2)
+    for i in range(2):
+        for j in range(15):
             buf += struct.pack('34f', *irfcal[i, j])
+
+    # Write Flag of table
+    flag = np.array(flag, dtype=float)
+    buf += struct.pack('I', 34)
+    buf += struct.pack('I', 15)
+    buf += struct.pack('I', 2)
+    for i in range(2):
+        for j in range(15):
+            buf += struct.pack('34f', *flag[i, j])
+
     return write_cal(typedef, buf, t)
     # return buf
