@@ -65,10 +65,11 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
 
     return {'scanlist':flist,'srclist':srclist,'tstlist':tstlist}
 
-def rd_refcal(sclist):
+def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     # takes input from findfiles (sclist)
     import struct, time, glob, sys, socket
     import dbutil as db
+    sclist=findfiles(trange,projid,srcid)
     scanlist = sclist['scanlist']
     srclist = sclist['srclist']
     starttimelist = sclist['tstlist']
@@ -79,7 +80,7 @@ def rd_refcal(sclist):
     bands = []
     times = []
     for n, scan in enumerate(scanlist):
-        out = ri.read_idb([scan],quackint=180.)
+        out = ri.read_idb([scan],quackint=quackint)
         times.append(out['time'])
         nt = len(out['time'])
         bds,sidx=np.unique(out['band'],return_index=True)
@@ -95,41 +96,86 @@ def rd_refcal(sclist):
         bands.append(bds)
     return {'scanlist':scanlist,'srclist':srclist,'tstlist':starttimelist,'vis':vis, 'bands':bands, 'times':times} 
 
-def graph(out,ant_str='ant1-13',pol=0):
+def graph(out, visavg=None, ant_str='ant1-13', scanidx=None,pol=0):
     # takes input from rd_refcal (out)
     date_format = mdates.DateFormatter('%H')
     # make a color plot showing the phase
     # ri.summary_plot_pcal(out)
-    scanlist=out['scanlist']
+    if scanidx:
+        scanlist=[out['scanlist'][i] for i in scanidx]
+        bands=[out['bands'][i] for i in scanidx]
+        vis=[out['vis'][i] for i in scanidx]
+        times=[out['times'][i] for i in scanidx]
+    else:
+        scanlist=out['scanlist']
+        bands=out['bands']
+        vis=out['vis']
+        times=out['times']
+
     nscan=len(scanlist)
-    bands=out['bands']
-    vis=out['vis']
     ant_list = p.ant_str2list(ant_str)
     nant = len(ant_list)
+    bds0=[4,6,8,10,12,14]
+    nband = len(bds0)
+    f, ax = plt.subplots(nant,nband,figsize=(12,8))
     for n, scan in enumerate(scanlist):
-        ts = Time(out['times'][n],format='jd').plot_date
-        if n == 0:
-            bds0 = bands[0] 
-            nband = len(bds0)
-            f, ax = plt.subplots(nant,nband,figsize=(12,8))
+        ts = Time(times[n],format='jd').plot_date
+        #if n == 0:
+        #    bds0 = bands[0] 
+        #    nband = len(bds0)
 
         # make a line plot of phase vs. time on all 34 bands
         for ant in ant_list:
             for b,bd in enumerate(bds0):
                 ax[ant,b].plot_date(ts,np.degrees(np.angle(vis[n][bd-1,ant,pol])),'.',markersize=1)
                 ax[ant,b].xaxis.set_major_formatter(date_format)
+                if visavg:
+                    phavg=np.degrees(np.angle(visavg['vis'][bd-1,ant,pol]))
+                    bt=Time(visavg['time'][0],format='jd').plot_date
+                    et=Time(visavg['time'][-1],format='jd').plot_date
+                    ax[ant,b].plot_date([bt,et],[phavg,phavg],'-r')
+                    ax[ant,b].plot_date([bt,bt],[-200,200],'--b')
+                    ax[ant,b].plot_date([et,et],[-200,200],'--b')
                 ax[ant,b].set_ylim([-180.,180.])
                 if ant == 0:
                     ax[ant,b].set_title('Band '+str(bd))
                 if b == 0:
-                    ax[ant,b].text(-1.,0.5,'Ant '+str(ant+1),ha='center',va='center',transform=ax[ant,b].transAxes,fontsize=10)
+                    ax[ant,b].text(-0.6,0.5,'Ant '+str(ant+1),ha='center',va='center',transform=ax[ant,b].transAxes,fontsize=10)
                 else:
                     ax[ant,b].set_yticks([])
+    return f,ax
 
-def refcal_anal(out,timerange=None):
-    times = out['times']
+def refcal_anal(out,timerange=None,scanidx=None):
+    times = np.concatenate(out['times'])
+    vis = np.concatenate(out['vis'],axis=3)
     if timerange:
-        print 'do something'
+        tidx, = np.where((times > timerange[0].jd) & (times < timerange[1].jd))
+        vis = vis[:,:,:,tidx]
+        timeavg = times[tidx]
+    vis_ = np.mean(vis,axis=3)
+    flag = np.zeros(vis_.shape)
+    visavg = {'pha':np.angle(vis_),'amp':np.abs(vis_), 'vis':vis_, 'time':timeavg, 'flag':flag}
+    f1, ax1 = graph(out,visavg,scanidx=scanidx)
+    f2, ax2 = plt.subplots(2,13,figsize=(12,5)) 
+    for ant in range(13):
+        for pol in range(2):
+            ax2[pol,ant].plot(np.arange(34)+1,np.unwrap(visavg['pha'][:,ant,pol]),'.',markersize=5)
+            ax2[pol,ant].set_ylim([-20,20])
+            if ant == 0:
+                ax2[pol,ant].set_ylabel('Phase (radian)')
+            else:
+                ax2[pol,ant].set_yticks([])
+            if pol == 1 and ant ==0:
+                ax2[pol,ant].set_xlabel('Band #')
+            if pol == 0:
+                ax2[pol,ant].set_title('Ant '+str(ant+1))
+                ax2[pol,ant].set_xticks([])
+
+    return visavg
+
+
+        
+
         
 
             
