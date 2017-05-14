@@ -67,10 +67,13 @@
 #    day and optionally make a nice overview plot of the data.
 #  2017-May-02  DG
 #    Added saving of allday_udb() figure if requested by savfig keyword.
-#  2017-May-13 BC
+#  2017-May-13  BC
 #    Added summary_plot_pcal() to plot only baselines correlating with Ant 14
 #    Added "quackint" parameter in read_idb() to get rid of first quackint seconds of each file 
 #    Truncate out['uvw'] to have the same shape of the time axis as out['time']
+#  2017-May-14  BC
+#    Added a key (out['band']) in the output of readXdata() to indicate the band name of a specific frequency
+#    in fghz
 
 import aipy
 import os
@@ -83,6 +86,7 @@ import spectrogram_fit as sp
 import pcapture2 as p
 import eovsa_lst as el
 import copy
+import chan_util_bc as cu
 
 bl2ord = p.bl_list()
 
@@ -344,7 +348,11 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     ha = np.array(lstarray) - uv['ra']
     ha[np.where(ha > np.pi)] -= 2*np.pi
     ha[np.where(ha < -np.pi)] += 2*np.pi
-    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
+    # Find out band name for each frequency
+    bd=[]
+    for f in freq:
+        bd.append(cu.freq2bdname(f))
+    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'band':np.array(bd),'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
     return out
 
 def readXdatmp(filename):
@@ -575,6 +583,8 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
           tp_only  boolean--if True, returns only TP information
                     if False (default), returns everything (including 
                     auto & cross correlations)
+          quackint  float--first time range (in seconds) to skip in the beginning of
+                    each file. Default is 0., or no quack.
     '''
     if type(trange) == Time:
         files = get_trange_files(trange)
@@ -681,11 +691,11 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
                 out['a'] = out['a'][:,:,goodidx]
                 out['x'] = out['x'][:,:,goodidx]
             out['fghz'] = out['fghz'][goodidx]
+            out['band'] = out['band'][goodidx]
         if quackint > 0.:
             # time interval between data points in seconds
             dt = np.nanmedian(np.diff(out['time']))*86400.             
             nt = np.rint(quackint/dt).astype('int')
-            print 'number of points to skip: ',nt
             # check if nt is too large
             if nt < len(out['time']):
                 out['a']=out['a'][:,:,:,nt:]
