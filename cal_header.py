@@ -646,7 +646,7 @@ def read_cal_xml(type, t=None):
             return xmldict, thisver
 
 
-def read_cal(type, t=None, nentry=1):
+def read_cal(type, t=None):
     ''' Read the calibration data of the given type, for the given time (as a Time() object),
         or for the current time if None.
         
@@ -661,7 +661,7 @@ def read_cal(type, t=None, nentry=1):
     cursor = dbutil.get_cursor()
 
     if xmldict != {}:
-        query = 'set textsize 2147483647 select top {} * from abin where Version = '.format(nentry) + str(
+        query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
             type + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
         sqldict, msg = dbutil.do_query(cursor, query)
         cursor.close()
