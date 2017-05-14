@@ -32,7 +32,10 @@
 #    Add rd_miriad_tsys_16() routine to read 16-ant correlator data.
 #  2016-May-10  DG
 #    Fix bug that could not find older data that has been moved to pipeline
-#
+#  2017-May-13  BC
+#    Added rd_ufdb() routine to read the contents of an UFDB file. This is similar
+#    to rd_fdb() but instead works to find UDB files.
+
 import subprocess, time, sys, glob
 import numpy as np
 from util import Time
@@ -320,6 +323,30 @@ def rd_fdb(t):
             pass
     return dict(zip(names,contents))
             
+def rd_ufdb(t):
+    ''' Read the UFDB file for the date given in Time() object t, and return in a
+        useful dictionary form.
+    '''
+    folder = '/data1/UFDB/'
+    ufdbfile = t.iso[:4]+'/UFDB'+t.iso[:10].replace('-','')+'.txt'
+    try:
+        f = open(folder+ufdbfile,'r')
+        lines = f.readlines()
+        f.close()
+    except:
+        print 'Error: Could not open file',folder+ufdbfile+'.'
+        return {}
+    names = lines[0].replace(':','').split()
+    contents = np.zeros((len(names),len(lines)-1),'S32')
+    for i in range(1,len(lines)):
+        try:
+            contents[:,i-1] = np.array(lines[i].split())
+        except:
+            # If the above assignment does not work, line is malformed, so just
+            # leave as empty list
+            pass
+    return dict(zip(names,contents))
+
 if __name__ == "__main__":
     def usage(instr):
         print instr

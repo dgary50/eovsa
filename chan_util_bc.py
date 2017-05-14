@@ -34,7 +34,9 @@
 #   2017-Mar-07  DG
 #      Something is not kosher with chanmask, so for now I am setting no mask.
 #      See bottom of this file for relevant line.
-#
+#   2017-May-14  BC
+#      Added a function freq2bdname() to figure out the band name (1-34) from a
+#      given frequency value in ghz.
 
 import pdb
 import matplotlib.pyplot as plt
@@ -262,3 +264,19 @@ def get_chanmask(fsequence,t=None):
     if ifbw == 600.:
         chanmask = np.ones(204800,'byte')
     return chanmask
+
+def freq2bdname(fghz):
+    '''figure out the band name (1-34) from a given frequency in GHz (such as uv['sfreq'] values from Miriad 
+       UV data, which are frequency values at the CENTER of the frequency channel). Return -1 if not found 
+    '''
+    bfreqs=[] #start frequency of a band
+    efreqs=[] #end frequency of a band
+    for b in range(34):
+        bfreqs.append(start_freq(b+1)[0])
+        efreqs.append(start_freq(b+1)[-1]+sci_bw(b+1)[-1])
+    bd, = np.where((bfreqs < fghz) & (efreqs > fghz))
+    if len(bd) == 1:
+        return bd[0]
+    else:
+        print '{0:f} GHz is not found in any band'.format(fghz)
+        return -1
