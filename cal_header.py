@@ -490,28 +490,28 @@ def refcal2xml():
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
 
-    # List of real part of reference calibration (nband x npol x nant) (34 x 15 x 2).
+    # List of real part of reference calibration (npol x nant x nband) (2 x 15 x 34).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Real</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>15</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>15</Dimsize><Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of reference calibration (nband x npol x nant) (34 x 15 x 2).
+    # List of imaginary part of reference calibration (npol x nant x nband) (2 x 15 x 34).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>15</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>15</Dimsize><Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flags of reference calibration (nband x npol x nant) (34 x 15 x 2).
+    # List of flags of reference calibration (npol x nant x nband) (2 x 15 x 34).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Flag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>15</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>15</Dimsize><Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -1162,30 +1162,30 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None):
 
     # Write real part of table
     rrfcal = np.real(rfcal)
-    buf += struct.pack('I', 34)
-    buf += struct.pack('I', 15)
     buf += struct.pack('I', 2)
-    for i in range(2):
+    buf += struct.pack('I', 15)
+    buf += struct.pack('I', 34)
+    for i in range(34):
         for j in range(15):
-            buf += struct.pack('34f', *rrfcal[i, j])
+            buf += struct.pack('2f', *rrfcal[i, j])
 
     # Write imag part of table
     irfcal = np.imag(rfcal)
-    buf += struct.pack('I', 34)
-    buf += struct.pack('I', 15)
     buf += struct.pack('I', 2)
-    for i in range(2):
+    buf += struct.pack('I', 15)
+    buf += struct.pack('I', 34)
+    for i in range(34):
         for j in range(15):
-            buf += struct.pack('34f', *irfcal[i, j])
+            buf += struct.pack('2f', *irfcal[i, j])
 
     # Write Flag of table
     flag = np.array(flag, dtype=float)
-    buf += struct.pack('I', 34)
-    buf += struct.pack('I', 15)
     buf += struct.pack('I', 2)
-    for i in range(2):
+    buf += struct.pack('I', 15)
+    buf += struct.pack('I', 34)
+    for i in range(34):
         for j in range(15):
-            buf += struct.pack('34f', *flag[i, j])
+            buf += struct.pack('2f', *flag[i, j])
 
     return write_cal(typedef, buf, t)
     # return buf
