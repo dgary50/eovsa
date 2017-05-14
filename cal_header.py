@@ -690,25 +690,26 @@ def read_calX(caltype, t=None):
     import dbutil, sys
     if t is None:
         t = util.Time.now()
+    tislist = isinstance(t, list)
 
-    if t is not list:
-        timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
-        xmldict, ver = read_cal_xml(caltype, t)
-    else:
+    if tislist:
         timestamp = [int(ll.lv) for ll in t]
         timestamp = [timestamp[0], timestamp[-1]]
         xmldict, ver = read_cal_xml(caltype, t[0])
+    else:
+        timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
+        xmldict, ver = read_cal_xml(caltype, t)
 
     cursor = dbutil.get_cursor()
 
     if xmldict != {}:
-        if t is not list:
-            query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
-                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
-        else:
+        if tislist:
             query = 'set textsize 2147483647 select * from abin where Version = ' + str(
                 caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp[0]) + ' and Timestamp <= ' + str(
                 timestamp[1]) + ' order by Timestamp desc'
+        else:
+            query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
+                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
 
         sqldict, msg = dbutil.do_query(cursor, query)
         cursor.close()
@@ -717,12 +718,12 @@ def read_calX(caltype, t=None):
                 print 'Error: Query returned no records.'
                 print query
                 return {}, None
-            if t is not list:
-                buf = sqldict['Bin'][0]  # Binary representation of data
-                return xmldict, str(buf)
-            else:
+            if tislist:
                 buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
                 return xmldict, buf
+            else:
+                buf = sqldict['Bin'][0]  # Binary representation of data
+                return xmldict, str(buf)
         else:
             print 'Unknown error occurred reading', typdict[caltype][0]
             print sys.exc_info()[1]
