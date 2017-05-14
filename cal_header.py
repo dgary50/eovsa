@@ -680,6 +680,57 @@ def read_cal(type, t=None):
         return {}, None
 
 
+def read_calX(caltype, t=None):
+    ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
+        or for the current time if None.
+        
+        Returns a dictionary of look-up information and a binary buffer containing the 
+        calibration record. If time-range is provided, a list of binary buffers will be returned.
+    '''
+    import dbutil, sys
+    if t is None:
+        t = util.Time.now()
+
+    if len(t)==1:
+        timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
+        xmldict, ver = read_cal_xml(caltype, t)
+    else:
+        timestamp = [int(ll.lv) for ll in t]
+        timestamp = [timestamp[0],timestamp[-1]]
+        xmldict, ver = read_cal_xml(caltype, t[0])
+
+    cursor = dbutil.get_cursor()
+
+    if xmldict != {}:
+        if len(t) == 1:
+            query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
+                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
+        else:
+            query = 'set textsize 2147483647 select * from abin where Version = ' + str(
+                caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp[0]) + ' and Timestamp <= ' + str(
+                timestamp[1]) + ' order by Timestamp desc'
+
+        sqldict, msg = dbutil.do_query(cursor, query)
+        cursor.close()
+        if msg == 'Success':
+            if sqldict == {}:
+                print 'Error: Query returned no records.'
+                print query
+                return {}, None
+            if len(t)==1:
+                buf = sqldict['Bin'][0]  # Binary representation of data
+                return xmldict, str(buf)
+            else:
+                buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
+                return xmldict, buf
+        else:
+            print 'Unknown error occurred reading', typdict[caltype][0]
+            print sys.exc_info()[1]
+            return {}, None
+    else:
+        return {}, None
+
+
 def get_size(fmt):
     # Complicated, but clever routine to determine the size of my
     # non-Pythonic format string, in which arrays are indicated by
