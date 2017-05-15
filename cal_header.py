@@ -1202,7 +1202,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return buf  # write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal = None):
+def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1221,7 +1221,7 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal = None):
     # Write version number
     buf += struct.pack('d', ver)
     # Write timestamp of gaincal
-    buf = struct.pack('d', int(tgcal.lv))
+    buf += struct.pack('d', int(tgcal.lv))
 
     # Write real part of table
     rrfcal = np.real(rfcal)
@@ -1250,5 +1250,5 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal = None):
         for j in range(2):
             buf += struct.pack('34f', *flag[i, j])
 
-    # return write_cal(typedef, buf, t)
-    return buf
+    return write_cal(typedef, buf, t)
+    # return buf
