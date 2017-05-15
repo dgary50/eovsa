@@ -270,7 +270,9 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
     refcal=vis_
     timestamp = Time(np.mean(timeavg),format='jd')
     timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd)/2.,format='jd') 
-    return refcal, flag, timestamp, timestamp_gcal
+    return {'refcal':refcal, 'flag':flag, 't_mid':timestamp, 't_gcal':timestamp_gcal, 
+            't_bg':Time(timeavg[0],format='jd'), 't_end':Time(timeavg[-1],format='jd')}
+
 
 
         
