@@ -1207,6 +1207,7 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None):
     if t is None:
         t = util.Time.now()
 
+
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
