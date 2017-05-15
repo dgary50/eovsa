@@ -1202,19 +1202,36 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return buf  # write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
+def refcal2sql(rfcal):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
+        rfcal: a dict (refcal, flag, tmid, tgcal)
 
         This kind of record is type definition 8.
     '''
     typedef = 8
+    if not 'refcal' in rfcal.keys():
+        raise KeyError('Key "refcal" not exist')
     ver = cal_types()[typedef][2]
-    if t is None:
+    if 't_mid' in rfcal.keys():
+        t = rfcal['t_mid']
+    else:
         t = util.Time.now()
-    if tgcal is None:
-        tgcal = util.Time.now()
+    if 't_gcal' in rfcal.keys():
+        tgcal = rfcal['t_gcal']
+    else:
+        if 't_mid' in rfcal.keys():
+            tgcal = t
+        else:
+            tgcal = util.Time.now()
+
+    if 'flag' in rfcal.keys():
+        flag = rfcal['flag']
+    else:
+        flag = np.zeros_like(np.real(rfcal['refcal']))
+    # if tgcal is None:
+    #     tgcal = util.Time.now()
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
@@ -1224,7 +1241,7 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
     buf += struct.pack('d', int(tgcal.lv))
 
     # Write real part of table
-    rrfcal = np.real(rfcal)
+    rrfcal = np.real(rfcal['refcal'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
@@ -1233,7 +1250,7 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
             buf += struct.pack('34f', *rrfcal[i, j])
 
     # Write imag part of table
-    irfcal = np.imag(rfcal)
+    irfcal = np.imag(rfcal['refcal'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
