@@ -474,7 +474,7 @@ def refcal2xml():
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>REFCAL</Name>')
-    buf += str2bin('<NumElts>5</NumElts>')
+    buf += str2bin('<NumElts>6</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
@@ -488,6 +488,13 @@ def refcal2xml():
     buf += str2bin('<DBL>')
     buf += str2bin('<Name>Version</Name>')
     buf += str2bin('<Val>' + str(version) + '</Val>')
+    buf += str2bin('</DBL>')
+
+    # Timestamp of the gaincal (double) of [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp_gcal</Name>')
+    buf += str2bin('<Val></Val>')
     buf += str2bin('</DBL>')
 
     # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 34).
@@ -1195,7 +1202,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return buf  # write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, flag, ver=1.0, t=None):
+def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal = None):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1206,11 +1213,16 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None):
     ver = cal_types()[typedef][2]
     if t is None:
         t = util.Time.now()
+    if tgcal is None:
+        tgcal = util.Time.now()
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
+
+    # Write timestamp of gaincal
+    buf = struct.pack('d', int(tgcal.lv))
 
     # Write real part of table
     rrfcal = np.real(rfcal)
@@ -1239,5 +1251,5 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None):
         for j in range(2):
             buf += struct.pack('34f', *flag[i, j])
 
-    return write_cal(typedef, buf, t)
-    # return buf
+    # return write_cal(typedef, buf, t)
+    return buf
