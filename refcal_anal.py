@@ -49,11 +49,13 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     flist = []
     status = []
     tstlist = []
+    tedlist = []
     srclist = []
     for i in range(len(tslist)):
         if tslist[i].jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
             flist.append(fpath+ufdb['FILE'][scanidx[i]].astype('str'))
             tstlist.append(tslist[i])
+            tedlist.append(telist[i])
             srclist.append(ufdb['SOURCEID'][scanidx[i]])
             k += 1
         
@@ -63,7 +65,7 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     else: 
         print 'Found',k,'scans in timerange.'
 
-    return {'scanlist':flist,'srclist':srclist,'tstlist':tstlist}
+    return {'scanlist':flist, 'srclist':srclist, 'tstlist':tstlist, 'tedlist':tedlist}
 
 def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     '''take a time range from the Time object, e.g., trange=Time(['2017-04-08T05:00','2017-04-08T15:30']),
@@ -79,7 +81,6 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     sclist=findfiles(trange,projid,srcid)
     scanlist = sclist['scanlist']
     srclist = sclist['srclist']
-    starttimelist = sclist['tstlist']
 
     # read scans one by one
     nscan=len(scanlist)
@@ -101,23 +102,28 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
                     vs[a,pl,bd-1] = np.mean(out['x'][bl2ord[a,13],pl,sidx[b]:eidx[b]],axis=0)
         vis.append(vs)
         bands.append(bds)
-    return {'scanlist':scanlist,'srclist':srclist,'tstlist':starttimelist,'vis':vis, 'bands':bands, 'times':times} 
+    return {'scanlist':scanlist,'srclist':srclist,'tstlist':sclist['tstlist'],'tedlist':sclist['tedlist'],
+            'vis':vis, 'bands':bands, 'times':times} 
 
 def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=None, pol=0):
     '''Produce a figure showing phases and amplitudes of selected antennas, bands, and polarization.
        Optionally takes in a time averaged value 'visavg' to show the selected time range and plot the
        averaged phase and amplitudes'''
     # takes input from rd_refcal (out)
-    date_format = mdates.DateFormatter('%H')
+    date_format = mdates.DateFormatter('%H:%M')
     # make a color plot showing the phase
     # ri.summary_plot_pcal(out)
     if scanidx:
         scanlist=[out['scanlist'][i] for i in scanidx]
+        tstlist=[out['tstlist'][i] for i in scanidx]
+        tedlist=[out['tedlist'][i] for i in scanidx]
         bands=[out['bands'][i] for i in scanidx]
         vis=[out['vis'][i] for i in scanidx]
         times=[out['times'][i] for i in scanidx]
     else:
         scanlist=out['scanlist']
+        tstlist=out['tstlist']
+        tedlist=out['tedlist']
         bands=out['bands']
         vis=out['vis']
         times=out['times']
@@ -149,8 +155,8 @@ def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=Non
                         bt=Time(visavg['time'][0],format='jd').plot_date
                         et=Time(visavg['time'][-1],format='jd').plot_date
                         ax1[ant,b].plot_date([bt,et],[phavg,phavg],'-r')
-                        ax1[ant,b].plot_date([bt,bt],[-200,200],'--b')
-                        ax1[ant,b].plot_date([et,et],[-200,200],'--b')
+                        ax1[ant,b].plot_date([bt,bt],[-200,200],'--k')
+                        ax1[ant,b].plot_date([et,et],[-200,200],'--k')
                         ax2[ant,b].plot_date([bt,et],[ampavg,ampavg],'-r')
                         ax2[ant,b].plot_date([bt,bt],[0,np.max(amp)],'--k')
                         ax2[ant,b].plot_date([et,et],[0,np.max(amp)],'--k')
@@ -177,8 +183,23 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
        flag: int array of shape (15, 2, 34). 0 is unflagged and 1 is flagged.
        timestamp: midpoint of the time range used for averaging to obtain the refcal values 
     '''
-    times = np.concatenate(out['times'])
-    vis = np.concatenate(out['vis'],axis=3)
+    if scanidx:
+        scanlist=[out['scanlist'][i] for i in scanidx]
+        tstlist=[out['tstlist'][i] for i in scanidx]
+        tedlist=[out['tedlist'][i] for i in scanidx]
+        bands=[out['bands'][i] for i in scanidx]
+        vis=[out['vis'][i] for i in scanidx]
+        times=[out['times'][i] for i in scanidx]
+    else:
+        scanlist=out['scanlist']
+        tstlist=out['tstlist']
+        tedlist=out['tedlist']
+        bands=out['bands']
+        vis=out['vis']
+        times=out['times']
+
+    times = np.concatenate(times)
+    vis = np.concatenate(vis,axis=3)
     if timerange:
         tidx, = np.where((times > timerange[0].jd) & (times < timerange[1].jd))
         vis = vis[:,:,:,tidx]
@@ -221,6 +242,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
     visavg = {'pha':np.angle(vis_),'amp':np.abs(vis_), 'vis':vis_, 'time':timeavg, 'flag':flag}
     graph(out,visavg,scanidx=scanidx,bandplt=bandplt)
     f2, ax2 = plt.subplots(2,13,figsize=(12,5)) 
+    f3, ax3 = plt.subplots(2,13,figsize=(12,5)) 
     allbands=np.arange(34)+1
     for ant in range(13):
         for pol in range(2):
@@ -228,18 +250,27 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
             ax2[pol,ant].plot(allbands[ind],np.unwrap(visavg['pha'][ant,pol,ind]),'.',markersize=5)
             ax2[pol,ant].set_ylim([-20,20])
             ax2[pol,ant].set_xlim([1,34])
+            ax3[pol,ant].plot(allbands[ind],visavg['amp'][ant,pol,ind],'.',markersize=5)
+            ax3[pol,ant].set_xlim([1,34])
+            ax3[pol,ant].set_ylim([0,2.])
             if ant == 0:
                 ax2[pol,ant].set_ylabel('Phase (radian)')
+                ax3[pol,ant].set_ylabel('Amplitude')
             else:
                 ax2[pol,ant].set_yticks([])
+                ax3[pol,ant].set_yticks([])
             if pol == 1 and ant ==0:
                 ax2[pol,ant].set_xlabel('Band #')
+                ax3[pol,ant].set_xlabel('Band #')
             if pol == 0:
                 ax2[pol,ant].set_title('Ant '+str(ant+1))
                 ax2[pol,ant].set_xticks([])
+                ax3[pol,ant].set_title('Ant '+str(ant+1))
+                ax3[pol,ant].set_xticks([])
     refcal=vis_
-    timestamp=Time(np.mean(timeavg),format='jd')
-    return refcal, flag, timestamp
+    timestamp = Time(np.mean(timeavg),format='jd')
+    timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd)/2.,format='jd') 
+    return refcal, flag, timestamp, timestamp_gcal
 
 
         
