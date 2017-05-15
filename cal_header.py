@@ -572,7 +572,7 @@ def send_xml2sql(type=None, t=None, test=False, nant=None, nfrq=None):
         defn_version = float(key) + xmlver / 10.  # Version number expected
         # Retrieve most recent key.0 record and check its version against the expected one
         query = 'select top 1 * from abin where Version = ' + str(key) + '.0 and Timestamp <= ' + str(
-            timestamp) + ' order by Timestamp desc'
+            timestamp) + ' order by Timestamp desc, Id desc'
         # print 'Executing query'
         outdict, msg = dbutil.do_query(cursor, query)
         # print msg
@@ -633,7 +633,7 @@ def read_cal_xml(type, t=None):
     cursor = dbutil.get_cursor()
     # Read type definition XML from abin table
     query = 'select top 1 * from abin where Version = ' + str(type) + '.0 and Timestamp <=' + str(
-        timestamp) + ' order by Timestamp desc'
+        timestamp) + ' order by Timestamp desc, Id desc'
     sqldict, msg = dbutil.do_query(cursor, query)
     if msg == 'Success':
         if len(sqldict) == 0:
@@ -669,7 +669,7 @@ def read_cal(type, t=None):
 
     if xmldict != {}:
         query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
-            type + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
+            type + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc, Id desc'
         sqldict, msg = dbutil.do_query(cursor, query)
         cursor.close()
         if msg == 'Success':
@@ -713,10 +713,10 @@ def read_calX(caltype, t=None):
         if tislist:
             query = 'set textsize 2147483647 select * from abin where Version = ' + str(
                 caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp[0]) + ' and Timestamp <= ' + str(
-                timestamp[1]) + ' order by Timestamp desc'
+                timestamp[1]) + ' order by Timestamp desc, Id desc'
         else:
             query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
-                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc'
+                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc, Id desc'
 
         sqldict, msg = dbutil.do_query(cursor, query)
         cursor.close()
@@ -799,7 +799,7 @@ def write_cal(type, buf, t=None):
     cursor = dbutil.get_cursor()
     # Read type definition XML from abin table and do a sanity check
     query = 'select top 1 * from abin where Version = ' + str(int(type)) + '.0 and Timestamp <=' + str(
-        timestamp) + ' order by Timestamp desc'
+        timestamp) + ' order by Timestamp desc, Id desc'
     outdict, msg = dbutil.do_query(cursor, query)
     if msg == 'Success':
         if len(outdict) == 0:
@@ -1220,7 +1220,6 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal = None):
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
-
     # Write timestamp of gaincal
     buf = struct.pack('d', int(tgcal.lv))
 
