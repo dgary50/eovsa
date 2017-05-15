@@ -71,7 +71,7 @@ def cal_types():
         will be written into the Description field of the aBin table.
         A new type can be added at the end--there is no significance to
         the type number--it is just a unique ordinal.
-        
+
         Although not strictly necessary, in case one of these definitions
         is changed in any way, it is good practice to increment the version
         number, given as the last element of each type.        
@@ -386,7 +386,7 @@ def dcm_attn_val2xml():
     buf += str2bin('</DBL>')
 
     # List of real part of attenuations (nant x npol x nbits) (4 x 2 x 16).
-    # Note inverted order of dimensions  
+    # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>DCM_Attn_Real</Name>')
     buf += str2bin(
@@ -394,7 +394,7 @@ def dcm_attn_val2xml():
     buf += str2bin('</Array>')
 
     # List of real part of attenuations (nant x npol x nbits) (4 x 2 x 16).
-    # Note inverted order of dimensions  
+    # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>DCM_Attn_Imag</Name>')
     buf += str2bin(
@@ -438,8 +438,8 @@ def fem_attn2xml():
     buf += str2bin('</DBL>')
 
     # List of real part of attenuations (nant x npol x natt x nbits) (5 x 2 x 2 x 16).
-    # The natt = 2 is due to the fact that the FEM has two attenuators.  
-    # Note inverted order of dimensions  
+    # The natt = 2 is due to the fact that the FEM has two attenuators.
+    # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>FEM_Attn_Real</Name>')
     buf += str2bin(
@@ -447,8 +447,8 @@ def fem_attn2xml():
     buf += str2bin('</Array>')
 
     # List of real part of attenuations (nant x npol x natt x nbits) (5 x 2 x 2 x 16).
-    # The natt = 2 is due to the fact that the FEM has two attenuators.  
-    # Note inverted order of dimensions  
+    # The natt = 2 is due to the fact that the FEM has two attenuators.
+    # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>FEM_Attn_Imag</Name>')
     buf += str2bin(
@@ -464,7 +464,6 @@ def fem_attn2xml():
 def refcal2xml():
     ''' Writes the XML description of the reference calibration table.
         The values are complex numbers.
-
         Returns a binary representation of the xml text file, for 
         putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
@@ -529,10 +528,10 @@ def send_xml2sql(type=None, t=None, test=False, nant=None, nfrq=None):
         is added or changed.  If type is provided (i.e. not None), only 
         the given type will be updated (and only if its internal version 
         number has changed).
-        
+
         The timestamp of the new record will be set according to the Time()
         object t, if provided, or the current time if not.
-        
+
         As a debugging tool, if test is True, this routine goes through the
         motions but does not write to the abin table.
     '''
@@ -610,7 +609,7 @@ def send_xml2sql(type=None, t=None, test=False, nant=None, nfrq=None):
 def read_cal_xml(type, t=None):
     ''' Read the calibration type definition xml record of the given type, for the 
         given time (as a Time() object), or for the current time if None.
-        
+
         Returns a dictionary of look-up information and its internal version.  A side-effect
         is that a file /tmp/type<n>.xml is created, where <n> is the type.
     '''
@@ -650,7 +649,7 @@ def read_cal_xml(type, t=None):
 def read_cal(type, t=None):
     ''' Read the calibration data of the given type, for the given time (as a Time() object),
         or for the current time if None.
-        
+
         Returns a dictionary of look-up information and a binary buffer containing the 
         calibration record.
     '''
@@ -684,7 +683,7 @@ def read_cal(type, t=None):
 def read_calX(caltype, t=None):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
         or for the current time if None.
-        
+
         Returns a dictionary of look-up information and a binary buffer containing the 
         calibration record. If time-range is provided, a list of binary buffers will be returned.
     '''
@@ -771,13 +770,13 @@ def write_cal(type, buf, t=None):
         for the given time (as a Time() object), or for the current time if None.
         Typcially, the time should refer to when the calibration data were taken,
         so the correct time object should be provided.
-        
+
         The type keyword is a real number whose integer part indicates the type
         definition.  The fractional part must not be 0 (since this would indicate
         a type definition record rather than a data record).  The relevant type 
         definition is read from the database, and its total size is determined and 
         compared with the buffer size, as a sanity check.
-        
+
         Returns True if success, or False if failure.
     '''
     import dbutil, read_xml2, sys
@@ -822,7 +821,7 @@ def write_cal(type, buf, t=None):
 
 def proto_tpcal2sql(filename, t=None):
     ''' Writes prototype TP calibration data as a record into SQL server table abin
-    
+
         This kind of record is type definition 1.
     '''
     typedef = 1
@@ -849,7 +848,7 @@ def proto_tpcal2sql(filename, t=None):
     # For TP calibration, must explicitly write xml for this nant and nfrq, since
     # the definition changes if nant and nfrq change
     send_xml2sql(typedef, t, nant=nant, nfrq=nfi)
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -885,7 +884,7 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
     if t is None:
         t = util.Time.now()
     if tbl is None:
-        # Check the format of the input file and see if it is a file or a python list    
+        # Check the format of the input file and see if it is a file or a python list
         try:
             # Open and read DCM_master_table.txt file
             if type(filename) is str:
@@ -910,7 +909,7 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
         bands = np.linspace(1, 34, 34).astype(int)
         attn = tbl[:, :30]
 
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -949,7 +948,7 @@ def dcm_table2sql(filename, t=None):
     except:
         print 'Error: Could not open/read file', filename
         return False
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -963,7 +962,7 @@ def dcm_table2sql(filename, t=None):
 def dla_update2sql(dla_update, xy_delay=None, t=None):
     ''' Write delay_center updates to SQL server table abin,
         with the timestamp given by Time() object t (or current time, if none)
-        
+
         Input:
           dla_update   a 14-element array of delay differences [ns], already
                           coverted to be relative to Ant 1
@@ -976,7 +975,7 @@ def dla_update2sql(dla_update, xy_delay=None, t=None):
     typedef = 4
     ver = cal_types()[typedef][2]
     if t is None:
-        # If no time is defined, use the current time 
+        # If no time is defined, use the current time
         t = util.Time.now()
     if xy_delay is None:
         # If no xy_delay was given, use zeros
@@ -990,7 +989,7 @@ def dla_update2sql(dla_update, xy_delay=None, t=None):
     dcen[:14, 0] -= rel_dla_ns
     dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
 
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1005,7 +1004,7 @@ def dla_censql2table(t=None, acc=True):
     ''' Reads current database contents for delay centers and writes
         them out as a text table to a fixed location, /tmp/delay_centers.txt,
         and optionally sends the file to the ACC (for use by dppxmp).
-        
+
         acc   boolean: if True (default), write the file to the ACC.
     '''
     import time
@@ -1046,7 +1045,7 @@ def dla_censql2table(t=None, acc=True):
 def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
     ''' Write delays given in file filename to SQL server table abin
         with the timestamp given by Time() object t (or current time, if none)
-        
+
         This kind of record is type definition 4.
     '''
     typedef = 4
@@ -1068,7 +1067,7 @@ def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
         print 'Error: Could not open/read file', filename
         return False
 
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1082,7 +1081,7 @@ def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
 def eq_gain2sql(coeff, ver=1.0, t=None):
     ''' Write coefficients to SQL server table abin, with the timestamp 
         given by Time() object t (or current time, if none)
-        
+
         This kind of record is type definition 5.  This data type
         can have many "versions," i.e. tables, for different source
         types.  In particular, we will have one for calibrators and
@@ -1094,7 +1093,7 @@ def eq_gain2sql(coeff, ver=1.0, t=None):
     if t is None:
         t = util.Time.now()
 
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1111,7 +1110,7 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
     ''' Write measured DCM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
-        
+
         This kind of record is type definition 6.
     '''
     typedef = 6
@@ -1119,7 +1118,7 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
     if t is None:
         t = util.Time.now()
 
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1147,7 +1146,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     ''' Write measured FEM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
-        
+
         attn   a complex array of attenuator values, in dB, of shape 
                (16,2,2,5) corresponding to (nant, natt, npol, nbits)
                where 
