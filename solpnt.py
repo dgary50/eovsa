@@ -132,7 +132,7 @@ def get_solpnt(t=None):
         good, = np.where(tstamps >= timestamp)
         # This is the timestamp of the first SOLPNTCAL scan after given time
         if len(good) == 1:
-            stimestamp = np.int(tstamps[good])
+            stimestamp = np.int(tstamps[good[0]])
         else:
             stimestamp = np.int(tstamps[good][0])
     else:
