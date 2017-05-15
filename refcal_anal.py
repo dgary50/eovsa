@@ -49,11 +49,13 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     flist = []
     status = []
     tstlist = []
+    tedlist = []
     srclist = []
     for i in range(len(tslist)):
         if tslist[i].jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
             flist.append(fpath+ufdb['FILE'][scanidx[i]].astype('str'))
             tstlist.append(tslist[i])
+            tedlist.append(telist[i])
             srclist.append(ufdb['SOURCEID'][scanidx[i]])
             k += 1
         
@@ -63,7 +65,7 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     else: 
         print 'Found',k,'scans in timerange.'
 
-    return {'scanlist':flist,'srclist':srclist,'tstlist':tstlist}
+    return {'scanlist':flist, 'srclist':srclist, 'tstlist':tstlist, 'tedlist':tedlist}
 
 def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     '''take a time range from the Time object, e.g., trange=Time(['2017-04-08T05:00','2017-04-08T15:30']),
@@ -79,7 +81,6 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     sclist=findfiles(trange,projid,srcid)
     scanlist = sclist['scanlist']
     srclist = sclist['srclist']
-    starttimelist = sclist['tstlist']
 
     # read scans one by one
     nscan=len(scanlist)
@@ -93,31 +94,36 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
         bds,sidx=np.unique(out['band'],return_index=True)
         nbd = len(bds)
         eidx = np.append(sidx[1:],len(out['band'])) 
-        vs = np.zeros((34,15,2,nt),dtype=complex)
+        vs = np.zeros((15, 2, 34, nt),dtype=complex)
         # average over channels within each band
         for b,bd in enumerate(bds):
             for a in range(13): 
                 for pl in range(2):
-                    vs[bd-1,a,pl] = np.mean(out['x'][bl2ord[a,13],pl,sidx[b]:eidx[b]],axis=0)
+                    vs[a,pl,bd-1] = np.mean(out['x'][bl2ord[a,13],pl,sidx[b]:eidx[b]],axis=0)
         vis.append(vs)
         bands.append(bds)
-    return {'scanlist':scanlist,'srclist':srclist,'tstlist':starttimelist,'vis':vis, 'bands':bands, 'times':times} 
+    return {'scanlist':scanlist,'srclist':srclist,'tstlist':sclist['tstlist'],'tedlist':sclist['tedlist'],
+            'vis':vis, 'bands':bands, 'times':times} 
 
 def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=None, pol=0):
     '''Produce a figure showing phases and amplitudes of selected antennas, bands, and polarization.
        Optionally takes in a time averaged value 'visavg' to show the selected time range and plot the
        averaged phase and amplitudes'''
     # takes input from rd_refcal (out)
-    date_format = mdates.DateFormatter('%H')
+    date_format = mdates.DateFormatter('%H:%M')
     # make a color plot showing the phase
     # ri.summary_plot_pcal(out)
     if scanidx:
         scanlist=[out['scanlist'][i] for i in scanidx]
+        tstlist=[out['tstlist'][i] for i in scanidx]
+        tedlist=[out['tedlist'][i] for i in scanidx]
         bands=[out['bands'][i] for i in scanidx]
         vis=[out['vis'][i] for i in scanidx]
         times=[out['times'][i] for i in scanidx]
     else:
         scanlist=out['scanlist']
+        tstlist=out['tstlist']
+        tedlist=out['tedlist']
         bands=out['bands']
         vis=out['vis']
         times=out['times']
@@ -135,22 +141,22 @@ def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=Non
         # make plots of phase and amp vs. time on all 34 bands
         for ant in ant_list:
             for b,bd in enumerate(bds0):
-                ph_deg=np.angle(vis[n][bd-1,ant,pol],deg=True)
-                amp=np.abs(vis[n][bd-1,ant,pol])
+                ph_deg=np.angle(vis[n][ant,pol,bd-1],deg=True)
+                amp=np.abs(vis[n][ant,pol,bd-1])
                 ax1[ant,b].plot_date(ts,ph_deg,'.',markersize=5)
                 ax1[ant,b].xaxis.set_major_formatter(date_format)
                 ax2[ant,b].plot_date(ts,amp,'.',markersize=5)
                 ax2[ant,b].xaxis.set_major_formatter(date_format)
                 if visavg:
-                    phavg=np.angle(visavg['vis'][bd-1,ant,pol],deg=True)
-                    ampavg=np.abs(visavg['vis'][bd-1,ant,pol])
-                    flg=visavg['flag'][bd-1,ant,pol]
+                    phavg=np.angle(visavg['vis'][ant,pol,bd-1],deg=True)
+                    ampavg=np.abs(visavg['vis'][ant,pol,bd-1])
+                    flg=visavg['flag'][ant,pol,bd-1]
                     if flg == 0:
                         bt=Time(visavg['time'][0],format='jd').plot_date
                         et=Time(visavg['time'][-1],format='jd').plot_date
                         ax1[ant,b].plot_date([bt,et],[phavg,phavg],'-r')
-                        ax1[ant,b].plot_date([bt,bt],[-200,200],'--b')
-                        ax1[ant,b].plot_date([et,et],[-200,200],'--b')
+                        ax1[ant,b].plot_date([bt,bt],[-200,200],'--k')
+                        ax1[ant,b].plot_date([et,et],[-200,200],'--k')
                         ax2[ant,b].plot_date([bt,et],[ampavg,ampavg],'-r')
                         ax2[ant,b].plot_date([bt,bt],[0,np.max(amp)],'--k')
                         ax2[ant,b].plot_date([et,et],[0,np.max(amp)],'--k')
@@ -172,9 +178,28 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
        scanidx: index numbers of scans to select. Useful when other (undesired) types of observations exist.
        minsnr: minimum signal to noise to consider. Data with smaller SNRs will be flagged (as 1 in the flag array)
        bandplt: bands to show in the figure
+       ***Outputs***
+       refcal: complex array of shape (15, 2, 34) (nant, npol, nband) as the result of the reference calibration
+       flag: int array of shape (15, 2, 34). 0 is unflagged and 1 is flagged.
+       timestamp: midpoint of the time range used for averaging to obtain the refcal values 
     '''
-    times = np.concatenate(out['times'])
-    vis = np.concatenate(out['vis'],axis=3)
+    if scanidx:
+        scanlist=[out['scanlist'][i] for i in scanidx]
+        tstlist=[out['tstlist'][i] for i in scanidx]
+        tedlist=[out['tedlist'][i] for i in scanidx]
+        bands=[out['bands'][i] for i in scanidx]
+        vis=[out['vis'][i] for i in scanidx]
+        times=[out['times'][i] for i in scanidx]
+    else:
+        scanlist=out['scanlist']
+        tstlist=out['tstlist']
+        tedlist=out['tedlist']
+        bands=out['bands']
+        vis=out['vis']
+        times=out['times']
+
+    times = np.concatenate(times)
+    vis = np.concatenate(vis,axis=3)
     if timerange:
         tidx, = np.where((times > timerange[0].jd) & (times < timerange[1].jd))
         vis = vis[:,:,:,tidx]
@@ -194,32 +219,22 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
             #print 'ant: ',ant
             for pol in range(2):
                 #print 'pol: ',pol
-                #ph=np.unwrap(np.angle(vis[bd,ant,pol]))
-                #ph=np.angle(vis[bd,ant,pol])
-                #ph_mean=np.angle(np.nanmean(vis[bd,ant,pol]))
-                amp=np.abs(vis[bd,ant,pol])
-                amp_median=np.median(np.abs(vis[bd,ant,pol]))
-                #ind,=np.where(np.abs(np.angle(vis[bd,ant,pol])-np.angle(vismean[bd,ant,pol])) % (2.*np.pi) < sigma_ph[bd,ant,pol])
-                #ind,=np.where(np.abs(ph-ph_mean) < np.radians(100.))
-                ind, = np.where(np.abs(amp-amp_median) < sigma[bd,ant,pol])
-                snr = amp_median/sigma[bd,ant,pol]
+                amp=np.abs(vis[ant,pol,bd])
+                amp_median=np.median(np.abs(vis[ant,pol,bd]))
+                ind, = np.where(np.abs(amp-amp_median) < sigma[ant,pol,bd])
+                snr = amp_median/sigma[ant,pol,bd]
                 #pdb.set_trace()
                 if snr < minsnr or np.isnan(snr):
-                    flag[bd,ant,pol]=1
+                    flag[ant,pol,bd]=1
                 else:
                     if len(ind) > len(timeavg)/2:
-                        vis_[bd,ant,pol]=np.nanmean(vis[bd,ant,pol,ind])
+                        vis_[ant,pol,bd]=np.nanmean(vis[ant,pol,bd,ind])
                     else:
-                        vis_[bd,ant,pol]=np.nanmean(vis[bd,ant,pol])
-                        flag[bd,ant,pol]=1
+                        vis_[ant,pol,bd]=np.nanmean(vis[ant,pol,bd])
+                        flag[ant,pol,bd]=1
                 #print '# of valid datapoints: ',len(ind)
-                #pdb.set_trace()
-                #if len(ind) > len(timeavg)/2: #at least half of the data points are good
-                #    vis_[bd,ant,pol]=np.nanmean(vis[bd,ant,pol,ind])
-                #else:
-                #    flag[bd,ant,pol]=1
         # count how many datapoints are flagged in a given band
-        nflag = np.count_nonzero(flag[bd,:13])
+        nflag = np.count_nonzero(flag[:13,:,bd])
         print '{0:d} of 26 measurements are flagged due to SNR < {1:.1f} in Band {2:d}'.format(nflag,minsnr,bd+1)
     #flag zero values (e.g., antennas or bands not observed)
     zeroind = np.where(np.abs(vis_ == 0))
@@ -227,25 +242,35 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
     visavg = {'pha':np.angle(vis_),'amp':np.abs(vis_), 'vis':vis_, 'time':timeavg, 'flag':flag}
     graph(out,visavg,scanidx=scanidx,bandplt=bandplt)
     f2, ax2 = plt.subplots(2,13,figsize=(12,5)) 
+    f3, ax3 = plt.subplots(2,13,figsize=(12,5)) 
     allbands=np.arange(34)+1
     for ant in range(13):
         for pol in range(2):
-            ind,=np.where(flag[:,ant,pol] == 0)
-            ax2[pol,ant].plot(allbands[ind],np.unwrap(visavg['pha'][ind,ant,pol]),'.',markersize=5)
+            ind,=np.where(flag[ant,pol,:] == 0)
+            ax2[pol,ant].plot(allbands[ind],np.unwrap(visavg['pha'][ant,pol,ind]),'.',markersize=5)
             ax2[pol,ant].set_ylim([-20,20])
             ax2[pol,ant].set_xlim([1,34])
+            ax3[pol,ant].plot(allbands[ind],visavg['amp'][ant,pol,ind],'.',markersize=5)
+            ax3[pol,ant].set_xlim([1,34])
+            ax3[pol,ant].set_ylim([0,2.])
             if ant == 0:
                 ax2[pol,ant].set_ylabel('Phase (radian)')
+                ax3[pol,ant].set_ylabel('Amplitude')
             else:
                 ax2[pol,ant].set_yticks([])
+                ax3[pol,ant].set_yticks([])
             if pol == 1 and ant ==0:
                 ax2[pol,ant].set_xlabel('Band #')
+                ax3[pol,ant].set_xlabel('Band #')
             if pol == 0:
                 ax2[pol,ant].set_title('Ant '+str(ant+1))
                 ax2[pol,ant].set_xticks([])
+                ax3[pol,ant].set_title('Ant '+str(ant+1))
+                ax3[pol,ant].set_xticks([])
     refcal=vis_
-    timestamp=Time(np.mean(timeavg),format='jd')
-    return refcal, flag, timestamp
+    timestamp = Time(np.mean(timeavg),format='jd')
+    timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd)/2.,format='jd') 
+    return refcal, flag, timestamp, timestamp_gcal
 
 
         
