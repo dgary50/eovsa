@@ -15,8 +15,8 @@ import pdb
 import chan_util_bc as cu
 bl2ord = p.bl_list()
 
-# identify REFCAL files
 def findfiles(trange, projid='PHASECAL', srcid=None):
+    '''identify refcal files'''
     from util import nearest_val_idx
     import struct, time, glob, sys, socket
     import dump_tsys
@@ -66,7 +66,14 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     return {'scanlist':flist,'srclist':srclist,'tstlist':tstlist}
 
 def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
-    # takes input from findfiles (sclist)
+    '''take a time range from the Time object, e.g., trange=Time(['2017-04-08T05:00','2017-04-08T15:30']),
+       a projectid, and source id, return visibility data for all baselines correlated with ant 14.
+       **Optional keywords***
+       projid: string -- predefined PROJECTID when setting up the observations. Default is 'PHASECAL'
+       srcid: string -- if provided, then only use the specified source. E.g., '1229+020' is often used for
+              reference calibration
+       quackint: interval in seconds to skip at the beginning of each scan
+    '''
     import struct, time, glob, sys, socket
     import dbutil as db
     sclist=findfiles(trange,projid,srcid)
@@ -80,7 +87,7 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     bands = []
     times = []
     for n, scan in enumerate(scanlist):
-        out = ri.read_idb([scan],quackint=quackint)
+        out = ri.read_idb([scan],navg=3,quackint=quackint)
         times.append(out['time'])
         nt = len(out['time'])
         bds,sidx=np.unique(out['band'],return_index=True)
@@ -96,7 +103,10 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
         bands.append(bds)
     return {'scanlist':scanlist,'srclist':srclist,'tstlist':starttimelist,'vis':vis, 'bands':bands, 'times':times} 
 
-def graph(out, visavg=None, ant_str='ant1-13', scanidx=None,pol=0):
+def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=None, pol=0):
+    '''Produce a figure showing phases and amplitudes of selected antennas, bands, and polarization.
+       Optionally takes in a time averaged value 'visavg' to show the selected time range and plot the
+       averaged phase and amplitudes'''
     # takes input from rd_refcal (out)
     date_format = mdates.DateFormatter('%H')
     # make a color plot showing the phase
@@ -115,52 +125,115 @@ def graph(out, visavg=None, ant_str='ant1-13', scanidx=None,pol=0):
     nscan=len(scanlist)
     ant_list = p.ant_str2list(ant_str)
     nant = len(ant_list)
-    bds0=[4,6,8,10,12,14]
+    bds0=bandplt
     nband = len(bds0)
-    f, ax = plt.subplots(nant,nband,figsize=(12,8))
+    f1, ax1 = plt.subplots(nant,nband,figsize=(12,8))
+    f2, ax2 = plt.subplots(nant,nband,figsize=(12,8))
     for n, scan in enumerate(scanlist):
         ts = Time(times[n],format='jd').plot_date
-        #if n == 0:
-        #    bds0 = bands[0] 
-        #    nband = len(bds0)
 
-        # make a line plot of phase vs. time on all 34 bands
+        # make plots of phase and amp vs. time on all 34 bands
         for ant in ant_list:
             for b,bd in enumerate(bds0):
-                ax[ant,b].plot_date(ts,np.degrees(np.angle(vis[n][bd-1,ant,pol])),'.',markersize=1)
-                ax[ant,b].xaxis.set_major_formatter(date_format)
+                ph_deg=np.angle(vis[n][bd-1,ant,pol],deg=True)
+                amp=np.abs(vis[n][bd-1,ant,pol])
+                ax1[ant,b].plot_date(ts,ph_deg,'.',markersize=5)
+                ax1[ant,b].xaxis.set_major_formatter(date_format)
+                ax2[ant,b].plot_date(ts,amp,'.',markersize=5)
+                ax2[ant,b].xaxis.set_major_formatter(date_format)
                 if visavg:
-                    phavg=np.degrees(np.angle(visavg['vis'][bd-1,ant,pol]))
-                    bt=Time(visavg['time'][0],format='jd').plot_date
-                    et=Time(visavg['time'][-1],format='jd').plot_date
-                    ax[ant,b].plot_date([bt,et],[phavg,phavg],'-r')
-                    ax[ant,b].plot_date([bt,bt],[-200,200],'--b')
-                    ax[ant,b].plot_date([et,et],[-200,200],'--b')
-                ax[ant,b].set_ylim([-180.,180.])
+                    phavg=np.angle(visavg['vis'][bd-1,ant,pol],deg=True)
+                    ampavg=np.abs(visavg['vis'][bd-1,ant,pol])
+                    flg=visavg['flag'][bd-1,ant,pol]
+                    if flg == 0:
+                        bt=Time(visavg['time'][0],format='jd').plot_date
+                        et=Time(visavg['time'][-1],format='jd').plot_date
+                        ax1[ant,b].plot_date([bt,et],[phavg,phavg],'-r')
+                        ax1[ant,b].plot_date([bt,bt],[-200,200],'--b')
+                        ax1[ant,b].plot_date([et,et],[-200,200],'--b')
+                        ax2[ant,b].plot_date([bt,et],[ampavg,ampavg],'-r')
+                        ax2[ant,b].plot_date([bt,bt],[0,np.max(amp)],'--k')
+                        ax2[ant,b].plot_date([et,et],[0,np.max(amp)],'--k')
+                ax1[ant,b].set_ylim([-180.,180.])
                 if ant == 0:
-                    ax[ant,b].set_title('Band '+str(bd))
+                    ax1[ant,b].set_title('Band '+str(bd))
+                    ax2[ant,b].set_title('Band '+str(bd))
                 if b == 0:
-                    ax[ant,b].text(-0.6,0.5,'Ant '+str(ant+1),ha='center',va='center',transform=ax[ant,b].transAxes,fontsize=10)
+                    ax1[ant,b].text(-0.4,0.5,'Ant '+str(ant+1),ha='center',va='center',transform=ax1[ant,b].transAxes,fontsize=10)
+                    ax2[ant,b].text(-0.4,0.5,'Ant '+str(ant+1),ha='center',va='center',transform=ax2[ant,b].transAxes,fontsize=10)
                 else:
-                    ax[ant,b].set_yticks([])
-    return f,ax
+                    ax1[ant,b].set_yticks([])
+                    ax2[ant,b].set_yticks([])
 
-def refcal_anal(out,timerange=None,scanidx=None):
+def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,22]):
+    '''Analyze the visibility data from rd_refcal and return time averaged visibility values and flags.
+       ***Optional Keywords***
+       timerange: time range to obtain the average. E.g., timerange=Time(['2017-04-08T05:00','2017-04-08T07:00'])
+       scanidx: index numbers of scans to select. Useful when other (undesired) types of observations exist.
+       minsnr: minimum signal to noise to consider. Data with smaller SNRs will be flagged (as 1 in the flag array)
+       bandplt: bands to show in the figure
+    '''
     times = np.concatenate(out['times'])
     vis = np.concatenate(out['vis'],axis=3)
     if timerange:
         tidx, = np.where((times > timerange[0].jd) & (times < timerange[1].jd))
         vis = vis[:,:,:,tidx]
         timeavg = times[tidx]
-    vis_ = np.mean(vis,axis=3)
-    flag = np.zeros(vis_.shape)
+    else:
+        timeavg = times
+    #vismean = np.nanmean(np.angle(vis),axis=3)
+    vis_ = np.zeros(vis.shape[:3],dtype=complex)
+    flag = np.zeros(vis.shape[:3],dtype=int)
+    # compute standard deviation of the phases
+    sigma = np.nanstd(vis,axis=3)
+    #sigma = np.nanstd(np.abs(vis),axis=3)
+    # mask out records with phases > 3 sigma
+    for bd in range(34):
+        #print 'band: ',bd
+        for ant in range(13):
+            #print 'ant: ',ant
+            for pol in range(2):
+                #print 'pol: ',pol
+                #ph=np.unwrap(np.angle(vis[bd,ant,pol]))
+                #ph=np.angle(vis[bd,ant,pol])
+                #ph_mean=np.angle(np.nanmean(vis[bd,ant,pol]))
+                amp=np.abs(vis[bd,ant,pol])
+                amp_median=np.median(np.abs(vis[bd,ant,pol]))
+                #ind,=np.where(np.abs(np.angle(vis[bd,ant,pol])-np.angle(vismean[bd,ant,pol])) % (2.*np.pi) < sigma_ph[bd,ant,pol])
+                #ind,=np.where(np.abs(ph-ph_mean) < np.radians(100.))
+                ind, = np.where(np.abs(amp-amp_median) < sigma[bd,ant,pol])
+                snr = amp_median/sigma[bd,ant,pol]
+                #pdb.set_trace()
+                if snr < minsnr or np.isnan(snr):
+                    flag[bd,ant,pol]=1
+                else:
+                    if len(ind) > len(timeavg)/2:
+                        vis_[bd,ant,pol]=np.nanmean(vis[bd,ant,pol,ind])
+                    else:
+                        vis_[bd,ant,pol]=np.nanmean(vis[bd,ant,pol])
+                        flag[bd,ant,pol]=1
+                #print '# of valid datapoints: ',len(ind)
+                #pdb.set_trace()
+                #if len(ind) > len(timeavg)/2: #at least half of the data points are good
+                #    vis_[bd,ant,pol]=np.nanmean(vis[bd,ant,pol,ind])
+                #else:
+                #    flag[bd,ant,pol]=1
+        # count how many datapoints are flagged in a given band
+        nflag = np.count_nonzero(flag[bd,:13])
+        print '{0:d} of 26 measurements are flagged due to SNR < {1:.1f} in Band {2:d}'.format(nflag,minsnr,bd+1)
+    #flag zero values (e.g., antennas or bands not observed)
+    zeroind = np.where(np.abs(vis_ == 0))
+    flag[zeroind]=1
     visavg = {'pha':np.angle(vis_),'amp':np.abs(vis_), 'vis':vis_, 'time':timeavg, 'flag':flag}
-    f1, ax1 = graph(out,visavg,scanidx=scanidx)
+    graph(out,visavg,scanidx=scanidx,bandplt=bandplt)
     f2, ax2 = plt.subplots(2,13,figsize=(12,5)) 
+    allbands=np.arange(34)+1
     for ant in range(13):
         for pol in range(2):
-            ax2[pol,ant].plot(np.arange(34)+1,np.unwrap(visavg['pha'][:,ant,pol]),'.',markersize=5)
+            ind,=np.where(flag[:,ant,pol] == 0)
+            ax2[pol,ant].plot(allbands[ind],np.unwrap(visavg['pha'][ind,ant,pol]),'.',markersize=5)
             ax2[pol,ant].set_ylim([-20,20])
+            ax2[pol,ant].set_xlim([1,34])
             if ant == 0:
                 ax2[pol,ant].set_ylabel('Phase (radian)')
             else:
@@ -170,8 +243,9 @@ def refcal_anal(out,timerange=None,scanidx=None):
             if pol == 0:
                 ax2[pol,ant].set_title('Ant '+str(ant+1))
                 ax2[pol,ant].set_xticks([])
-
-    return visavg
+    refcal=vis_
+    timestamp=Time(np.mean(timeavg),format='jd')
+    return refcal, flag, timestamp
 
 
         

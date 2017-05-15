@@ -464,6 +464,7 @@ def fem_attn2xml():
 def refcal2xml():
     ''' Writes the XML description of the reference calibration table.
         The values are complex numbers.
+
         Returns a binary representation of the xml text file, for 
         putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
