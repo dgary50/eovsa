@@ -1451,3 +1451,198 @@ def funrot_miriad(filename,timeit=False,post=''):
     if timeit:
         print 'Done after',time.time() - ts,'s'
     return
+
+def applycal_miriad(filename,tcal=None,timeit=False):
+    ''' Given a Miriad UV filename, and a Time() object corresponding to
+        a reference calibration time, read the gain state of the refcal
+        and the gain state for the period of the file, and apply the gain
+        differences on each baseline, and write out a new file.
+    '''
+    import gaincal2 as gc
+    one_minute = 60./86400.  # 1 minute, expressed in days
+    if timeit:
+        import time
+        ts = time.time()
+    # Get the gain state of the refcal
+    trange = Time([tcal.iso,Time(tcal.lv+61,format='lv').iso])
+    rc_gs =  gc.get_gain_state(trange)  # refcal gain state for 60 s
+    # Get median of refcal gain state (which should be constant anyway)
+    rc_gs['h1'] = np.median(rc_gs['h1'],1)
+    rc_gs['h2'] = np.median(rc_gs['h2'],1)
+    rc_gs['v1'] = np.median(rc_gs['v1'],1)
+    rc_gs['v2'] = np.median(rc_gs['v2'],1)
+    tsun = fname2mjd(filename)
+    # Read ample timerange to ensure coverage
+    trange = Time([tsun-2./86400.,tsun+602./86400.],format='mjd')
+    sc_gs = gc.get_gain_state(trange)   # solar gain state for timerange of file
+    # Open existing Miriad file
+    try:
+        uvi = aipy.miriad.UV(filename)
+    except:
+        print 'Error opening Miriad file',filename
+        return
+    # Create giant array of gains, translated to baselines and frequencies
+    nt = len(sc_gs['times'])
+    jd = Time(sc_gs['times'],format='lv').jd
+    fghz = uvi['sfreq']
+    nf = len(fghz)
+    blist = (fghz*2 - 1).astype(int) - 1
+    nact = 13  # Actual number of antennas to use
+    antgain = np.zeros((nact,2,34,nt),float)   # Antenna-based gains vs. band
+    gain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
+    for i in range(nact):
+        for j in range(34):
+            antgain[i,0,j] = sc_gs['h1'][i] + sc_gs['h2'][i] - rc_gs['h1'][i] - rc_gs['h2'][i] + sc_gs['dcmattn'][i,0,j] - rc_gs['dcmattn'][i,0,j]
+            antgain[i,1,j] = sc_gs['v1'][i] + sc_gs['v2'][i] - rc_gs['v1'][i] - rc_gs['v2'][i] + sc_gs['dcmattn'][i,1,j] - rc_gs['dcmattn'][i,1,j]
+    for i in range(nact-1):
+        for j in range(i+1,nact):
+             gain[bl2ord[i,j],0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
+             gain[bl2ord[i,j],1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
+             gain[bl2ord[i,j],2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
+             gain[bl2ord[i,j],3] = 10**((antgain[i,1,blist] + antgain[j,0,blist])/20.)
+             
+    # Create new file in current directory (this will have to be changed to
+    # something more rational after testing...)
+    try:
+        outfile = os.path.basename(filename)
+        uvo = aipy.miriad.UV(outfile, status='new',corrmode='j')
+        uvo.init_from_uv(uvi)
+    except:
+        print 'Could not open new Miriad file in current directory',outfile
+        return
+    # Do some sanity checks on this Miriad file
+    npol = uvi['npol']
+    if npol != 4:
+        print 'Expecting four polarizations in this Miriad file, but got',npol
+        return
+    # Do test read of file to find out how many good frequencies:
+    preamble, data = uvi.read()
+    ifgood, = data.nonzero()
+    uvi.rewind()
+    nant = uvi['nants']
+    nbl = nant*(nant-1)/2
+    nbla = nbl + nant
+
+    if timeit:
+        print 'Gain states have been calculated.',time.time() - ts,'s'
+    # Read a block of data for the current time, which consists of NBLA data samples
+    # for each of 4 polarizations
+    tprev = 0  # Indicates a time change, so that time lookup only happens then
+    # Lists of premable-data pairs, one for each polarization
+    XX = []
+    YY = []
+    XY = []
+    YX = []
+    cnt_in = -1
+    cnt_out = 0
+    for pd in uvi.all():
+        cnt_in += 1
+        if pd[0][1] != tprev:
+            # Got a new time, so process current data and write it out
+            if tprev != 0:
+                # Find time index in gain array nearest to this time
+                idx, = nearest_val_idx([tprev],jd)
+                for ibl in range(len(XX)):
+                    # Step through baselines, rotating the data according to the matrix
+                    i0, j0 =  XX[ibl][0][2]
+                    if i0 == j0:
+                        # This is an auto-correlation, so nothing to do
+                        pass
+                    elif i0 >= nact or j0 >= nact:
+                        # Skip over baselines with non-existent antennas
+                        pass
+                    else:
+                        # Loop over non-zero frequencies, applying gain factor to each
+                        k = XX[ibl][1].nonzero()[0]
+                        # Data vector for this baseline and frequency
+                        XX[ibl][1][k] *= gain[bl2ord[i0,j0],0,k,idx]
+                        YY[ibl][1][k] *= gain[bl2ord[i0,j0],1,k,idx]
+                        XY[ibl][1][k] *= gain[bl2ord[i0,j0],2,k,idx]
+                        YX[ibl][1][k] *= gain[bl2ord[i0,j0],3,k,idx]
+                uvo['pol'] = -5
+                for ibl in range(nbla):
+                    cnt_out += 1
+                    uvo.write(XX[ibl][0],XX[ibl][1])
+                uvo['pol'] = -6
+                for ibl in range(nbla):
+                    cnt_out += 1
+                    uvo.write(YY[ibl][0],YY[ibl][1])
+                uvo['pol'] = -7
+                for ibl in range(nbla):
+                    cnt_out += 1
+                    uvo.write(XY[ibl][0],XY[ibl][1])
+                uvo['pol'] = -8
+                for ibl in range(nbla):
+                    cnt_out += 1
+                    uvo.write(YX[ibl][0],YX[ibl][1])
+                #print '.',
+                #if (cnt_out % (136*4*50)) == 0:
+                #    print ' '
+                XX = []
+                YY = []
+                XY = []
+                YX = []
+                # Things to do on getting a new time--update variables:
+                uvo['ut'] = uvi['ut']
+                if 'lst' in uvi.vartable:
+                    uvo['lst'] = uvi['lst']
+                else:
+                    uvo['lst'] = 0.0
+                uvo['xsampler'] = uvi['xsampler']
+                uvo['ut'] = uvi['ut']
+                uvo['ysampler'] = uvi['ysampler']
+                uvo['delay'] = uvi['delay']
+            tprev = pd[0][1]
+            # Find nearest index in parallactic angles array, for this new time
+            idx = nearest_val_idx([tprev],jd)
+        # Separate data into the four polarizations
+        if uvi['pol'] == -5:
+            XX.append(pd)
+        elif uvi['pol'] == -6:
+            YY.append(pd)
+        elif uvi['pol'] == -7:
+            XY.append(pd)
+        elif uvi['pol'] == -8:
+            YX.append(pd)
+        else:
+            print 'Error-unrecognized polarization.'
+            return
+    # Don't forget to write out the last time sample
+    # Find time index in gain array nearest to this time
+    idx, = nearest_val_idx([tprev],jd)
+    for ibl in range(len(XX)):
+        # Step through baselines, rotating the data according to the matrix
+        i0, j0 =  XX[ibl][0][2]
+        if i0 == j0:
+            # This is an auto-correlation, so nothing to do
+            pass
+        elif i0 >= nact or j0 >= nact:
+            # Skip over baselines with non-existent antennas
+            pass
+        else:
+            # Loop over non-zero frequencies, applying gain factor to each
+            k = XX[ibl][1].nonzero()[0]
+            # Data vector for this baseline and frequency
+            XX[ibl][1][k] *= gain[bl2ord[i0,j0],0,k,idx]
+            YY[ibl][1][k] *= gain[bl2ord[i0,j0],1,k,idx]
+            XY[ibl][1][k] *= gain[bl2ord[i0,j0],2,k,idx]
+            YX[ibl][1][k] *= gain[bl2ord[i0,j0],3,k,idx]
+    uvo['pol'] = -5
+    for ibl in range(nbla):
+        cnt_out += 1
+        uvo.write(XX[ibl][0],XX[ibl][1])
+    uvo['pol'] = -6
+    for ibl in range(nbla):
+        cnt_out += 1
+        uvo.write(YY[ibl][0],YY[ibl][1])
+    uvo['pol'] = -7
+    for ibl in range(nbla):
+        cnt_out += 1
+        uvo.write(XY[ibl][0],XY[ibl][1])
+    uvo['pol'] = -8
+    for ibl in range(nbla):
+        cnt_out += 1
+        uvo.write(YX[ibl][0],YX[ibl][1])
+    if timeit:
+        print 'Done after',time.time() - ts,'s'
+    return

@@ -151,7 +151,7 @@ def xdata_display(t,ax=None):
         
         Skip SK flagging [2017-Mar-20 DG]
     '''
-    import time
+    import time, os
     import dump_tsys
     #import get_X_data2 as gd
     import read_idb as ri
@@ -200,8 +200,19 @@ def xdata_display(t,ax=None):
             scan = None
         if dt.sec < 1200.:
             # This is a currently active scan, so create the figure
-            for i in range(len(files)):
-                files[i] = '/data1/IDB/'+files[i]
+            path = '/data1/IDB/'
+            if not os.path.isdir(path+files[0]):
+                # Look in /dppdata1
+                datstr = t.iso[:10].replace('-','')
+                path = '/data1/eovsa/fits/IDB/'+datstr+'/'
+                if not os.path.isdir(path+files[0]):
+                    print 'No files found for this scan ID',scan
+                    scan = None
+                    return scan, tlevel, bflag, times
+            filelist = files
+            files = []
+            for i,file in enumerate(filelist):
+                files.append(path+file)
             # data, uvw, fghz, times = gd.get_X_data(files)
             out = ri.read_idb(files)
             #out = ri.flag_sk(out)  # Skip flagging for sk

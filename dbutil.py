@@ -25,6 +25,8 @@
 #      Added get_motor_currents().
 #   2017-Apr-27  DG
 #      Added return of average wind speed to a14_wscram()
+#   2017-May-16  DG
+#      Added get_reboot() for finding ROACH reboot times
 #
 
 import stateframedef
@@ -216,3 +218,29 @@ def get_motor_currents(trange):
     else:
         print msg
         return None,None,None
+
+def get_reboot(trange,previous=False):
+    ''' Get the times of any ROACH (correlator) reboots in the given timerange
+    
+        Returns Time() object of reboots, or None. If previous is True, it
+        returns the time of the previous reboot.
+    '''
+    import numpy as np
+    t0, t1 = trange.lv.astype(np.int)
+    tmjd = trange[0].mjd
+    cursor = get_cursor()
+    ver = find_table_version(cursor,t0,scan_header=True)
+    query = 'select Timestamp,TimeAtAcc0 from hV'+ver+'_vD1 where Timestamp between '+str(t0)+' and '+str(t1)+' order by Timestamp'
+    data, msg = do_query(cursor, query)
+    t0, idx = np.unique(data['TimeAtAcc0'],return_index=True)
+    t_reboot = data['TimeAtAcc0'][idx].astype(float)
+    if previous:
+        pass
+    else:
+        if t_reboot.size == 1:
+            if t_reboot < tmjd:
+                return None
+        elif t_reboot[0] < tmjd:
+            t_reboot = t_reboot[1:]
+    return Time(t_reboot,format='mjd')
+
