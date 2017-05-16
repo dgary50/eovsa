@@ -689,7 +689,7 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=False):
+def read_calX(caltype, t=None, verbose=True):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
         or for the current time if None.
 
@@ -728,8 +728,9 @@ def read_calX(caltype, t=None, verbose=False):
         cursor.close()
         if msg == 'Success':
             if sqldict == {}:
-                print 'Error: Query returned no records.'
-                print query
+                if verbose:
+                    print 'Error: Query returned no records.'
+                    print query
                 return {}, None
             if tislist:
                 buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
@@ -737,14 +738,15 @@ def read_calX(caltype, t=None, verbose=False):
                     print '{} records are found in {} ~ {}.'.format(len(buf), t[0].iso, t[-1].iso)
                     for idx, ll in enumerate(buf):
                         t = Time(stf.extract(ll, xmldict['Timestamp']), format='lv')
-                        print '{} ---> {}'.format(idx, t.iso)
+                        print '{} ---> {}'.format(idx + 1, t.iso)
                 return xmldict, buf
             else:
                 buf = sqldict['Bin'][0]  # Binary representation of data
                 return xmldict, str(buf)
         else:
-            print 'Unknown error occurred reading', typdict[caltype][0]
-            print sys.exc_info()[1]
+            if verbose:
+                print 'Unknown error occurred reading', typdict[caltype][0]
+                print sys.exc_info()[1]
             return {}, None
     else:
         return {}, None
