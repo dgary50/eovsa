@@ -270,7 +270,20 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
     refcal=vis_
     timestamp = Time(np.mean(timeavg),format='jd')
     timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd)/2.,format='jd') 
-    return refcal, flag, timestamp, timestamp_gcal
+    return {'refcal':refcal, 'flag':flag, 't_mid':timestamp, 't_gcal':timestamp_gcal, 
+            't_bg':Time(timeavg[0],format='jd'), 't_end':Time(timeavg[-1],format='jd')}
+
+
+def sql2refcal(t):
+    '''Supply a timestamp in Time format, return the closest refcal data'''
+    import cal_header as ch
+    import stateframe as stf
+    xml, buf = ch.read_cal(8, t=t)
+    refcal = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
+    timestamp = Time(stf.extract(buf, xml['Timestamp']),format='lv')
+    pha = np.angle(refcal)
+    amp = np.absolute(refcal)
+    return {'pha':pha, 'amp':amp, 'timestamp':timestamp}
 
 
         
