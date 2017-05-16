@@ -1206,7 +1206,7 @@ def refcal2sql(rfcal):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
-        rfcal: a dict (refcal, flag, tmid, tgcal)
+        rfcal: a dict (refcal, flag, t_mid, t_gcal)
 
         This kind of record is type definition 8.
     '''
@@ -1230,8 +1230,6 @@ def refcal2sql(rfcal):
         flag = rfcal['flag']
     else:
         flag = np.zeros_like(np.real(rfcal['refcal']))
-    # if tgcal is None:
-    #     tgcal = util.Time.now()
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
