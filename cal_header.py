@@ -59,6 +59,8 @@
 #   2017-05-13  SJ
 #      Added an eighth cal type for reference calibration, and routines
 #      refcal2sql() and refcal2xml()
+#   2017-05-14  SJ
+#      Added read_calX() routine.
 #
 import struct, util
 import stateframe as sf
@@ -687,7 +689,7 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None):
+def read_calX(caltype, t=None, verbose=True):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
         or for the current time if None.
 
@@ -695,17 +697,21 @@ def read_calX(caltype, t=None):
         calibration record. If time-range is provided, a list of binary buffers will be returned.
     '''
     import dbutil, sys
+    import stateframe as stf
+    from util import Time
     if t is None:
         t = util.Time.now()
-    tislist = isinstance(t, list)
 
-    if tislist:
-        timestamp = [int(ll.lv) for ll in t]
-        timestamp = [timestamp[0], timestamp[-1]]
-        xmldict, ver = read_cal_xml(caltype, t[0])
-    else:
+    try:
+        if len(t) >= 2:
+            timestamp = [int(ll.lv) for ll in t]
+            timestamp = [timestamp[0], timestamp[-1]]
+            xmldict, ver = read_cal_xml(caltype, t[0])
+        tislist = True
+    except:
         timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
         xmldict, ver = read_cal_xml(caltype, t)
+        tislist = False
 
     cursor = dbutil.get_cursor()
 
@@ -722,18 +728,25 @@ def read_calX(caltype, t=None):
         cursor.close()
         if msg == 'Success':
             if sqldict == {}:
-                print 'Error: Query returned no records.'
-                print query
+                if verbose:
+                    print 'Error: Query returned no records.'
+                    print query
                 return {}, None
             if tislist:
                 buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
+                if verbose:
+                    print '{} records are found in {} ~ {}.'.format(len(buf), t[0].iso, t[-1].iso)
+                    for idx, ll in enumerate(buf):
+                        t = Time(stf.extract(ll, xmldict['Timestamp']), format='lv')
+                        print '{} ---> {}'.format(idx + 1, t.iso)
                 return xmldict, buf
             else:
                 buf = sqldict['Bin'][0]  # Binary representation of data
                 return xmldict, str(buf)
         else:
-            print 'Unknown error occurred reading', typdict[caltype][0]
-            print sys.exc_info()[1]
+            if verbose:
+                print 'Unknown error occurred reading', typdict[caltype][0]
+                print sys.exc_info()[1]
             return {}, None
     else:
         return {}, None
@@ -1202,19 +1215,34 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return buf  # write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
+def refcal2sql(rfcal):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
+        rfcal: a dict (refcal, flag, t_mid, t_gcal)
 
         This kind of record is type definition 8.
     '''
     typedef = 8
+    if not 'refcal' in rfcal.keys():
+        raise KeyError('Key "refcal" not exist')
     ver = cal_types()[typedef][2]
-    if t is None:
+    if 't_mid' in rfcal.keys():
+        t = rfcal['t_mid']
+    else:
         t = util.Time.now()
-    if tgcal is None:
-        tgcal = util.Time.now()
+    if 't_gcal' in rfcal.keys():
+        tgcal = rfcal['t_gcal']
+    else:
+        if 't_mid' in rfcal.keys():
+            tgcal = t
+        else:
+            tgcal = util.Time.now()
+
+    if 'flag' in rfcal.keys():
+        flag = rfcal['flag']
+    else:
+        flag = np.zeros_like(np.real(rfcal['refcal']))
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
@@ -1224,7 +1252,7 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
     buf += struct.pack('d', int(tgcal.lv))
 
     # Write real part of table
-    rrfcal = np.real(rfcal)
+    rrfcal = np.real(rfcal['refcal'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
@@ -1233,7 +1261,7 @@ def refcal2sql(rfcal, flag, ver=1.0, t=None, tgcal=None):
             buf += struct.pack('34f', *rrfcal[i, j])
 
     # Write imag part of table
-    irfcal = np.imag(rfcal)
+    irfcal = np.imag(rfcal['refcal'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
