@@ -59,6 +59,8 @@
 #   2017-05-13  SJ
 #      Added an eighth cal type for reference calibration, and routines
 #      refcal2sql() and refcal2xml()
+#   2017-05-14  SJ
+#      Added read_calX() routine.
 #
 import struct, util
 import stateframe as sf
@@ -687,7 +689,7 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None):
+def read_calX(caltype, t=None, verbose=False):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
         or for the current time if None.
 
@@ -695,17 +697,21 @@ def read_calX(caltype, t=None):
         calibration record. If time-range is provided, a list of binary buffers will be returned.
     '''
     import dbutil, sys
+    import stateframe as stf
+    from util import Time
     if t is None:
         t = util.Time.now()
-    tislist = isinstance(t, list)
 
-    if tislist:
-        timestamp = [int(ll.lv) for ll in t]
-        timestamp = [timestamp[0], timestamp[-1]]
-        xmldict, ver = read_cal_xml(caltype, t[0])
-    else:
+    try:
+        if len(t) >= 2:
+            timestamp = [int(ll.lv) for ll in t]
+            timestamp = [timestamp[0], timestamp[-1]]
+            xmldict, ver = read_cal_xml(caltype, t[0])
+        tislist = True
+    except:
         timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
         xmldict, ver = read_cal_xml(caltype, t)
+        tislist = False
 
     cursor = dbutil.get_cursor()
 
@@ -727,6 +733,11 @@ def read_calX(caltype, t=None):
                 return {}, None
             if tislist:
                 buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
+                if verbose:
+                    print '{} records are found in {} ~ {}.'.format(len(buf), t[0].iso, t[-1].iso)
+                    for idx, ll in enumerate(buf):
+                        t = Time(stf.extract(ll, xmldict['Timestamp']), format='lv')
+                        print '{} ---> {}'.format(idx, t.iso)
                 return xmldict, buf
             else:
                 buf = sqldict['Bin'][0]  # Binary representation of data
