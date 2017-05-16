@@ -91,12 +91,14 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     # read scans one by one
     nscan = len(scanlist)
     vis = []
-    bands = []
+    bandnames = []
     times = []
     for n, scan in enumerate(scanlist):
         out = ri.read_idb([scan], navg=3, quackint=quackint)
         times.append(out['time'])
         nt = len(out['time'])
+        if nt == 0:
+            continue 
         bds, sidx = np.unique(out['band'], return_index=True)
         nbd = len(bds)
         eidx = np.append(sidx[1:], len(out['band']))
@@ -107,9 +109,9 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
                 for pl in range(2):
                     vs[a, pl, bd - 1] = np.mean(out['x'][bl2ord[a, 13], pl, sidx[b]:eidx[b]], axis=0)
         vis.append(vs)
-        bands.append(bds)
+        bandnames.append(bds)
     return {'scanlist': scanlist, 'srclist': srclist, 'tstlist': sclist['tstlist'], 'tedlist': sclist['tedlist'],
-            'vis': vis, 'bands': bands, 'times': times}
+            'vis': vis, 'bandnames': bandnames, 'times': times}
 
 
 def graph(out, visavg=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=None, pol=0):
@@ -124,14 +126,14 @@ def graph(out, visavg=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=
         scanlist = [out['scanlist'][i] for i in scanidx]
         tstlist = [out['tstlist'][i] for i in scanidx]
         tedlist = [out['tedlist'][i] for i in scanidx]
-        bands = [out['bands'][i] for i in scanidx]
+        bandnames = [out['bandnames'][i] for i in scanidx]
         vis = [out['vis'][i] for i in scanidx]
         times = [out['times'][i] for i in scanidx]
     else:
         scanlist = out['scanlist']
         tstlist = out['tstlist']
         tedlist = out['tedlist']
-        bands = out['bands']
+        bandnames = out['bandnames']
         vis = out['vis']
         times = out['times']
 
@@ -196,14 +198,14 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         scanlist = [out['scanlist'][i] for i in scanidx]
         tstlist = [out['tstlist'][i] for i in scanidx]
         tedlist = [out['tedlist'][i] for i in scanidx]
-        bands = [out['bands'][i] for i in scanidx]
+        bandnames = [out['bandnames'][i] for i in scanidx]
         vis = [out['vis'][i] for i in scanidx]
         times = [out['times'][i] for i in scanidx]
     else:
         scanlist = out['scanlist']
         tstlist = out['tstlist']
         tedlist = out['tedlist']
-        bands = out['bands']
+        bandnames = out['bandnames']
         vis = out['vis']
         times = out['times']
 
@@ -293,3 +295,17 @@ def sql2refcal(t):
     pha = np.angle(refcal)
     amp = np.absolute(refcal)
     return {'pha': pha, 'amp': amp, 'timestamp': timestamp}
+
+def sql2refcalX(trange):
+    import eovsapy.cal_header as ch
+    import stateframe as stf
+    xml, bufs = ch.read_calX(8,t=trange)
+    refcals=[]
+    for buf in bufs:
+        ref = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
+        timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
+        pha = np.angle(ref)
+        amp = np.absolute(ref)
+        refcals.append({'pha': pha, 'amp': amp, 'timestamp': timestamp})
+    return refcals
+
