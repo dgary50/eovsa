@@ -252,7 +252,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,
             ax2[pol,ant].set_xlim([1,34])
             ax3[pol,ant].plot(allbands[ind],visavg['amp'][ant,pol,ind],'.',markersize=5)
             ax3[pol,ant].set_xlim([1,34])
-            ax3[pol,ant].set_ylim([0,2.])
+            ax3[pol,ant].set_ylim([0,1.])
             if ant == 0:
                 ax2[pol,ant].set_ylabel('Phase (radian)')
                 ax3[pol,ant].set_ylabel('Amplitude')
