@@ -105,7 +105,7 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.):
     return {'scanlist':scanlist,'srclist':srclist,'tstlist':sclist['tstlist'],'tedlist':sclist['tedlist'],
             'vis':vis, 'bands':bands, 'times':times} 
 
-def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=None, pol=0):
+def graph(out, visavg=None, ant_str='ant1-13', bandplt=[5,11,17,23], scanidx=None, pol=0):
     '''Produce a figure showing phases and amplitudes of selected antennas, bands, and polarization.
        Optionally takes in a time averaged value 'visavg' to show the selected time range and plot the
        averaged phase and amplitudes'''
@@ -171,7 +171,7 @@ def graph(out, visavg=None, ant_str='ant1-13', bandplt=[4,10,16,22], scanidx=Non
                     ax1[ant,b].set_yticks([])
                     ax2[ant,b].set_yticks([])
 
-def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[4,10,16,22]):
+def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5,11,17,23]):
     '''Analyze the visibility data from rd_refcal and return time averaged visibility values and flags.
        ***Optional Keywords***
        timerange: time range to obtain the average. E.g., timerange=Time(['2017-04-08T05:00','2017-04-08T07:00'])
