@@ -280,7 +280,7 @@ def sql2refcal(t):
     import stateframe as stf
     xml, buf = ch.read_cal(8, t=t)
     refcal = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
-    timestamp = Time(stf.extract(buf, xml['Timestamp']),format='lv').jd
+    timestamp = Time(stf.extract(buf, xml['Timestamp']),format='lv')
     pha = np.angle(refcal)
     amp = np.absolute(refcal)
     return {'pha':pha, 'amp':amp, 'timestamp':timestamp}
