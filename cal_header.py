@@ -696,7 +696,7 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
     :param caltype: 
     :param t: 
     :param verbose: 
-    :param neat: If True, throw away the redundant records if t is time range.
+    :param neat: If True, throw away the obsolete records if t is time range.
     :return: 
         a dictionary of look-up information and a binary buffer containing the 
         calibration record. If time-range is provided, a list of binary buffers will be returned.
