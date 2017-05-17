@@ -689,7 +689,18 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=True):
+def read_calX(caltype, t=None, verbose=True, neat=False):
+    '''
+    Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
+    or for the current time if None.
+    :param caltype: 
+    :param t: 
+    :param verbose: 
+    :param neat: If True, throw away the redundant records if t is time range.
+    :return: 
+        a dictionary of look-up information and a binary buffer containing the 
+        calibration record. If time-range is provided, a list of binary buffers will be returned.
+    '''
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object),
         or for the current time if None.
 
@@ -733,7 +744,14 @@ def read_calX(caltype, t=None, verbose=True):
                     print query
                 return {}, None
             if tislist:
-                buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
+                if neat:
+                    buf = []
+                    tlist = [Time(stf.extract(str(ll), xmldict['Timestamp']), format='lv').iso for ll in sqldict['Bin']]
+                    tlistc = sorted(list(set(tlist)), reverse=True)
+                    for ll in tlistc:
+                        buf.append(str(sqldict['Bin'][tlist.index(ll)]))
+                else:
+                    buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
                 if verbose:
                     print '{} records are found in {} ~ {}.'.format(len(buf), t[0].iso, t[-1].iso)
                     for idx, ll in enumerate(buf):
@@ -1277,6 +1295,6 @@ def refcal2sql(rfcal):
     for i in range(15):
         for j in range(2):
             buf += struct.pack('34f', *flag[i, j])
-
+    print 'sending refcal at {} to SQL database.'.format(t.iso)
     return write_cal(typedef, buf, t)
     # return buf
