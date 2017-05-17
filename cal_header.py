@@ -477,7 +477,7 @@ def refcal2xml():
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>REFCAL</Name>')
-    buf += str2bin('<NumElts>9</NumElts>')
+    buf += str2bin('<NumElts>10</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
@@ -533,6 +533,14 @@ def refcal2xml():
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Sigma</Name>')
     buf += str2bin(
         '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
@@ -1369,16 +1377,16 @@ def refcal2sql(rfcal):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
-        rfcal: a dict ('t_bg', 'refcal', 't_gcal', 't_mid', 'flag', 't_ed', 'fghz')
+        rfcal: a dict ('t_bg', 'vis', 't_gcal', 'timestamp', 'flag', 't_ed', 'fghz')
 
         This kind of record is type definition 8.
     '''
     typedef = 8
-    if not 'refcal' in rfcal.keys():
-        raise KeyError('Key "refcal" not exist')
+    if not 'vis' in rfcal.keys():
+        raise KeyError('Key "vis" not exist')
     ver = cal_types()[typedef][2]
-    if 't_mid' in rfcal.keys():
-        t = int(rfcal['t_mid'].lv)
+    if 'timestamp' in rfcal.keys():
+        t = int(rfcal['timestamp'].lv)
     else:
         t = int(util.Time.now().lv)
     if 't_gcal' in rfcal.keys():
@@ -1399,7 +1407,12 @@ def refcal2sql(rfcal):
     if 'flag' in rfcal.keys():
         flag = rfcal['flag']
     else:
-        flag = np.zeros_like(np.real(rfcal['refcal']))
+        flag = np.zeros_like(np.real(rfcal['vis']))
+
+    if 'sigma' in rfcal.keys():
+        sigma = rfcal['sigma']
+    else:
+        sigma = np.zeros_like(np.real(rfcal['vis']))
 
     # Write timestamp
     buf = struct.pack('d', t)
@@ -1417,7 +1430,7 @@ def refcal2sql(rfcal):
     buf += struct.pack('34f', *rfcal['fghz'])
 
     # Write real part of table
-    rrfcal = np.real(rfcal['refcal'])
+    rrfcal = np.real(rfcal['vis'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
@@ -1426,7 +1439,7 @@ def refcal2sql(rfcal):
             buf += struct.pack('34f', *rrfcal[i, j])
 
     # Write imag part of table
-    irfcal = np.imag(rfcal['refcal'])
+    irfcal = np.imag(rfcal['vis'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
@@ -1434,7 +1447,15 @@ def refcal2sql(rfcal):
         for j in range(2):
             buf += struct.pack('34f', *irfcal[i, j])
 
-    # Write Flag of table
+    # Write Sigma of table
+    buf += struct.pack('I', 34)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 15)
+    for i in range(15):
+        for j in range(2):
+            buf += struct.pack('34f', *sigma[i, j])
+
+    # Write Flag table
     flag = np.array(flag, dtype=float)
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
@@ -1460,8 +1481,8 @@ def phacal2sql(phcal):
     if not 'phacal' in phcal.keys():
         raise KeyError('Key "phacal" not exist')
     ver = cal_types()[typedef][2]
-    if 't_mid' in phcal.keys():
-        t = int(phcal['t_mid'].lv)
+    if 'timestamp' in phcal.keys():
+        t = int(phcal['timestamp'].lv)
     else:
         t = int(util.Time.now().lv)
     if 't_refcal' in phcal.keys():
