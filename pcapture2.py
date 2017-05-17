@@ -69,6 +69,8 @@
 #   2016-Oct-28  DG
 #      Added capture_1s(), whose status output string is queued for reading by the schedule,
 #      or can be read after the call by msg = pcapture2.q.get_nowait()
+#   2017-May-17  DG
+#      Added packet delay output to rd_jspec(), mainly for diagnostics
 
 import numpy as np
 import pdb
@@ -464,6 +466,7 @@ def rd_jspec(filename):
     outp     = np.zeros(( 16, 2, 4096, 50),dtype='float'    )
     outp2    = np.zeros(( 16, 2, 4096, 50),dtype='float'    )
     outphdr  = np.zeros(( 16, 3, 50), dtype='int')
+    outdla   = np.zeros(( 16, 2, 50), dtype='int')
     # Start reading records
     with open(filename,'rb') as f:
         for i in range(npkt):
@@ -478,6 +481,8 @@ def rd_jspec(filename):
                 if n == 0:
                     outphdr[bid*2,   :, a] = np.array((h['PX0'],h['PY0'],h['ADCOverflow']))
                     outphdr[bid*2+1, :, a] = np.array((h['PX1'],h['PY1'],h['ADCOverflow']))
+                    outdla[ bid*2,   :, a] = np.array((h['Delay0'],h['Delay1']))
+                    outdla[ bid*2+1, :, a] = np.array((h['Delay2'],h['Delay3']))
                 power = struct.unpack(pp2,buf[88:88+768])
                 p1x,p1y,p2x,p2y,P1x,P1y,P2x,P2y = pspectra(power)
                 outp[ bid*2,   0, n*16:(n+1)*16, a] = p1x
@@ -494,18 +499,18 @@ def rd_jspec(filename):
                 iFreq = h['iFreq']
                 xdata = np.array(struct.unpack(xfmt,buf[88:]))
                 cxdata = (xdata[::2] + 1j*xdata[1::2]).astype('complex64')
-                outauto[ :, 0, iFreq, a] = cxdata[iauto]
-                outauto[ :, 1, iFreq, a] = cxdata[iauto+1]
-                outauto[ :, 2, iFreq, a] = cxdata[iauto+2]
-                outauto[ :, 3, iFreq, a] = cxdata[iauto+3]
-                outcross[:, 0, iFreq, a] = cxdata[icross]
-                outcross[:, 1, iFreq, a] = cxdata[icross+1]
-                outcross[:, 2, iFreq, a] = cxdata[icross+2]
-                outcross[:, 3, iFreq, a] = cxdata[icross+3]
+                outauto[ :, 0, iFreq, a] = cxdata[iauto]/2**6
+                outauto[ :, 1, iFreq, a] = cxdata[iauto+1]/2**6
+                outauto[ :, 2, iFreq, a] = cxdata[iauto+2]/2**6
+                outauto[ :, 3, iFreq, a] = cxdata[iauto+3]/2**6
+                outcross[:, 0, iFreq, a] = cxdata[icross]/2**6
+                outcross[:, 1, iFreq, a] = cxdata[icross+1]/2**6
+                outcross[:, 2, iFreq, a] = cxdata[icross+2]/2**6
+                outcross[:, 3, iFreq, a] = cxdata[icross+3]/2**6
             else:
                 # Some unknown packet?
                 pass
-        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr}
+        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr,'delays':outdla}
     return out
 
 def get_bl_order(n_ants):

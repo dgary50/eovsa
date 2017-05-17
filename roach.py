@@ -80,6 +80,10 @@
 #   2017-Mar-05  DG
 #       Added writing of sync time to a file on the ACC, which will be read
 #       by scan_header() to add the information to the scan header.
+#   2017-May-17  DG
+#       Added "helper" routines seteq() and readeq() to setting and reading
+#       constant equalizer coefficients for all ROACHes.  No need to 
+#       connect first!
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
@@ -1493,3 +1497,20 @@ def plot_apratio(po=None,ac=None,co=numpy.zeros((16,2,34))+16.,fseq=None,lineplo
                 ax[j*4+2,i].get_yaxis().set_ticks([])
                 ax[j*4+3,i].get_yaxis().set_ticks([])
 
+def seteq(coeff):
+    ro = [Roach('roach'+str(i+1)) for i in range(8)]
+    for rn in ro:
+        for i in range(4):
+            rn.set_eq(xn=i,coeff=coeff)
+        rn.fpga.stop()
+        
+def readeq():
+    ro = [Roach('roach'+str(i+1)) for i in range(8)]
+    for rn in ro:
+        print ' '
+        print rn.roach_ip,
+        for i in range(4):
+            buf = rn.fpga.read('eq_x'+str(i)+'_coeffs',8192*4)
+            vals = numpy.array(struct.unpack('>16384h',buf),dtype='>h')
+            print ' eq_x'+str(i)+'_coeffs is',vals[0]/64.,
+        rn.fpga.stop()

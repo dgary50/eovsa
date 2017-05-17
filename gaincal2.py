@@ -9,7 +9,7 @@
 #
 import dbutil as db
 import cal_header as ch
-from util import Time
+from util import Time, nearest_val_idx
 import stateframe as stf
 import numpy as np
 
@@ -83,7 +83,8 @@ def get_gain_state(trange):
     cursor = db.get_cursor()
     ver = db.find_table_version(cursor,trange[0].lv)
     # Get front end attenuator states
-    query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second from fV' \
+    query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
+            +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
             +ver+'_vD15 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
@@ -92,11 +93,25 @@ def get_gain_state(trange):
         h2 = data['Ante_Fron_FEM_HPol_Atte_Second']
         v1 = data['Ante_Fron_FEM_VPol_Atte_First']
         v2 = data['Ante_Fron_FEM_VPol_Atte_Second']
+        ms = data['Ante_Fron_FEM_Clockms']
         nt = len(h1)/15
         h1.shape = (nt,15)
         h2.shape = (nt,15)
         v1.shape = (nt,15)
         v2.shape = (nt,15)
+        ms.shape = (nt,15)
+        # Find any entries for which Clockms is zero, which indicates where no
+        # gain-state measurement is available.
+        for i in range(15):
+            bad, = np.where(ms[:,i] == 0)
+            if bad.size != 0 and bad.size != nt:
+                # Find nearest adjacent good value
+                good, = np.where(ms[:,i] != 0)
+                idx = nearest_val_idx(bad,good)
+                h1[bad,i] = h1[good[idx],i]
+                h2[bad,i] = h2[good[idx],i]
+                v1[bad,i] = v1[good[idx],i]
+                v2[bad,i] = v2[good[idx],i]
         # Put results in canonical order [nant, nt]
         h1 = h1.T
         h2 = h2.T
