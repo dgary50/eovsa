@@ -86,11 +86,13 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
 def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.,navg=3):
     '''take a time range from the Time object, e.g., trange=Time(['2017-04-08T05:00','2017-04-08T15:30']),
        a projectid, and source id, return visibility data for all baselines correlated with ant 14.
-       **Optional keywords***
+       ***Optional keywords***
        projid: string -- predefined PROJECTID when setting up the observations. Default is 'PHASECAL'
        srcid: string -- if provided, then only use the specified source. E.g., '1229+020' is often used for
               reference calibration
        quackint: interval in seconds to skip at the beginning of each scan
+       ***Output dictionary***
+
     '''
     import struct, time, glob, sys, socket
     import dbutil as db
@@ -103,7 +105,9 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.,navg=3):
     vis = []
     bandnames = []
     times = []
+    fghzs = []
     for n, scan in enumerate(scanlist):
+        print 'Reading scan: '+scan
         out = ri.read_idb([scan], navg=navg, quackint=quackint)
         times.append(out['time'])
         nt = len(out['time'])
@@ -113,16 +117,18 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180.,navg=3):
         nbd = len(bds)
         eidx = np.append(sidx[1:], len(out['band']))
         vs = np.zeros((15, 2, 34, nt), dtype=complex)
+        fghz = np.zeros(34)
         # average over channels within each band
         for b, bd in enumerate(bds):
+            fghz[bd-1]=np.nanmean(out['fghz'][sidx[b]:eidx[b]])
             for a in range(13):
                 for pl in range(2):
                     vs[a, pl, bd - 1] = np.mean(out['x'][bl2ord[a, 13], pl, sidx[b]:eidx[b]], axis=0)
         vis.append(vs)
+        fghzs.append(fghz)
         bandnames.append(bds)
     return {'scanlist': scanlist, 'srclist': srclist, 'tstlist': sclist['tstlist'], 'tedlist': sclist['tedlist'],
-            'vis': vis, 'bandnames': bandnames, 'times': times}
-
+            'vis': vis, 'bandnames': bandnames, 'fghzs':fghzs, 'times': times}
 
 def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=None, pol=0,
           tformat='%H:%M'):
@@ -190,11 +196,11 @@ def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=
                 flg = refcal['flag'][ant, pol, bd - 1]
                 if flg == 0:
                     if 't_bg'  in refcal.keys():
-                        bt = Time(refcal['t_bg'][0], format='jd').plot_date
+                        bt = Time(refcal['t_bg'], format='jd').plot_date
                     else:
                         bt = Time(times[0][0], format='jd').plot_date
                     if 't_ed' in refcal.keys():
-                        et = Time(refcal['t_ed'][-1], format='jd').plot_date
+                        et = Time(refcal['t_ed'], format='jd').plot_date
                     else:
                         et = Time(times[-1][-1], format='jd').plot_date
                     ax1[ant, b].plot_date([bt, et], [phavg, phavg], '-r')
@@ -210,7 +216,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
     '''Analyze the visibility data from rd_refcal and return time averaged visibility values and flags.
        ***Optional Keywords***
        timerange: time range to obtain the average. E.g., timerange=Time(['2017-04-08T05:00','2017-04-08T07:00'])
-       scanidx: index numbers of scans to select. Useful when other (undesired) types of observations exist.
+       scanidx: index numbers of scans to select. Useful when other (undesired) types of observations exist. 
+               !!!! The selected scans should have exactly the same frequency/band setup !!!!
        minsnr: minimum signal to noise to consider. Data with smaller SNRs will be flagged (as 1 in the flag array)
        bandplt: bands to show in the figure
        ***Outputs***
@@ -225,6 +232,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         bandnames = [out['bandnames'][i] for i in scanidx]
         vis = [out['vis'][i] for i in scanidx]
         times = [out['times'][i] for i in scanidx]
+        fghzs = [out['fghzs'][i] for i in scanidx]
     else:
         scanlist = out['scanlist']
         tstlist = out['tstlist']
@@ -232,7 +240,9 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         bandnames = out['bandnames']
         vis = out['vis']
         times = out['times']
+        fghzs = out['fghzs']
 
+    fghz=fghzs[0]
     times = np.concatenate(times)
     vis = np.concatenate(vis, axis=3)
     if timerange:
@@ -307,7 +317,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                 ax3[pol, ant].set_title('Ant ' + str(ant + 1))
                 ax3[pol, ant].set_xticks([])
     refcal = vis_
-    return {'refcal': refcal, 'flag': flag, 't_mid': timestamp, 't_gcal': timestamp_gcal,
+    return {'refcal': refcal, 'fghz':fghz, 'flag': flag, 't_mid': timestamp, 't_gcal': timestamp_gcal,
             't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
 
 def graph_results(refcal,unwrap=True):
