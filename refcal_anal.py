@@ -36,7 +36,7 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
         ufdb1 = dump_tsys.rd_ufdb(trange[0])
         ufdb = ufdb1
         for ll in xrange(daydelta):
-            ufdb2 = dump_tsys.rd_ufdb(Time(trange[0].mjd + ll, format='mjd'))
+            ufdb2 = dump_tsys.rd_ufdb(Time(trange[0].mjd + ll+1, format='mjd'))
             if ufdb2:
                 for key in ufdb.keys():
                     ufdb.update({key: np.append(ufdb[key], ufdb2[key])})
