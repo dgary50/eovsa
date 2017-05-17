@@ -477,7 +477,7 @@ def refcal2xml():
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>REFCAL</Name>')
-    buf += str2bin('<NumElts>8</NumElts>')
+    buf += str2bin('<NumElts>9</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
@@ -513,6 +513,13 @@ def refcal2xml():
     buf += str2bin('<Name>T_end</Name>')
     buf += str2bin('<Val></Val>')
     buf += str2bin('</DBL>')
+
+    # List of averaged band frequencies in GHz.
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Fghz</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
 
     # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 34).
     # Note inverted order of dimensions
@@ -1362,7 +1369,7 @@ def refcal2sql(rfcal):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
-        rfcal: a dict (refcal, flag, t_mid, t_gcal)
+        rfcal: a dict ('t_bg', 'refcal', 't_gcal', 't_mid', 'flag', 't_ed', 'fghz')
 
         This kind of record is type definition 8.
     '''
@@ -1405,6 +1412,10 @@ def refcal2sql(rfcal):
     # Write timestamp of end time of refcal
     buf += struct.pack('d', ted)
 
+    # Write table of the averaged band frequencies
+    buf += struct.pack('I', 34)
+    buf += struct.pack('34f', *rfcal['fghz'])
+
     # Write real part of table
     rrfcal = np.real(rfcal['refcal'])
     buf += struct.pack('I', 34)
@@ -1431,7 +1442,7 @@ def refcal2sql(rfcal):
     for i in range(15):
         for j in range(2):
             buf += struct.pack('34f', *flag[i, j])
-    print 'sending refcal of {} to SQL database.'.format(t.iso)
+    print 'sending refcal of {} to SQL database.'.format(util.Time(t, format='lv').iso)
     # return write_cal(typedef, buf, t)
     return buf
 
@@ -1444,6 +1455,7 @@ def phacal2sql(phcal):
 
         This kind of record is type definition 9.
     '''
+    from util import Time
     typedef = 9
     if not 'phacal' in phcal.keys():
         raise KeyError('Key "phacal" not exist')
@@ -1504,7 +1516,7 @@ def phacal2sql(phcal):
     # Write timestamp of delay center change of phacal
     buf += struct.pack('d', tdla)
 
-    # Write real part of table
+    # Write table of the averaged band frequencies
     buf += struct.pack('I', 34)
     buf += struct.pack('34f', *phcal['fghz'])
 
@@ -1550,6 +1562,6 @@ def phacal2sql(phcal):
     for i in range(15):
         for j in range(2):
             buf += struct.pack('2f', *mbd1[i, j])
-    print 'sending phacal of {} to SQL database.'.format(t.iso)
+    print 'sending phacal of {} to SQL database.'.format(util.Time(t, format='lv').iso)
     # return write_cal(typedef, buf, t)
     return buf
