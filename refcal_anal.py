@@ -254,8 +254,9 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
     # vismean = np.nanmean(np.angle(vis),axis=3)
     vis_ = np.zeros(vis.shape[:3], dtype=complex)
     flag = np.zeros(vis.shape[:3], dtype=int)
-    # compute standard deviation of the phases
-    sigma = np.nanstd(vis, axis=3)
+    sigma = np.zeros(vis.shape[:3])+1e10
+    # compute standard deviation of the visibilities
+    sigma_ = np.nanstd(vis, axis=3)
     # sigma = np.nanstd(np.abs(vis),axis=3)
     # mask out records with phases > 3 sigma
     for bd in range(34):
@@ -266,14 +267,15 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                 # print 'pol: ',pol
                 amp = np.abs(vis[ant, pol, bd])
                 amp_median = np.median(np.abs(vis[ant, pol, bd]))
-                ind, = np.where(np.abs(amp - amp_median) < sigma[ant, pol, bd])
-                snr = amp_median / sigma[ant, pol, bd]
+                ind, = np.where(np.abs(amp - amp_median) < sigma_[ant, pol, bd])
+                snr = amp_median / sigma_[ant, pol, bd]
                 # pdb.set_trace()
                 if snr < minsnr or np.isnan(snr):
                     flag[ant, pol, bd] = 1
                 else:
                     if len(ind) > len(timeavg) / 2:
                         vis_[ant, pol, bd] = np.nanmean(vis[ant, pol, bd, ind])
+                        sigma[ant, pol, bd] = np.nanstd(vis[ant, pol, bd, ind])
                     else:
                         vis_[ant, pol, bd] = np.nanmean(vis[ant, pol, bd])
                         flag[ant, pol, bd] = 1
@@ -316,8 +318,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                 ax2[pol, ant].set_xticks([])
                 ax3[pol, ant].set_title('Ant ' + str(ant + 1))
                 ax3[pol, ant].set_xticks([])
-    refcal = vis_
-    return {'refcal': refcal, 'fghz':fghz, 'flag': flag, 't_mid': timestamp, 't_gcal': timestamp_gcal,
+    return {'vis': vis_, 'pha':np.angle(vis_), 'amp':np.abs(vis_), 'fghz':fghz, 'flag': flag, 
+            'sigma':sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal,
             't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
 
 def graph_results(refcal,unwrap=True):
@@ -365,10 +367,12 @@ def sql2refcal(t):
     xml, buf = ch.read_cal(8, t=t)
     refcal = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
     flag = stf.extract(buf, xml['Refcal_Flag'])
+    fghz = stf.extract(buf, xml['Fghz'])
+    sigma = stf.extract(buf, xml['Refcal_Sigma'])
     timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
     pha = np.angle(refcal)
     amp = np.absolute(refcal)
-    return {'pha': pha, 'amp': amp, 'flag':flag, 'timestamp': timestamp}
+    return {'pha': pha, 'amp': amp, 'flag':flag, 'fghz':fghz, 'sigma':sigma, 'timestamp': timestamp}
 
 def sql2refcalX(trange):
     import eovsapy.cal_header as ch
