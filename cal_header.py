@@ -826,8 +826,6 @@ def read_cal_xmlX(caltype, t=None, verbose=True, neat=False, gettime=False):
         return {}, None
     cursor = dbutil.get_cursor()
     # Read type definition XML from abin table
-    query = 'select top 1 * from abin where Version = ' + str(caltype) + '.0 and Timestamp <=' + str(
-        timestamp) + ' order by Timestamp desc, Id desc'
     if tislist:
         query = 'select * from abin where Version = ' + str(caltype) + '.0 and Timestamp >= ' + str(
             timestamp[0]) + ' and Timestamp <= ' + str(
@@ -859,8 +857,6 @@ def read_cal_xmlX(caltype, t=None, verbose=True, neat=False, gettime=False):
                         ver = sqldict['Version'][ll]
                         print '{} ---> ver {} {}'.format(idx + 1, ver, t.iso)
                 xml, ver = [], []
-                if gettime:
-                    ts = []
                 for idx, ll in enumerate(idxs):
                     # There is one, so read it and the corresponding binary data
                     buf = sqldict['Bin'][ll]  # Binary representation of xml file
@@ -871,10 +867,9 @@ def read_cal_xmlX(caltype, t=None, verbose=True, neat=False, gettime=False):
                     xmldict, thisver = read_xml2.xml_ptrs(xmlfile)
                     xml.append(xmldict)
                     ver.append(thisver)
-                    if gettime:
-                        ts.append(tlist[ll])
                 os.system('rm -rf {}'.format(xmlfile))
                 if gettime:
+                    ts = [tlist[ll] for ll in idxs]
                     return xml, ver, ts
                 else:
                     return xml, ver
@@ -924,7 +919,7 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=True, neat=False):
+def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse = False):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
         or for the current time if None.
         :param caltype: 
@@ -965,8 +960,12 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
                 caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp[0]) + ' and Timestamp <= ' + str(
                 timestamp[1]) + ' order by Timestamp desc, Id desc'
         else:
-            query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
-                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc, Id desc'
+            if reverse:
+                query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
+                    caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp) + ' order by Timestamp asc, Id desc'
+            else:
+                query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
+                    caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc, Id desc'
 
         sqldict, msg = dbutil.do_query(cursor, query)
         cursor.close()
@@ -977,21 +976,24 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
                     print query
                 return {}, None
             if tislist:
+                tlist = [util.Time(stf.extract(str(ll), xmldict['Timestamp']), format='lv').iso for ll in
+                         sqldict['Bin']]
+                tlistc = sorted(list(set(tlist)), reverse=True)
                 if neat:
-                    buf = []
-                    tlist = [util.Time(stf.extract(str(ll), xmldict['Timestamp']), format='lv').iso for ll in
-                             sqldict['Bin']]
-                    tlistc = sorted(list(set(tlist)), reverse=True)
-                    for ll in tlistc:
-                        buf.append(str(sqldict['Bin'][tlist.index(ll)]))
+                    idxs = [tlist.index(ll) for ll in tlistc]
                 else:
-                    buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
+                    idxs = range(len(sqldict['Timestamp']))
+                buf = [str(sqldict['Bin'][ll]) for ll in idxs]
                 if verbose:
                     print '{} records are found in {} ~ {}.'.format(len(buf), t[0].iso, t[-1].iso)
                     for idx, ll in enumerate(buf):
                         t = util.Time(stf.extract(ll, xmldict['Timestamp']), format='lv')
                         print '{} ---> {}'.format(idx + 1, t.iso)
-                return xmldict, buf
+                if gettime:
+                    ts = [tlist[ll] for ll in idxs]
+                    return xmldict, buf, ts
+                else:
+                    return xmldict, buf
             else:
                 buf = sqldict['Bin'][0]  # Binary representation of data
                 return xmldict, str(buf)
