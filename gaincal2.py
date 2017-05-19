@@ -8,6 +8,7 @@
 #    are in canonical order [nant, npol, nf/nband, nt].
 #
 import dbutil as db
+import read_idb as ri
 import cal_header as ch
 from util import Time, nearest_val_idx
 import stateframe as stf
@@ -166,3 +167,108 @@ def get_gain_state(trange):
         return {}
     cursor.close()
     return {'times':times,'h1':h1,'v1':v1,'h2':h2,'v2':v2,'dcmattn':dcmattn,'dcmoff':dcm_off}
+
+def apply_gain_corr(data, tref=None):
+    ''' Applys the gain_state() corrections to the given data dictionary,
+        corrected to the gain-state at time given by Time() object tref.
+        
+        Inputs:
+          data     A dictionary such as that returned by read_idb().
+          tref     A Time() object with the reference time, or if None,
+                     the gain state of the nearest earlier SOLPNTCAL is 
+                     used.
+        Output:
+          cdata    A dictionary with the gain-corrected data.  Both p and x
+                     are updated, but not p2 or a.
+    '''
+    from util import common_val_idx
+    import copy
+    if tref is None:
+        # No reference time specified, so get nearest earlier REFCAL
+        xml, buf = ch.read_cal(8,t=trange[0])
+        tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+    # Get the gain state at the reference time (actually median over 1 minute)
+    trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+    ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
+    # Get median of refcal gain state (which should be constant anyway)
+    ref_gs['h1'] = np.median(ref_gs['h1'],1)
+    ref_gs['h2'] = np.median(ref_gs['h2'],1)
+    ref_gs['v1'] = np.median(ref_gs['v1'],1)
+    ref_gs['v2'] = np.median(ref_gs['v2'],1)
+
+    # Get timerange from data
+    trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    # Get the gain state of the requested timerange
+    src_gs = get_gain_state(trange)   # solar gain state for timerange of file
+    nt = len(src_gs['times'])
+    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    for i in range(15):
+        for j in range(34):
+            antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
+            antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
+
+    cdata = copy.deepcopy(data)
+    # Frequency list is provided, so produce baseline-based gain table as well
+    # Create giant array of gains, translated to baselines and frequencies
+    fghz = data['fghz']
+    nf = len(fghz)
+    blist = (fghz*2 - 1).astype(int) - 1
+    blgain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
+    for i in range(14):
+         for j in range(i+1,15):
+             blgain[ri.bl2ord[i,j],0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
+             blgain[ri.bl2ord[i,j],1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
+             blgain[ri.bl2ord[i,j],2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
+             blgain[ri.bl2ord[i,j],3] = 10**((antgain[i,1,blist] + antgain[j,0,blist])/20.)
+    antgainf = 10**(antgain[:,:,blist]/10.)
+
+    idx1, idx2 = common_val_idx(data['time'],src_gs['times'].jd)
+    # Apply corrections (some times may be eliminated from the data)
+    # This also removes the non-existent ant16 from p, p2, and a
+    s = cdata['x'][:,:,:,idx1]
+    g = blgain[:,:,:,idx2]
+    cdata['x'] = s*g
+    p = cdata['p'][:15,:,:,idx1]*antgainf[:,:,:,idx2]
+    cdata['p'] = p
+#    a = data['a'][:15,:,:,idx1]*antgainf[:,:,:,idx2]
+#    data['a'] = a
+#    p2 = data['p2'][:15,:,:,idx1]*(antgainf[:,:,:,idx2]**2)
+#    data['p2'] = p2
+    cdata['time'] = cdata['time'][idx1]
+    
+    return data
+    
+def get_gain_corr(trange, tref=None, fghz=None):
+    ''' Calls get_gain_state() for a timerange and a reference time,
+        and returns the gain difference table to apply to data in the
+        given timerange.  If no reference time is provided, the gain
+        state is referred to the nearest earlier REFCAL.
+        
+        Returns a dictionary containing:
+          antgain    Array of size (15, 2, 34, nt) = (nant, npol, nbands, nt)
+          times      A Time() object corresponding to the times in 
+                       antgain
+    '''
+    if tref is None:
+        # No reference time specified, so get nearest earlier REFCAL
+        xml, buf = ch.read_cal(8,t=trange[0])
+        tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+    # Get the gain state at the reference time (actually median over 1 minute)
+    trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+    ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
+    # Get median of refcal gain state (which should be constant anyway)
+    ref_gs['h1'] = np.median(ref_gs['h1'],1)
+    ref_gs['h2'] = np.median(ref_gs['h2'],1)
+    ref_gs['v1'] = np.median(ref_gs['v1'],1)
+    ref_gs['v2'] = np.median(ref_gs['v2'],1)
+
+    # Get the gain state of the requested timerange
+    src_gs = get_gain_state(trange)   # solar gain state for timerange of file
+    nt = len(src_gs['times'])
+    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    for i in range(15):
+        for j in range(34):
+            antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
+            antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
+
+    return {'antgain': antgain, 'times': src_gs['times']}
