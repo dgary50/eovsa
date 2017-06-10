@@ -50,8 +50,8 @@ global nschan, ifbw, gifbw, nschanx, nsavg
 # nsavg: number of spectral channels to average for each science channel
 
 # ---------- SOLE CHANGE FOR DESIGN SPEED, SWAP THIS ONE COMMENT --------------
-##ifbw = 400.    # 200 MHz design
-ifbw = 600.   # 300 MHz design
+ifbw = 400.    # 200 MHz design
+##ifbw = 600.   # 300 MHz design
 if ifbw == 400.:
     # 200 MHz design
     gifbw = 350.

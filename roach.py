@@ -84,6 +84,9 @@
 #       Added "helper" routines seteq() and readeq() to setting and reading
 #       constant equalizer coefficients for all ROACHes.  No need to 
 #       connect first!
+#   2017-Jun-07  DG
+#       Set the extraneous 8-bit pktdla in swreg_ctrl_x to 0, since it is the 16-bit
+#       one in swreg_pkt_fft that is actually used.
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
@@ -242,8 +245,8 @@ class Roach():
         if self.boffile:
             # Configure KATADC registers
             addr = [0x0000, 0x0001, 0x0002, 0x0003, 0x0009, 0x000A, 0x000B, 0x000E, 0x000F]
-            #val  = [0x7FFF, 0xBAFF, 0x007F, 0x807F, 0x03FF, 0x007F, 0x807F, 0x00FF, 0x007F]
-            val  = [0x7FFF, 0xB2FF, 0x007F, 0x807F, 0x03FF, 0x007F, 0x807F, 0x00FF, 0x007F]  # 300 MHz
+            val  = [0x7FFF, 0xBAFF, 0x007F, 0x807F, 0x03FF, 0x007F, 0x807F, 0x00FF, 0x007F]
+            #val  = [0x7FFF, 0xB2FF, 0x007F, 0x807F, 0x03FF, 0x007F, 0x807F, 0x00FF, 0x007F]  # 300 MHz
             #if interleaved: val[4] = 0x23FF # Uncomment this line for interleaved mode
             for i in range(len(addr)):
                 print('Setting ADC register %04Xh to 0x%04X' % (addr[i], val[i]))
@@ -367,17 +370,14 @@ class Roach():
         if clk == 800:
             acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration (200 MHz)
         else:
-            acc_len   = int(0.019 * clkHz / 8192.) - 223   # ~19 ms duration (300 MHz)
-        if nbds == 8:
-            # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
-            # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
-            x_acc_len = 6
-            if clk != 800:
-                # 16-ant correlator uses different units for x_acc_len (number of 512-sample blocks)
-                # This is 5 (5*512 = 2560), but because of 0-based scheme it is set to 4
-                x_acc_len = 4
-        else:
-            x_acc_len = acc_len
+            acc_len   = int(0.019 * clkHz / 8192.) - 223  # ~19 ms duration (300 MHz)
+        # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
+        # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
+        x_acc_len = 6
+        if clk != 800:
+            # 16-ant correlator uses different units for x_acc_len (number of 512-sample blocks)
+            # This is 5 (5*512 = 2560), but because of 0-based scheme it is set to 4
+            x_acc_len = 4
 
         if dbg:
             print 'Acc Length',acc_len
@@ -481,9 +481,9 @@ class Roach():
 
         # Load X control register
         pows = 2**numpy.array([16,8,4,0])
-        vect = numpy.array([x_acc_len,pktdla,rnum-1,mypoln])
+        vect = numpy.array([x_acc_len,0,rnum-1,mypoln])
         if dbg:
-            print 'X Control Register vector [Acc Length,Pktdla,Board,Poln]',vect,'packed',hex((vect*pows).sum())
+            print 'X Control Register vector [Acc Length,0,Board,Poln]',vect,'packed',hex((vect*pows).sum())
         else:
             self.fpga.write_int('swreg_ctrl_x',(vect*pows).sum())
 
@@ -1193,8 +1193,8 @@ def reload(roach_list=None,pcycle=False):
     mc = roach_list[0].fpga.read_int('rx_mcount_fx0',0)
     mcstart = 700
     if len(roach_list) == 8:
-        #mcstart = 350
-        mcstart = 250 # 300 MHz
+        mcstart = 350
+        #mcstart = 250 # 300 MHz
     print 'MCount is:',mc,'Future MCount should be:',mc+mcstart
     # Set mcount to desired start value
     mc = mcstart

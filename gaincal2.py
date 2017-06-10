@@ -6,6 +6,8 @@
 #    Added get_fseqfile() and fseqfile2bandlist() to help with conversion
 #    of slots to bands.  Also ensure that all arrays returned by get_gain_state() 
 #    are in canonical order [nant, npol, nf/nband, nt].
+#  2017-05-21  DG
+#    Some changes to apply_gain_corr() to make it more general.
 #
 import dbutil as db
 import read_idb as ri
@@ -178,8 +180,8 @@ def apply_gain_corr(data, tref=None):
                      the gain state of the nearest earlier SOLPNTCAL is 
                      used.
         Output:
-          cdata    A dictionary with the gain-corrected data.  Both p and x
-                     are updated, but not p2 or a.
+          cdata    A dictionary with the gain-corrected data.  The keys
+                     p, x, p2, and a are all updated.
     '''
     from util import common_val_idx
     import copy
@@ -224,19 +226,24 @@ def apply_gain_corr(data, tref=None):
 
     idx1, idx2 = common_val_idx(data['time'],src_gs['times'].jd)
     # Apply corrections (some times may be eliminated from the data)
-    # This also removes the non-existent ant16 from p, p2, and a
-    s = cdata['x'][:,:,:,idx1]
-    g = blgain[:,:,:,idx2]
-    cdata['x'] = s*g
-    p = cdata['p'][:15,:,:,idx1]*antgainf[:,:,:,idx2]
-    cdata['p'] = p
-#    a = data['a'][:15,:,:,idx1]*antgainf[:,:,:,idx2]
-#    data['a'] = a
-#    p2 = data['p2'][:15,:,:,idx1]*(antgainf[:,:,:,idx2]**2)
-#    data['p2'] = p2
+    # Correct the cross-correlation data
+    cdata['x'][:,:,:,idx1] *= blgain[:,:,:,idx2]
+    # Correct the power
+    cdata['p'][:15,:,:,idx1] *= antgainf[:,:,:,idx2]
+    # Correct the autocorrelation
+    cdata['a'][:15,:2,:,idx1] *= antgainf[:,:,:,idx2]
+    cdata['a'][:15,2,:,idx1] *= np.sqrt(antgainf[:,0,:,idx2]*antgainf[:,1,:,idx2])
+    cdata['a'][:15,3,:,idx1] *= np.sqrt(antgainf[:,0,:,idx2]*antgainf[:,1,:,idx2])
+    # Correct the power-squared -- this should preserve SK
+    cdata['p2'][:15,:,:,idx1] *= antgainf[:,:,:,idx2]**2
+    # Remove any uncorrected times before returning
     cdata['time'] = cdata['time'][idx1]
-    
-    return data
+    cdata['p'] = cdata['p'][:,:,:,idx1]
+    cdata['a'] = cdata['a'][:,:,:,idx1]
+    cdata['p2'] = cdata['p2'][:,:,:,idx1]
+    cdata['ha'] = cdata['ha'][idx1]
+    cdata['m'] = cdata['m'][:,:,:,idx1]
+    return cdata
     
 def get_gain_corr(trange, tref=None, fghz=None):
     ''' Calls get_gain_state() for a timerange and a reference time,

@@ -534,7 +534,11 @@ def allday_udb(t=None, doplot=True, savfig=False):
     for i,file in enumerate(files):
         if file[-6] != '0':
             break
-    files = files[i:]
+    try:
+        files = files[i:]
+    except:
+        print 'No files found in /data1/eovsa/fits/UDB/ for',date
+        return {}
     out = read_idb(files,src='Sun')
     if doplot:
         f, ax = plt.subplots(1,1)

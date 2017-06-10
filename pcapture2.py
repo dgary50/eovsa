@@ -71,6 +71,8 @@
 #      or can be read after the call by msg = pcapture2.q.get_nowait()
 #   2017-May-17  DG
 #      Added packet delay output to rd_jspec(), mainly for diagnostics
+#   2017-May-26  DG
+#      Added Quantizer Clipping Count (QClip) to header output.
 
 import numpy as np
 import pdb
@@ -203,12 +205,13 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 +' {:2d}'.format(h['BoardID'])
                                 +' {:5d}'.format(h['AccumLength'])
                                 +' {:5d}'.format(h['ADCOverflow'])
+                                +' {:5d}'.format(h['QuantClipNum'])
                                 +'  {:5d} {:5d}  {:5d} {:5d}'.format(h['PX0'],h['PY0'],h['PX1'],h['PY1'])
                                 +'  {:4d} {:4d} {:4d} {:4d}'.format(h['Delay0'],h['Delay1'],h['Delay2'],h['Delay3']))
                             if a == 0:
                                 # At every 0 Acc#, pop the last line, add a "header" and then add line back
                                 line = lines.pop()
-                                lines.append('Acc# Global-Acc# FFTs ID --M--  OvFl    P1x, P1y    P2x, P2y    ---Delays [nsec]---')
+                                lines.append('Acc# Global-Acc# FFTs ID --M--  OvFl  QClip   P1x, P1y    P2x, P2y    ---Delays [nsec]---')
                                 lines.append(line)
         elif len(buf) > 898:
             # This is an X packet
@@ -229,12 +232,13 @@ def list_header(filename,ptype='P',boardID=None,verbose=False):
                                 +' {:2d}'.format(h['BoardID'])
                                 +' {:5d}'.format(h['AccumLength'])
                                 +' {:5d}'.format(h['ADCOverflow'])
+                                +' {:5d}'.format(h['QuantClipNum'])
                                 +'  {:5d} {:5d}  {:5d} {:5d}'.format(h['PX0'],h['PY0'],h['PX1'],h['PY1'])
                                 +'  {:4d} {:4d} {:4d} {:4d}'.format(h['Delay0'],h['Delay1'],h['Delay2'],h['Delay3']))
                             if a == 0:
                                 # At every 0 Acc#, pop the last line, add a "header" and then add line back
                                 line = lines.pop()
-                                lines.append('Acc# Global-Acc# FFTs ID --M--  OvFl    P1x, P1y    P2x, P2y    ---Delays [nsec]---')
+                                lines.append('Acc# Global-Acc# FFTs ID --M--  OvFl  QClip   P1x, P1y    P2x, P2y    ---Delays [nsec]---')
                                 lines.append(line)
     return lines
 
