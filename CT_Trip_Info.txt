@@ -1,0 +1,807 @@
+# Explanation: Trip codes are separated by blank lines.  First line after a blank line is the displayed characters on the drive, and can be used as a shorthand for the Trip.  The next line is one or more numerical codes (separated by commas), which would be found in menu registers #10.20 through #10.29 of the controller.  Any following lines starting with * are hints about what to check regarding the Trip.
+
+br.th
+10
+Internal braking resistor thermistor temperature monitoring fail (size 0 only)
+*If no internal brake resistor is installed, set Pr 0.51 (or Pr 10.37) to 8 to disable this trip.
+*If an internal brake resistor is installed: Ensure that the internal braking resistor thermistor is connected correctly, Ensure that the fan in the drive is working correctly, Replace the internal braking resistor
+
+C.Acc
+185
+SMARTCARD trip: SMARTCARD Read / Write fail
+*Check SMARTCARD is installed / located correctly
+*Ensure SMARTCARD is not writing data to data location 500 to 999
+*Replace SMARTCARD
+
+C.boot 
+177
+SMARTCARD trip: The menu 0 parameter modification cannot be saved to the SMARTCARD because the necessary file has not been created on the SMARTCARD
+*A write to a menu 0 parameter has been initiated via the keypad with Pr 11.42 set to auto(3) or boot(4), but the necessary file on the SMARTCARD has not been created
+*Ensure that Pr 11.42 is correctly set and reset the drive to create the necessary file on the SMARTCARD
+*Re-attempt the parameter write to the menu 0 parameter
+
+C.bUSY
+178
+SMARTCARD trip: SMARTCARD can not perform the required function as it is being accessed by a Solutions Module
+*Wait for the Solutions Module to finish accessing the SMARTCARD and then re-attempt the required function
+
+C.Chg
+179
+SMARTCARD trip: Data location already contains data
+*Erase data in data location
+*Write data to an alternative data location
+
+C.cPr
+188
+SMARTCARD trip: The values stored in the drive and the values in the data block on the SMARTCARD are different
+*Press the red reset button
+
+C.dAt
+183
+SMARTCARD trip: Data location specified does not contain any data
+*Ensure data block number is correct
+
+C.Err
+182
+SMARTCARD trip: SMARTCARD data is corrupted
+*Ensure the card is located correctly
+*Erase data and retry
+*Replace SMARTCARD
+
+C.Full
+184
+SMARTCARD trip: SMARTCARD full
+*Delete a data block or use different SMARTCARD
+
+cL2
+28 
+Analog input 2 current loss (current mode)
+*Check analog input 2 (terminal 7) current signal is present (4-20mA, 20-4mA)
+
+cL3
+29
+Analog input 3 current loss (current mode)
+*Check analog input 3 (terminal 8) current signal is present (4-20mA, 20-4mA)
+
+CL.bit
+35
+Trip initiated from the control word (Pr 6.42)
+*Disable the control word by setting Pr 6.43 to 0 or check setting of Pr 6.42
+
+ConF.P
+111
+The number of power modules installed no longer matches the value stored in Pr 11.35
+*Ensure that all power modules are correctly connected
+*Ensure that all power modules have powered up correctly
+*Ensure that the value in Pr 11.35 matches the number of power modules connected
+
+C.OPtn
+180
+SMARTCARD trip: Solutions Modules installed are different between source drive and destination drive
+*Ensure correct Solutions Modules are installed
+*Ensure Solutions Modules are in the same Solutions Module slot
+*Press the red reset button
+
+C.Prod
+175
+SMARTCARD trip: The data blocks on the SMARTCARD are not compatible with this product
+*Erase all data on the SMARTCARD by setting Pr xx.00 to 9999 and pressing the red reset button
+*Replace SMARTCARD
+
+C.rdo
+181
+SMARTCARD trip: SMARTCARD has the Read Only bit set
+*Enter 9777 in Pr xx.00 to allow SMARTCARD Read / Write access
+*Ensure the drive is not writing to data locations 500 to 999 on the card
+
+C.rtg
+186
+SMARTCARD trip: The voltage and/or current rating of the source and destination drives are different
+*Drive rating dependent parameters (parameters with the RA coding) are likely to have different values and ranges with drives of different voltage and current ratings.
+
+C.TyP
+187
+SMARTCARD trip: SMARTCARD parameter set not compatible with drive
+*Ensure destination drive type is the same as the source parameter file drive type
+*Press the reset button
+
+dESt
+199
+Two or more parameters are writing to the same destination parameter
+*Set Pr xx.00 = 12001 check all visible parameters in the menus for duplication
+
+EEF 
+31
+EEPROM data corrupted - Drive mode becomes open loop and serial comms will timeout with remote keypad on the drive RS485 comms port.
+*This trip can only be cleared by loading default parameters and saving parameters
+
+EnC1
+189
+Drive encoder trip: Encoder power supply overload
+*Check encoder power supply wiring and encoder current requirement. Maximum current = 200mA @ 15V, or 300mA @ 8V and 5V
+
+EnC2
+190
+Drive encoder trip: Wire break (Drive encoder terminals 1 & 2, 3 & 4, 5 & 6)
+*Check cable continuity
+*Check wiring of feedback signals is correct
+*Check encoder power supply is set correctly in Pr 3.36
+*Replace feedback device
+*If wire break detection on the main drive encoder input is not required, set Pr 3.40 = 0 to disable the Enc2 trip
+
+EnC3
+191
+Drive encoder trip: Phase offset incorrect while running
+*Check the encoder signal for noise
+*Check encoder shielding
+*Check the integrity of the encoder mechanical mounting
+*Repeat the offset measurement test
+
+EnC4 
+192
+Drive encoder trip: Feedback device comms failure
+*Ensure encoder power supply is correct
+*Ensure baud rate is correct
+*Check encoder wiring
+Replace feedback device
+
+EnC5
+193
+Drive encoder trip: Checksum or CRC error
+*Check the encoder signal for noise
+*Check the encoder cable shielding
+*With EnDat encoders, check the comms resolution and/or carry out the auto-configuration Pr 3.41 Checksum / CRC error or SSI not ready at start of position transfer (i.e. data input not one)
+
+EnC6
+194
+Drive encoder trip: Encoder has indicated an error
+*Replace feedback device
+*With SSI encoders, check the wiring and encoder supply setting
+
+EnC7
+195
+Drive encoder trip: Initialisation failed
+*Re-set the drive
+*Check the correct encoder type is entered into Pr 3.38
+*Check encoder wiring
+*Check encoder power supply is set correctly
+*Carry out the auto-configuration Pr 3.41
+*Replace feedback device
+
+EnC8
+196
+Drive encoder trip: Auto configuration on power up has been requested and failed
+*Change the setting of Pr 3.41 to 0 and manually enter the drive encoder turns (Pr 3.33) and the equivalent number of lines per revolution (Pr 3.34)
+*Check the comms resolution
+
+EnC9 
+197
+Drive encoder trip: Position feedback selected is selected from a Solutions Module slot which does not have a speed / position feedback Solutions Module installed
+*Check setting of Pr 3.26 (or Pr 21.21 if the second motor parameters have been enabled)
+
+EnC10
+198
+Drive encoder trip: Servo mode phasing failure because encoder phase angle (Pr 3.25 or Pr 21.20) is incorrect
+*Check the encoder wiring.
+*Perform an autotune to measure the encoder phase angle or manually enter the correct phase angle into Pr 3.25 (or Pr 21.20).
+*Spurious Enc10 trips can be seen in very dynamic applications. This trip can be disabled by setting the overspeed threshold in Pr 3.08 to a value greater than zero. Caution should be used in setting the over speed threshold level as a value which is too large may mean that an encoder fault will not be detected.
+
+Enc11 
+161
+Drive encoder trip: A failure has occurred during the alignment of the analog signals of a SINCOS encoder with the digital count derived from the sine and cosine waveforms and the comms position (if applicable). This fault is usually due to noise on the sine and cosine signals.
+*Check encoder cable shield.
+*Examine sine and cosine signals for noise.
+
+Enc12
+162
+Drive encoder trip: Hiperface encoder - The encoder type could not be identified during auto-configuration
+*Check encoder type can be auto-configured.
+*Check encoder wiring.
+*Enter parameters manually.
+
+Enc13
+163
+Drive encoder trip: EnDat encoder - The number of encoder turns read from the encoder during auto-configuration is not a power of 2
+*Select a different type of encoder.
+
+Enc14
+164
+Drive encoder trip: EnDat encoder - The number of comms bits defining the encoder position within a turn read from the encoder during auto-configuration is too large.
+*Select a different type of encoder.
+*Faulty encoder.
+
+Enc15
+165
+Drive encoder trip: The number of periods per revolution calculated from encoder data during auto-configuration is either less than 2 or greater than 50,000.
+*Linear motor pole pitch / encoder ppr set up is incorrect or out of parameter range i.e. Pr 5.36 = 0 or Pr 21.31 = 0.
+*Faulty encoder.
+
+Enc16
+166
+Drive encoder trip: EnDat encoder - The number of comms bits per period for a linear encoder exceeds 255.
+*Select a different type of encoder.
+*Faulty encoder.
+
+Enc17
+167
+Drive encoder trip: The periods per revolution obtained during auto-configuration for a rotary SINCOS encoder is not a power of two.
+*Select a different type of encoder.
+*Faulty encoder.
+
+EnP.Er
+176
+Data error from electronic nameplate stored in selected position feedback device
+*Replace feedback device
+
+Et 
+6 
+External trip from input on terminal 31
+*Check terminal 31 signal
+*Check value of Pr 10.32
+*Enter 12001 in Pr xx.00 and check for parameter controlling Pr 10.32
+*Ensure Pr 10.32 or Pr 10.38 (=6) are not being controlled by serial comms
+
+HF01
+-
+Data processing error: CPU address error
+*Hardware fault - return drive to supplier
+
+HF02
+-
+Data processing error: DMAC address error
+*Hardware fault - return drive to supplier
+
+HF03
+-
+Data processing error: Illegal instruction
+*Hardware fault - return drive to supplier
+
+HF04
+-
+Data processing error: Illegal slot instruction
+*Hardware fault - return drive to supplier
+
+HF05
+-
+Data processing error: Undefined exception
+*Hardware fault - return drive to supplier
+
+HF06
+-
+Data processing error: Reserved exception
+*Hardware fault - return drive to supplier
+
+HF07
+-
+Data processing error: Watchdog failure
+*Hardware fault - return drive to supplier
+
+HF08
+-
+Data processing error: Level 4 crash
+*Hardware fault - return drive to supplier
+
+HF09
+-
+Data processing error: Heap overflow
+Hardware fault - return drive to supplier
+
+HF10
+-
+Data processing error: Router error
+*Hardware fault - return drive to supplier
+
+HF11
+-
+Data processing error: Access to EEPROM failed
+*Hardware fault - return drive to supplier
+
+HF12
+-
+Data processing error: Main program stack overflow
+*Hardware fault - return drive to supplier
+
+HF13
+-
+Data processing error: Software incompatible with hardware
+*Hardware or software fault - return drive to supplier
+
+HF17
+217
+Multi-module system thermistor short circuit or open circuit
+*Hardware fault - return drive to supplier
+
+HF18
+218
+Multi-module system interconnect cable error
+*Parallel cable in wrong port. (Note in multi module systems, the drive with the trip code displayed indicates that the next drive in the sequence has the physical fault)
+*Hardware fault - return drive to supplier
+
+HF19
+219
+Temperature feedback multiplexing failure
+*Hardware fault - return drive to supplier
+
+HF20
+220
+Power stage recognition: serial code error
+*Hardware fault - return drive to supplier
+
+HF21
+221
+Power stage recognition: unrecognised frame size
+*Hardware fault - return drive to supplier
+
+HF22
+222
+Power stage recognition: multi module frame size mismatch
+*Hardware fault - return drive to supplier
+
+HF23
+223
+Power stage recognition: multi module voltage or current rating mismatch
+*Hardware fault - return drive to supplier
+
+HF24
+224
+Power stage recognition: unrecognised drive size
+*Hardware fault - return drive to supplier
+
+HF25
+225
+Current feedback offset error
+*Hardware fault - return drive to supplier
+
+HF26
+226
+Soft start relay failed to close, soft start monitor failed or braking IGBT short circuit at power up
+*Hardware fault - return drive to supplier
+
+HF27
+227
+Power stage thermistor 1 fault
+*Hardware fault - return drive to supplier
+
+HF28
+228
+Power stage thermistor 2 fault, or internal fan fault (size 3)
+*Hardware fault - return drive to supplier
+
+HF29
+229
+Control board thermistor fault
+*Hardware fault - return drive to supplier
+
+HF30
+230
+DCCT wire break trip from power module
+*Hardware fault - return drive to supplier
+
+HF31
+231
+Internal capacitor bank fan failure (size 4 and larger) or a module has not powered up in a multi-module parallel drive
+*Check the AC or DC power supply to all modules in a multi-module parallel drive
+*If the AC or DC power supply is present, or if this is a single drive, then there is a hardware fault - return drive to the supplier
+
+HF32
+232
+Power stage - Identification and trip information serial code error
+*Hardware fault - return drive to the supplier
+
+It.AC
+20
+Output current overload timed out (I2t) - accumulator value can be seen in Pr 4.19
+*Ensure the load is not jammed / sticking
+*Ensure that the motor rated current is not set to zero
+*Check the load on the motor has not changed
+*Ensure rated speed parameter is correct (RFC)
+*If seen during an autotune in servo mode, ensure that the motor rated current Pr 0.46 (Pr 5.07) or Pr 21.07 is Heavy Duty current rating of the drive
+*Tune the rated speed parameter (closed loop vector only)
+*Check feedback device signal for noise
+*Check the feedback device mechanical coupling
+
+It.br
+19
+Braking resistor overload timed out (I2t) – accumulator value can be seen in Pr 10.39
+*Ensure the values entered in Pr 10.30 and Pr 10.31 are correct
+*Increase the power rating of the braking resistor and change Pr 10.30 and Pr 10.31
+*If an external thermal protection device is being used and the braking resistor software overload is not required, set Pr 10.30 or Pr 10.31 to 0 to disable the trip
+
+L.SYnC
+39
+Drive failed to synchronize to the supply voltage in Regen mode
+*Refer to the Diagnostics chapter in the Unidrive SP Regen Installation Guide.
+
+O.CtL
+23
+Drive control board over temperature
+*Check enclosure / drive fans are still functioning correctly
+*Check enclosure ventilation paths
+*Check enclosure door filters
+*Check ambient temperature
+*Reduce drive switching frequency
+
+O.ht1
+21
+Power device over temperature based on thermal model
+*Reduce drive switching frequency
+*Reduce duty cycle
+*Decrease acceleration / deceleration rates
+*Reduce motor load
+
+O.ht2
+22
+Heatsink over temperature
+*Check enclosure / drive fans are still functioning correctly
+*Check enclosure ventilation paths
+*Check enclosure door filters
+*Increase ventilation
+*Decrease acceleration / deceleration rates
+*Reduce drive switching frequency
+*Reduce duty cycle
+*Reduce motor load
+
+Oht2.P
+105
+Power module heatsink over temperature
+*Check enclosure / drive fans are still functioning correctly
+*Check enclosure ventilation paths
+*Check enclosure door filters
+*Increase ventilation
+*Decrease acceleration / deceleration rates
+*Reduce drive switching frequency
+*Reduce duty cycle
+*Reduce motor load
+
+O.ht3
+27
+Drive over-temperature based on thermal model
+*The drive will attempt to stop the motor before tripping. If the motor does not stop in 10s the drive trips immediately.
+*Check DC bus ripple
+*Reduce duty cycle
+*Reduce motor load
+
+Oht4.P
+102
+Power module rectifier over temperature or input snubber resistor over temperature (size 4 and above)
+*Check for supply imbalance
+*Check for supply disturbance such as notching from a DC drive
+*Check enclosure / drive fans are still functioning correctly
+*Check enclosure ventilation paths
+*Check enclosure door filters
+*Increase ventilation
+*Decrease acceleration / deceleration rates
+*Reduce drive switching frequency
+*Reduce duty cycle
+*Reduce motor load
+
+OI.AC
+3
+Instantaneous output over current detected: peak output current greater than 222%
+*Acceleration /deceleration rate is too short.
+*If seen during autotune reduce voltage boost Pr 5.15, Check for short circuit on output cabling, Check integrity of motor insulation, Check feedback device wiring, Check feedback device mechanical coupling, Check feedback signals are free from noise
+*Is motor cable length within limits for that frame size? Reduce the values in speed loop gain parameters – Pr 3.10, Pr 3.11 and Pr 3.12 (closed loop vector and servo modes only)
+*Has offset measurement test been completed (servo mode only)? Reduce the values in current loop gain parameters - Pr 4.13 and Pr 4.14 (closed loop vector and servo modes only)
+
+OIAC.P
+104
+Power module over current detected from the module output currents
+*Acceleration /deceleration rate is too short.
+*If seen during autotune reduce voltage boost Pr 5.15, Check for short circuit on output cabling, Check integrity of motor insulation, Check feedback device wiring, Check feedback device mechanical coupling, Check feedback signals are free from noise
+*Is motor cable length within limits for that frame size? Reduce the values in speed loop gain parameters – Pr 3.10, Pr 3.11 and Pr 3.12 (closed loop vector and servo modes only)
+*Has offset measurement test been completed (servo mode only)? Reduce the values in current loop gain parameters - Pr 4.13 and Pr 4.14 (closed loop vector and servo modes only)
+
+OI.br
+4
+Braking transistor over-current detected: short circuit protection for the braking transistor activated
+*Check braking resistor wiring
+*Check braking resistor value is greater than or equal to the minimum resistance value
+*Check braking resistor insulation
+
+OIbr.P
+103
+Power module braking IGBT over current
+*Check braking resistor wiring
+*Check braking resistor value is greater than or equal to the minimum resistance value
+*Check braking resistor insulation
+
+OIdC.P
+109
+Power module over current detected from IGBT on state voltage monitoring
+*Vce IGBT protection activated.
+*Check motor and cable insulation.
+
+O.Ld1
+26
+Digital output overload: total current drawn from 24V supply and digital outputs exceeds 200mA
+*Check total load on digital outputs (terminals 24,25,26)and +24V rail (terminal 22)
+
+O.SPd
+7
+Motor speed has exceeded the over speed threshold
+*Increase the over speed trip threshold in Pr 3.08 (closed loop vector and servo modes only)
+*Speed has exceeded 1.2 x Pr 1.06 or Pr 1.07 (open loop mode)
+*Reduce the speed loop P gain (Pr 3.10) to reduce the speed overshoot (closed loop vector and servo modes only)
+
+OV
+2
+DC bus voltage has exceeded the peak level or the maximum continuous level for 15 seconds
+*Increase deceleration ramp (Pr 0.04)
+*Decrease braking resistor value (staying above the minimum value)
+*Check nominal AC supply level
+*Check for supply disturbances which could cause the DC bus to rise – voltage overshoot after supply recovery from a notch induced by DC drives
+*Check motor insulation
+
+OV.P
+106
+Power module DC bus voltage has exceeded the peak level or the maximum continuous level for 15 seconds
+*Increase deceleration ramp (Pr 0.04)
+*Decrease braking resistor value (staying above the minimum value)
+*Check nominal AC supply level
+*Check for supply disturbances which could cause the DC bus to rise – voltage overshoot after supply recovery from a notch induced by DC drives
+*Check motor insulation
+
+PAd 
+34
+Keypad has been removed when the drive is receiving the speed reference from the keypad
+*Install keypad and reset
+*Change speed reference selector to select speed reference from another source
+
+PH 
+32
+AC voltage input phase loss or large supply imbalance detected
+*Ensure all three phases are present and balanced
+*Check input voltage levels are correct (at full load)
+*NOTE: Load level must be between 50 and 100% for the drive to trip under phase loss conditions. The drive will attempt to stop the motor before this trip is initiated.
+
+PH.P
+107
+Power module phase loss detection
+*Ensure all three phases are present and balanced
+*Check input voltage levels are correct (at full load)
+
+PS Internal power supply fault
+5
+Remove any Solutions Modules and reset
+*Hardware fault - return drive to supplier
+
+PS.10V
+8
+10V user power supply current greater than 10mA
+*Check wiring to terminal 4
+*Reduce load on terminal 4
+
+PS.24V
+9
+24V internal power supply overload
+*The total user load of the drive and Solutions Modules has exceeded the internal 24V power supply limit. The user load consists of the drive’s digital outputs, the SM-I/O Plus digital outputs, the drive’s main encoder supply, the SM-Universal Encoder Plus encoder supply and the SM-Encoder Output Plus encoder supply.
+*Reduce load and reset
+*Provide an external 24V >50W power supply
+*Remove any Solutions Modules and reset
+
+PS.P
+108
+Power module power supply fail
+Remove any Solutions Modules and reset
+Hardware fault - return drive to supplier
+
+PSAVE.Er
+37
+Power down save parameters in the EEPROM are corrupt
+*Indicates that the power was removed when power down save parameters were being saved.
+*The drive will revert back to the power down parameter set that was last saved successfully.
+*Perform a user save (Pr xx.00 to 1000 or 1001 and reset the drive) or power down the drive normally to ensure this trip does or occur the next time the drive is powered up.
+
+rS 
+33
+Failure to measure resistance during autotune or when starting in open loop vector mode 0 or 3
+*Check motor power connection continuity
+
+SAVE.Er
+36
+User save parameters in the EEPROM are corrupt
+*Indicates that the power was removed when user parameters were being saved. The drive will revert back to the user parameter set that was last saved successfully.
+*Perform a user save (Pr xx.00 to 1000 or 1001 and reset the drive) to ensure this trip does or occur the next time the drive is powered up.
+
+SCL
+30
+Drive RS485 serial comms loss to remote keypad
+*Reinstall the cable between the drive and keypad
+*Check cable for damage
+*Replace cable
+*Replace keypad
+
+SLX.dF
+204,209,214
+Solutions Module slot X trip: Solutions Module type installed in slot X changed
+*Save parameters and reset
+
+SLX.Er
+202,207,212
+Solutions Module slot X trip: Solutions Module in slot X has detected a fault
+*Check value in Pr 15/16/17.50. 
+
+SLX.HF
+200,205,210
+Solutions Module slot X trip: Solutions Module X hardware fault
+*Ensure Solutions Module is installed correctly
+*Return Solutions Module to supplier
+
+SLX.nF
+203,208,213
+Solutions Module slot X trip: Solutions Module has been removed
+*Ensure Solutions Module is installed correctly
+*Reinstall Solutions Module
+*Save parameters and reset drive
+
+SL.rtd
+215
+Solutions Module trip: Drive mode has changed and Solutions Module parameter routing is now incorrect
+*Press reset.
+*If the trip persists, contact the supplier of the drive.
+
+SLX.tO
+201,206,211
+Solutions Module slot X trip: Solutions Module watchdog timeout
+*Press reset.
+*If the trip persists, contact the supplier of the drive.
+
+t038
+38
+User defined trip
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+t040 to t089 User defined trip
+40 to 89
+User defined trip
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+t099
+99
+User defined trip
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+t101
+101 
+User defined trip
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+t112 to t160 User defined trip
+112 to 160
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+t168 to t174 
+168 to 174
+User defined trip
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+t216
+216
+User defined trip
+*Onboard PLC and/or SM-Applications program must be interrogated to find the cause of this trip
+
+th 
+24
+Motor thermistor trip
+*Check motor temperature
+*Check thermistor continuity
+*Set Pr 7.15 = VOLt and reset the drive to disable this function
+
+thS 
+25
+Motor thermistor short circuit
+*Check motor thermistor wiring
+*Replace motor / motor thermistor
+*Set Pr 7.15 = VOLt and reset the drive to disable this function
+
+tunE*
+18
+Autotune stopped before completion
+*The drive has tripped out during the autotune
+*The red stop key has been pressed during the autotune
+*The SAFE TORQUE OFF (SECURE DISABLE) signal (terminal 31) was active during the autotune procedure
+
+tunE1*
+11
+The position feedback did not change or required speed could not be reached during the inertia test (see Pr 5.12)
+*Ensure the motor is free to turn i.e. brake was released
+*Ensure Pr 3.26 and Pr 3.38 are set correctly
+*Check feedback device wiring is correct
+*Check feedback parameters are set correctly
+*Check encoder coupling to motor
+
+tunE2*
+12
+Position feedback direction incorrect or motor could not be stopped during the inertia test (see Pr 5.12)
+*Check motor cable wiring is correct
+*Check feedback device wiring is correct
+*Swap any two motor phases (closed loop vector only)
+
+tunE3*
+13
+Drive encoder commutation signals connected incorrectly or measured inertia out of range (see Pr 5.12)
+*Check motor cable wiring is correct
+*Check feedback device U,V and W commutation signal wiring is correct
+
+tunE4*
+14
+Drive encoder U commutation signal fail during an autotune
+*Check feedback device U phase commutation wires continuity
+*Replace encoder
+
+tunE5*
+15
+Drive encoder V commutation signal fail during an autotune
+*Check feedback device V phase commutation wires continuity
+*Replace encoder
+
+tunE6*
+16
+Drive encoder W commutation signal fail during an autotune
+*Check feedback device W phase commutation wires continuity
+*Replace encoder
+
+tunE7*
+17
+Motor number of poles set incorrectly
+*Check lines per revolution for feedback device
+*Check the number of poles in Pr 5.11 is set correctly
+
+Unid.P
+110
+Power module unidentified trip
+*Check all interconnecting cables between power modules
+*Ensure cables are routed away from electrical noise sources
+
+UP ACC
+98
+Onboard PLC program: cannot access Onboard PLC program file on drive
+*Disable drive - write access is not allowed when the drive is enabled
+*Another source is already accessing Onboard PLC program - retry once other action is complete
+
+UP div0
+90
+Onboard PLC program attempted divide by zero
+*Check program
+
+UP OFL
+95
+Onboard PLC program variables and function block calls using more than the allowed RAM space (stack overflow)
+*Check program
+
+UP ovr
+94
+Onboard PLC program attempted out of range parameter write
+*Check program
+
+UP PAr
+91
+Onboard PLC program attempted access to a non-existent parameter
+*Check program
+
+
+UP ro
+92
+Onboard PLC program attempted write to a read-only parameter
+*Check program
+
+UP So
+93
+Onboard PLC program attempted read of a write-only parameter
+*Check program
+
+UP udF
+97
+Onboard PLC program un-defined trip
+*Check program
+
+UP uSEr
+96 
+Onboard PLC program requested a trip
+*Check program
+
+UV 
+1
+DC bus under voltage threshold reached
+*Check AC supply voltage level
+
