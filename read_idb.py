@@ -74,6 +74,8 @@
 #  2017-May-14  BC
 #    Added a key (out['band']) in the output of readXdata() to indicate the band name of a specific frequency
 #    in fghz
+#  2017-Jun-12  DG
+#    Fix allday_udb() to find files on following date up to 09 UT
 
 import aipy
 import os
@@ -528,9 +530,15 @@ def allday_udb(t=None, doplot=True, savfig=False):
     if t is None:
         t = Time.now()
     date = t.iso[:10].replace('-','')
+    # Look also at the following day, up to 9 UT
+    date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
     year = date[:4]
     files = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date+'*')
     files.sort()
+    files2 = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date2+'0*')
+    files2.sort()
+    files = np.concatenate((np.array(files),np.array(files2)))
+    # Eliminate files starting before 10 UT on date (but not on date2)
     for i,file in enumerate(files):
         if file[-6] != '0':
             break
@@ -545,6 +553,10 @@ def allday_udb(t=None, doplot=True, savfig=False):
         f.set_size_inches(14,5)
         pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
         X = np.sort(pdata.flatten())   # Sorted, flattened array
+        # Set any time gaps to nan
+        tdif = out['time'][1:] - out['time'][:-1]
+        bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
+        pdata[:,bad] = 0
         vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
         ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
         ax.xaxis_date()

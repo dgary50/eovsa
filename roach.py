@@ -370,7 +370,7 @@ class Roach():
         if clk == 800:
             acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration (200 MHz)
         else:
-            acc_len   = int(0.019 * clkHz / 8192.) - 223  # ~19 ms duration (300 MHz)
+            acc_len   = int(0.019 * clkHz / 8192.) - 223 # ~19 ms duration (300 MHz)
         # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
         # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
         x_acc_len = 6
