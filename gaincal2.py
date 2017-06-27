@@ -6,10 +6,16 @@
 #    Added get_fseqfile() and fseqfile2bandlist() to help with conversion
 #    of slots to bands.  Also ensure that all arrays returned by get_gain_state() 
 #    are in canonical order [nant, npol, nf/nband, nt].
+#  2017-05-21  DG
+#    Some changes to apply_gain_corr() to make it more general.
+#  2017-06-12  DG
+#    Important change to apply_gain_corr() so that it does not drop unmeasured
+#    points.  Instead, it uses the gain state of the nearest time in case of a missing one
 #
 import dbutil as db
+import read_idb as ri
 import cal_header as ch
-from util import Time
+from util import Time, nearest_val_idx
 import stateframe as stf
 import numpy as np
 
@@ -83,7 +89,8 @@ def get_gain_state(trange):
     cursor = db.get_cursor()
     ver = db.find_table_version(cursor,trange[0].lv)
     # Get front end attenuator states
-    query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second from fV' \
+    query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
+            +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
             +ver+'_vD15 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
@@ -92,11 +99,25 @@ def get_gain_state(trange):
         h2 = data['Ante_Fron_FEM_HPol_Atte_Second']
         v1 = data['Ante_Fron_FEM_VPol_Atte_First']
         v2 = data['Ante_Fron_FEM_VPol_Atte_Second']
+        ms = data['Ante_Fron_FEM_Clockms']
         nt = len(h1)/15
         h1.shape = (nt,15)
         h2.shape = (nt,15)
         v1.shape = (nt,15)
         v2.shape = (nt,15)
+        ms.shape = (nt,15)
+        # Find any entries for which Clockms is zero, which indicates where no
+        # gain-state measurement is available.
+        for i in range(15):
+            bad, = np.where(ms[:,i] == 0)
+            if bad.size != 0 and bad.size != nt:
+                # Find nearest adjacent good value
+                good, = np.where(ms[:,i] != 0)
+                idx = nearest_val_idx(bad,good)
+                h1[bad,i] = h1[good[idx],i]
+                h2[bad,i] = h2[good[idx],i]
+                v1[bad,i] = v1[good[idx],i]
+                v2[bad,i] = v2[good[idx],i]
         # Put results in canonical order [nant, nt]
         h1 = h1.T
         h2 = h2.T
@@ -151,3 +172,115 @@ def get_gain_state(trange):
         return {}
     cursor.close()
     return {'times':times,'h1':h1,'v1':v1,'h2':h2,'v2':v2,'dcmattn':dcmattn,'dcmoff':dcm_off}
+
+def apply_gain_corr(data, tref=None):
+    ''' Applys the gain_state() corrections to the given data dictionary,
+        corrected to the gain-state at time given by Time() object tref.
+        
+        Inputs:
+          data     A dictionary such as that returned by read_idb().
+          tref     A Time() object with the reference time, or if None,
+                     the gain state of the nearest earlier SOLPNTCAL is 
+                     used.
+        Output:
+          cdata    A dictionary with the gain-corrected data.  The keys
+                     p, x, p2, and a are all updated.
+    '''
+    from util import common_val_idx, nearest_val_idx
+    import copy
+    if tref is None:
+        # No reference time specified, so get nearest earlier REFCAL
+        xml, buf = ch.read_cal(8,t=trange[0])
+        tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+    # Get the gain state at the reference time (actually median over 1 minute)
+    trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+    ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
+    # Get median of refcal gain state (which should be constant anyway)
+    ref_gs['h1'] = np.median(ref_gs['h1'],1)
+    ref_gs['h2'] = np.median(ref_gs['h2'],1)
+    ref_gs['v1'] = np.median(ref_gs['v1'],1)
+    ref_gs['v2'] = np.median(ref_gs['v2'],1)
+
+    # Get timerange from data
+    trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    # Get the gain state of the requested timerange
+    src_gs = get_gain_state(trange)   # solar gain state for timerange of file
+    nt = len(src_gs['times'])
+    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    for i in range(15):
+        for j in range(34):
+            antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
+            antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
+
+    cdata = copy.deepcopy(data)
+    # Frequency list is provided, so produce baseline-based gain table as well
+    # Create giant array of gains, translated to baselines and frequencies
+    fghz = data['fghz']
+    nf = len(fghz)
+    blist = (fghz*2 - 1).astype(int) - 1
+    blgain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
+    for i in range(14):
+         for j in range(i+1,15):
+             blgain[ri.bl2ord[i,j],0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
+             blgain[ri.bl2ord[i,j],1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
+             blgain[ri.bl2ord[i,j],2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
+             blgain[ri.bl2ord[i,j],3] = 10**((antgain[i,1,blist] + antgain[j,0,blist])/20.)
+    antgainf = 10**(antgain[:,:,blist]/10.)
+
+    #idx1, idx2 = common_val_idx(data['time'],src_gs['times'].jd)
+    idx = nearest_val_idx(data['time'],src_gs['times'].jd)
+    # Apply corrections (some times may be eliminated from the data)
+    # Correct the cross-correlation data
+    cdata['x'] *= blgain[:,:,:,idx]
+    # Correct the power
+    cdata['p'][:15] *= antgainf[:,:,:,idx]
+    # Correct the autocorrelation
+    cdata['a'][:15,:2] *= antgainf[:,:,:,idx]
+    cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
+    cdata['a'][:15,2] *= cross_fac[:,:,idx]
+    cdata['a'][:15,3] *= cross_fac[:,:,idx]
+    # Correct the power-squared -- this should preserve SK
+    cdata['p2'][:15] *= antgainf[:,:,:,idx]**2
+    # Remove any uncorrected times before returning
+    #cdata['time'] = cdata['time'][idx1]
+    #cdata['p'] = cdata['p'][:,:,:,idx1]
+    #cdata['a'] = cdata['a'][:,:,:,idx1]
+    #cdata['p2'] = cdata['p2'][:,:,:,idx1]
+    #cdata['ha'] = cdata['ha'][idx1]
+    #cdata['m'] = cdata['m'][:,:,:,idx1]
+    return cdata
+    
+def get_gain_corr(trange, tref=None, fghz=None):
+    ''' Calls get_gain_state() for a timerange and a reference time,
+        and returns the gain difference table to apply to data in the
+        given timerange.  If no reference time is provided, the gain
+        state is referred to the nearest earlier REFCAL.
+        
+        Returns a dictionary containing:
+          antgain    Array of size (15, 2, 34, nt) = (nant, npol, nbands, nt)
+          times      A Time() object corresponding to the times in 
+                       antgain
+    '''
+    if tref is None:
+        # No reference time specified, so get nearest earlier REFCAL
+        xml, buf = ch.read_cal(8,t=trange[0])
+        tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+    # Get the gain state at the reference time (actually median over 1 minute)
+    trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+    ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
+    # Get median of refcal gain state (which should be constant anyway)
+    ref_gs['h1'] = np.median(ref_gs['h1'],1)
+    ref_gs['h2'] = np.median(ref_gs['h2'],1)
+    ref_gs['v1'] = np.median(ref_gs['v1'],1)
+    ref_gs['v2'] = np.median(ref_gs['v2'],1)
+
+    # Get the gain state of the requested timerange
+    src_gs = get_gain_state(trange)   # solar gain state for timerange of file
+    nt = len(src_gs['times'])
+    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    for i in range(15):
+        for j in range(34):
+            antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
+            antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
+
+    return {'antgain': antgain, 'times': src_gs['times']}

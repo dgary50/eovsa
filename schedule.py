@@ -250,6 +250,8 @@
 #      either 200 or 300 MHz design.
 #    2017-Apr-22  DG
 #      Updated $CAPTURE-1S handling to allow it to work when no <stem> argument is given.
+#    2017-May-18  DG
+#      Commented out lines relating STARBURST
 #
 
 import os, signal
@@ -277,7 +279,7 @@ import corr, time, numpy, socket, struct, sys
 import ephem
 import eovsa_cat
 from eovsa_visibility import scan_visible
-import starburst
+#import starburst
 from matplotlib.mlab import find
 import cal_header
 import adc_cal2
@@ -567,12 +569,12 @@ class App():
             self.sh_datfile = '/tmp/scan_header_' + self.subarray_name + '.dat'
         if sh_dict == {}:
             init_scanheader_dict()
-            if self.subarray_name == 'Starburst':
-                # write over some defaults (such as for dlacen) with Starburst defaults and add Starburst-specific entries
-                sh_dict_starburst = starburst.init_sh_dict()
-                sh_dict.update(sh_dict_starburst)
-            else:
-                scan_header(sh_dict,self.sh_datfile)
+#            if self.subarray_name == 'Starburst':
+#                # write over some defaults (such as for dlacen) with Starburst defaults and add Starburst-specific entries
+#                sh_dict_starburst = starburst.init_sh_dict()
+#                sh_dict.update(sh_dict_starburst)
+#            else:
+            scan_header(sh_dict,self.sh_datfile)
         if sf_dict == {}:
             init_sched_dict()
             # Generate schedule item XML file on init
@@ -804,8 +806,8 @@ class App():
         
         if len(sys.argv) < 2: # master schedule (Subarray1)
             self.subarray_name = 'Subarray1'
-        elif sys.argv[1].upper()=='STARBURST':
-            self.subarray_name = 'Starburst'
+#        elif sys.argv[1].upper()=='STARBURST':
+#            self.subarray_name = 'Starburst'
         else:
             self.subarray_name = sys.argv[1] # this option is for a 2nd OVSA subarray - Subarray2 is suggested name,
                                              # but any name should work other than Starburst or Subarray1
@@ -856,11 +858,11 @@ class App():
             boffile_name = self.accini['boffile']
             self.brd_clk_freq = None   # Start with no clock defined
             #self.brd_clk_freq = 200
-        elif self.subarray_name == 'Starburst': # STARBURST ONLY: connect to Starburst ROACHs
-            roachModule = starburst.roach
-            roach_ips = starburst.roach.get_roach_ips()
-            boffile_name = starburst.roach.get_boffile_name()
-            self.brd_clk_freq = starburst.roach.get_brd_clk_freq()
+#        elif self.subarray_name == 'Starburst': # STARBURST ONLY: connect to Starburst ROACHs
+#            roachModule = starburst.roach
+#            roach_ips = starburst.roach.get_roach_ips()
+#            boffile_name = starburst.roach.get_boffile_name()
+#            self.brd_clk_freq = starburst.roach.get_brd_clk_freq()
         else:  # OVSA SCHEDULE 2: do not connect to any ROACHs (self.roaches will be an empty list)
             roach_ips = ()
         
@@ -1666,10 +1668,10 @@ class App():
         self.error = ''
        
         # Send integer delays to ROACHs - DIFFERENT FOR STARBURST
-        if self.subarray_name == 'Starburst':
-            starburst.roach.dla2roach(self,sh_dict,sf_dict)
-        else:
-            self.dla2roach()
+#        if self.subarray_name == 'Starburst':
+#            starburst.roach.dla2roach(self,sh_dict,sf_dict)
+#        else:
+        self.dla2roach()
 
         # Update weather information in sf_dict (reads from OVRO weather station)
         self.w = stateframe.weather()
@@ -1733,10 +1735,10 @@ class App():
             sf_dict['sensors'][i].update(self.sensors[i])
             sf_dict['delays'][i].update(self.delays[i])
 
-        # STARBURST ONLY: update sf_dict with Starburst-specific monitor data
-        if self.subarray_name == 'Starburst':
-            sf_dict_starburst = starburst.get_sf_dict(self)
-            sf_dict.update(sf_dict_starburst) # make sure that entries in sf_dict_starburst have unique keys so that we don't overwrite sf_dict entries
+#        # STARBURST ONLY: update sf_dict with Starburst-specific monitor data
+#        if self.subarray_name == 'Starburst':
+#            sf_dict_starburst = starburst.get_sf_dict(self)
+#            sf_dict.update(sf_dict_starburst) # make sure that entries in sf_dict_starburst have unique keys so that we don't overwrite sf_dict entries
 
         # Get current stateframe (from ACC) and update sf_dict with Azimuth, Elevation, TrackFlag 
         # and parallactic angle information from it (all in degrees!)
@@ -1782,10 +1784,10 @@ class App():
         # Subarray1 writes Weather, SolarPower, Roach whereas Subarray2/Starburst don't
         if self.subarray_name == 'Subarray1':
             fmt, buf, sched_xmlfile = gen_schedule_sf(sf_dict)
-        else:
-            # SUBARRAY2 (OVSA) AND STARBURST: use starburst module's gen_schedule2_sf to create binary buffer to write to ACC
-            # if it is Subarray2 (OVSA), starburst.gen_schedule2_sf writes default values for the Starburst-specific data
-            fmt, buf, sched_xmlfile = starburst.gen_schedule2_sf(sf_dict) # using mk_xml=False, so make sure schedule2_stateframe.xml already exists
+#        else:
+#            # SUBARRAY2 (OVSA) AND STARBURST: use starburst module's gen_schedule2_sf to create binary buffer to write to ACC
+#            # if it is Subarray2 (OVSA), starburst.gen_schedule2_sf writes default values for the Starburst-specific data
+#            fmt, buf, sched_xmlfile = starburst.gen_schedule2_sf(sf_dict) # using mk_xml=False, so make sure schedule2_stateframe.xml already exists
 
         # Open socket to ACC - PORT DEPENDS ON SUBARRAY
         if self.subarray_name == 'Subarray1':
@@ -2193,11 +2195,11 @@ class App():
 #                pass
             if ctlline[0] == '$':
                 # This line starts with '$', so execute locally
-                if ctlline[1] == '*':
-                    # This is a Starburst-specific command, pass it to starburst module to handle
-                    # Pass it sh_dict and sf_dict in case it needs to modify values - dicts are mutable so should
-                    #   be able to do this
-                    starburst.execute_ctlline(self,ctlline,sh_dict,sf_dict,mjd1,mjd2)
+#                if ctlline[1] == '*':
+#                    # This is a Starburst-specific command, pass it to starburst module to handle
+#                    # Pass it sh_dict and sf_dict in case it needs to modify values - dicts are mutable so should
+#                    #   be able to do this
+#                    starburst.execute_ctlline(self,ctlline,sh_dict,sf_dict,mjd1,mjd2)
                 #==== MK_TABLES ====
                 if ctlline.split()[0].upper() == '$MK_TABLES':
                     cmd, fname, src = ctlline.split(' ')
@@ -2348,14 +2350,14 @@ class App():
                         f.close()
                     sh_dict['time_at_acc0'] = Time(mjdacc0,format='mjd')
 
-                    if self.subarray_name == 'Starburst':
-                        # get a dictionary with any Starburst-specific scan header data and add it to sh_dict
-                        sh_dict_starburst = starburst.get_sh_dict(self,ctlline)
-                        sh_dict.update(sh_dict_starburst)
-                        # make a copy of scan_header file including Starburst-specific data and copy it to Starburst server
-                        starburst.write_scan_header(sh_dict,self.sh_datfile)
-                    else: # write OVSA scan header and store on ACC
-                        scan_header(sh_dict,self.sh_datfile)
+#                    if self.subarray_name == 'Starburst':
+#                        # get a dictionary with any Starburst-specific scan header data and add it to sh_dict
+#                        sh_dict_starburst = starburst.get_sh_dict(self,ctlline)
+#                        sh_dict.update(sh_dict_starburst)
+#                        # make a copy of scan_header file including Starburst-specific data and copy it to Starburst server
+#                        starburst.write_scan_header(sh_dict,self.sh_datfile)
+#                    else: # write OVSA scan header and store on ACC
+                    scan_header(sh_dict,self.sh_datfile)
                     
                     # If we are connected to the SQL database, send converted scan header
                     if self.sql['cnxn']:
