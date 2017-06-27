@@ -74,6 +74,9 @@
 #   2017-Apr-28  DG
 #    Began work on calpntanal() to perform on either CALPNTCAL or CALPNT2M data
 #    with automatic adjustment based on scans in fdb file.
+#   2017-May-17  DG
+#    Added 'auto' keyword to solpntanal(), for optionally analyzing solar
+#    pointing based on auto-correlation instead of total power.
 #
 
 if __name__ == "__main__":
@@ -379,7 +382,7 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
                    'rao':rao_fit,'deco':deco_fit,'time':midtime,'antidx':idx}
     
     
-def solpntanal(t,udb=False):
+def solpntanal(t, udb=False, auto=False):
     ''' Does a complete analysis of SOLPNTCAL, reading information from the SQL
         database, finding and dumping the corresponding Miriad IDB data, and 
         doing gaussian fit to beam to return the beam parameters.  The outputs
@@ -395,9 +398,10 @@ def solpntanal(t,udb=False):
     proc = solpnt.process_solpnt(pnt)
     trange = Time([pnt['Timestamp'],pnt['Timestamp']+300.],format='lv')
     if trange[0].mjd < 57450:
+        if auto: print "Warning: 'auto' keyword does nothing for older data.  Keyword ignored."
         otp = dump_tsys.rd_miriad_tsys(trange,udb=udb)
     else:
-        otp = dump_tsys.rd_miriad_tsys_16(trange,udb=udb)
+        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto)
 #    if udb:
 #        fstr = t1.iso
 #        folder = '/data1/UDBTXT/'+fstr[:4]

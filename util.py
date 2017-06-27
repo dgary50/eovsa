@@ -977,3 +977,18 @@ def lobe(phi,mid=True):
         return phi[0]
     return phi
 
+def ant_str2list(ant_str):
+    ant_list = []
+    try:
+        grps = ant_str.split()
+        for grp in grps:
+            antrange = grp[3:].split('-')
+            if len(antrange) == 1:
+                if antrange != '':
+                    ant_list.append(int(antrange[0])-1)
+            elif len(antrange) == 2:
+                ant_list += range(int(antrange[0])-1,int(antrange[1]))
+    except:
+        print 'Error: cannot interpret ant_str',ant_str
+        return None
+    return array(ant_list)

@@ -477,7 +477,7 @@ def refcal2xml():
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>REFCAL</Name>')
-    buf += str2bin('<NumElts>9</NumElts>')
+    buf += str2bin('<NumElts>10</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
@@ -533,6 +533,14 @@ def refcal2xml():
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Sigma</Name>')
     buf += str2bin(
         '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
@@ -787,6 +795,95 @@ def read_cal_xml(type, t=None):
             return xmldict, thisver
 
 
+def read_cal_xmlX(caltype, t=None, verbose=True, neat=False, gettime=False):
+    ''' Read the calibration type definition xml record of the given type, for the 
+        given time or time-range (as a Time() object), or for the current time if None.
+        :param caltype: 
+        :param t: 
+        :param verbose: 
+        :param neat: If True, throw away the obsolete records if t is time range.
+        Returns a dictionary of look-up information and its internal version.  A side-effect
+        is that a file /tmp/type<n>.xml is created, where <n> is the type.
+    '''
+    import dbutil, read_xml2, sys, os
+    if t is None:
+        t = util.Time.now()
+
+    try:
+        if len(t) >= 2:
+            timestamp = [int(ll.lv) for ll in t]
+            timestamp = [timestamp[0], timestamp[-1]]
+        tislist = True
+    except:
+        timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
+        tislist = False
+
+    typdict = cal_types()
+    try:
+        typinfo = typdict[caltype]
+    except:
+        print 'Type', caltype, 'not found in type definition dictionary.'
+        return {}, None
+    cursor = dbutil.get_cursor()
+    # Read type definition XML from abin table
+    if tislist:
+        query = 'select * from abin where Version = ' + str(caltype) + '.0 and Timestamp >= ' + str(
+            timestamp[0]) + ' and Timestamp <= ' + str(
+            timestamp[1]) + ' order by Timestamp desc, Id desc'
+    else:
+        query = 'select top 1 * from abin where Version = ' + str(caltype) + '.0 and Timestamp <= ' + str(
+            timestamp) + ' order by Timestamp desc, Id desc'
+    sqldict, msg = dbutil.do_query(cursor, query)
+    cursor.close()
+    if msg == 'Success':
+        if len(sqldict) == 0:
+            if verbose:
+                # This type of xml file does not yet exist in the database, so mark it for adding
+                print 'Type', caltype, 'not defined in abin table.'
+                cursor.close()
+            return {}, None
+        else:
+            if tislist:
+                tlist = [util.Time(ll, format='lv').iso for ll in sqldict['Timestamp']]
+                tlistc = sorted(list(set(tlist)), reverse=True)
+                if neat:
+                    idxs = [tlist.index(ll) for ll in tlistc]
+                else:
+                    idxs = range(len(sqldict['Timestamp']))
+                if verbose:
+                    print '{} records are found in {} ~ {}.'.format(len(idxs), t[0].iso, t[-1].iso)
+                    for idx, ll in enumerate(idxs):
+                        t = util.Time(sqldict['Timestamp'][ll], format='lv')
+                        ver = sqldict['Version'][ll]
+                        print '{} ---> ver {} {}'.format(idx + 1, ver, t.iso)
+                xml, ver = [], []
+                for idx, ll in enumerate(idxs):
+                    # There is one, so read it and the corresponding binary data
+                    buf = sqldict['Bin'][ll]  # Binary representation of xml file
+                    xmlfile = '/tmp/type' + str(caltype) + '_tmp.xml'
+                    f = open(xmlfile, 'wb')
+                    f.write(buf)
+                    f.close()
+                    xmldict, thisver = read_xml2.xml_ptrs(xmlfile)
+                    xml.append(xmldict)
+                    ver.append(thisver)
+                os.system('rm -rf {}'.format(xmlfile))
+                if gettime:
+                    ts = [tlist[ll] for ll in idxs]
+                    return xml, ver, ts
+                else:
+                    return xml, ver
+            else:
+                # There is one, so read it and the corresponding binary data
+                buf = sqldict['Bin'][0]  # Binary representation of xml file
+                xmlfile = '/tmp/type' + str(caltype) + '.xml'
+                f = open(xmlfile, 'wb')
+                f.write(buf)
+                f.close()
+                xmldict, thisver = read_xml2.xml_ptrs(xmlfile)
+                return xmldict, thisver
+
+
 def read_cal(type, t=None):
     ''' Read the calibration data of the given type, for the given time (as a Time() object),
         or for the current time if None.
@@ -798,6 +895,7 @@ def read_cal(type, t=None):
     if t is None:
         t = util.Time.now()
     timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
+    typdict = cal_types()
     xmldict, ver = read_cal_xml(type, t)
     cursor = dbutil.get_cursor()
 
@@ -821,15 +919,14 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=True, neat=False):
-    '''
-    Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
-    or for the current time if None.
-    :param caltype: 
-    :param t: 
-    :param verbose: 
-    :param neat: If True, throw away the obsolete records if t is time range.
-    :return: 
+def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse = False):
+    ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
+        or for the current time if None.
+        :param caltype: 
+        :param t: 
+        :param verbose: 
+        :param neat: If True, throw away the obsolete records if t is time range.
+        :return: 
         a dictionary of look-up information and a binary buffer containing the 
         calibration record. If time-range is provided, a list of binary buffers will be returned.
     '''
@@ -841,7 +938,6 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
     '''
     import dbutil, sys
     import stateframe as stf
-    from util import Time
     if t is None:
         t = util.Time.now()
 
@@ -855,7 +951,7 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
         timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
         xmldict, ver = read_cal_xml(caltype, t)
         tislist = False
-
+    typdict = cal_types()
     cursor = dbutil.get_cursor()
 
     if xmldict != {}:
@@ -864,8 +960,12 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
                 caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp[0]) + ' and Timestamp <= ' + str(
                 timestamp[1]) + ' order by Timestamp desc, Id desc'
         else:
-            query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
-                caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc, Id desc'
+            if reverse:
+                query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
+                    caltype + ver / 10.) + ' and Timestamp >= ' + str(timestamp) + ' order by Timestamp asc, Id desc'
+            else:
+                query = 'set textsize 2147483647 select top 1 * from abin where Version = ' + str(
+                    caltype + ver / 10.) + ' and Timestamp <= ' + str(timestamp) + ' order by Timestamp desc, Id desc'
 
         sqldict, msg = dbutil.do_query(cursor, query)
         cursor.close()
@@ -876,20 +976,24 @@ def read_calX(caltype, t=None, verbose=True, neat=False):
                     print query
                 return {}, None
             if tislist:
+                tlist = [util.Time(stf.extract(str(ll), xmldict['Timestamp']), format='lv').iso for ll in
+                         sqldict['Bin']]
+                tlistc = sorted(list(set(tlist)), reverse=True)
                 if neat:
-                    buf = []
-                    tlist = [Time(stf.extract(str(ll), xmldict['Timestamp']), format='lv').iso for ll in sqldict['Bin']]
-                    tlistc = sorted(list(set(tlist)), reverse=True)
-                    for ll in tlistc:
-                        buf.append(str(sqldict['Bin'][tlist.index(ll)]))
+                    idxs = [tlist.index(ll) for ll in tlistc]
                 else:
-                    buf = [str(ll) for ll in sqldict['Bin']]  # Binary representation of data
+                    idxs = range(len(sqldict['Timestamp']))
+                buf = [str(sqldict['Bin'][ll]) for ll in idxs]
                 if verbose:
                     print '{} records are found in {} ~ {}.'.format(len(buf), t[0].iso, t[-1].iso)
                     for idx, ll in enumerate(buf):
-                        t = Time(stf.extract(ll, xmldict['Timestamp']), format='lv')
+                        t = util.Time(stf.extract(ll, xmldict['Timestamp']), format='lv')
                         print '{} ---> {}'.format(idx + 1, t.iso)
-                return xmldict, buf
+                if gettime:
+                    ts = [tlist[ll] for ll in idxs]
+                    return xmldict, buf, ts
+                else:
+                    return xmldict, buf
             else:
                 buf = sqldict['Bin'][0]  # Binary representation of data
                 return xmldict, str(buf)
@@ -1337,7 +1441,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
         # Create a default table, with nominal values
         attnvals = np.array([1, 2, 4, 8, 16], np.complex)  # The 5 bits of each attenuator
         attn = np.moveaxis(np.repeat(attnvals, 4 * 16).reshape(5, 16, 2, 2), 0, -1)  # results in shape (16,2,2,5)
-    # Write timestamp 
+    # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1369,16 +1473,16 @@ def refcal2sql(rfcal):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
-        rfcal: a dict ('t_bg', 'refcal', 't_gcal', 't_mid', 'flag', 't_ed', 'fghz')
+        rfcal: a dict ('t_bg', 'vis', 't_gcal', 'timestamp', 'flag', 't_ed', 'fghz')
 
         This kind of record is type definition 8.
     '''
     typedef = 8
-    if not 'refcal' in rfcal.keys():
-        raise KeyError('Key "refcal" not exist')
+    if not 'vis' in rfcal.keys():
+        raise KeyError('Key "vis" not exist')
     ver = cal_types()[typedef][2]
-    if 't_mid' in rfcal.keys():
-        t = int(rfcal['t_mid'].lv)
+    if 'timestamp' in rfcal.keys():
+        t = int(rfcal['timestamp'].lv)
     else:
         t = int(util.Time.now().lv)
     if 't_gcal' in rfcal.keys():
@@ -1399,7 +1503,12 @@ def refcal2sql(rfcal):
     if 'flag' in rfcal.keys():
         flag = rfcal['flag']
     else:
-        flag = np.zeros_like(np.real(rfcal['refcal']))
+        flag = np.zeros_like(np.real(rfcal['vis']))
+
+    if 'sigma' in rfcal.keys():
+        sigma = rfcal['sigma']
+    else:
+        sigma = np.zeros_like(np.real(rfcal['vis']))
 
     # Write timestamp
     buf = struct.pack('d', t)
@@ -1417,7 +1526,7 @@ def refcal2sql(rfcal):
     buf += struct.pack('34f', *rfcal['fghz'])
 
     # Write real part of table
-    rrfcal = np.real(rfcal['refcal'])
+    rrfcal = np.real(rfcal['vis'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
@@ -1426,7 +1535,7 @@ def refcal2sql(rfcal):
             buf += struct.pack('34f', *rrfcal[i, j])
 
     # Write imag part of table
-    irfcal = np.imag(rfcal['refcal'])
+    irfcal = np.imag(rfcal['vis'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
@@ -1434,7 +1543,15 @@ def refcal2sql(rfcal):
         for j in range(2):
             buf += struct.pack('34f', *irfcal[i, j])
 
-    # Write Flag of table
+    # Write Sigma of table
+    buf += struct.pack('I', 34)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 15)
+    for i in range(15):
+        for j in range(2):
+            buf += struct.pack('34f', *sigma[i, j])
+
+    # Write Flag table
     flag = np.array(flag, dtype=float)
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
@@ -1442,9 +1559,10 @@ def refcal2sql(rfcal):
     for i in range(15):
         for j in range(2):
             buf += struct.pack('34f', *flag[i, j])
-    print 'sending refcal of {} to SQL database.'.format(util.Time(t, format='lv').iso)
-    # return write_cal(typedef, buf, t)
-    return buf
+    t = util.Time(t, format='lv')
+    print 'sending refcal of {} to SQL database.'.format(t.iso)
+    return write_cal(typedef, buf, t)
+    # return buf
 
 
 def phacal2sql(phcal):
@@ -1460,8 +1578,8 @@ def phacal2sql(phcal):
     if not 'phacal' in phcal.keys():
         raise KeyError('Key "phacal" not exist')
     ver = cal_types()[typedef][2]
-    if 't_mid' in phcal.keys():
-        t = int(phcal['t_mid'].lv)
+    if 'timestamp' in phcal.keys():
+        t = int(phcal['timestamp'].lv)
     else:
         t = int(util.Time.now().lv)
     if 't_refcal' in phcal.keys():
@@ -1562,6 +1680,7 @@ def phacal2sql(phcal):
     for i in range(15):
         for j in range(2):
             buf += struct.pack('2f', *mbd1[i, j])
-    print 'sending phacal of {} to SQL database.'.format(util.Time(t, format='lv').iso)
+    t = util.Time(t, format='lv')
+    print 'sending phacal of {} to SQL database.'.format(t.iso)
     # return write_cal(typedef, buf, t)
     return buf

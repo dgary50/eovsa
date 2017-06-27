@@ -80,6 +80,13 @@
 #   2017-Mar-05  DG
 #       Added writing of sync time to a file on the ACC, which will be read
 #       by scan_header() to add the information to the scan header.
+#   2017-May-17  DG
+#       Added "helper" routines seteq() and readeq() to setting and reading
+#       constant equalizer coefficients for all ROACHes.  No need to 
+#       connect first!
+#   2017-Jun-07  DG
+#       Set the extraneous 8-bit pktdla in swreg_ctrl_x to 0, since it is the 16-bit
+#       one in swreg_pkt_fft that is actually used.
 
 import corr, qdr, struct, numpy, time, copy, sys
 import urllib2, subprocess
@@ -363,17 +370,14 @@ class Roach():
         if clk == 800:
             acc_len   = int(0.019 * clkHz / 8192.) - 63   # ~19 ms duration (200 MHz)
         else:
-            acc_len   = int(0.019 * clkHz / 8192.) - 223   # ~19 ms duration (300 MHz)
-        if nbds == 8:
-            # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
-            # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
-            x_acc_len = 6
-            if clk != 800:
-                # 16-ant correlator uses different units for x_acc_len (number of 512-sample blocks)
-                # This is 5 (5*512 = 2560), but because of 0-based scheme it is set to 4
-                x_acc_len = 4
-        else:
-            x_acc_len = acc_len
+            acc_len   = int(0.019 * clkHz / 8192.) - 223 # ~19 ms duration (300 MHz)
+        # 16-ant correlator uses different units for x_acc_len (number of 256-sample blocks)
+        # This is 7 (7*256 = 1792), but because of 0-based scheme it is set to 6
+        x_acc_len = 6
+        if clk != 800:
+            # 16-ant correlator uses different units for x_acc_len (number of 512-sample blocks)
+            # This is 5 (5*512 = 2560), but because of 0-based scheme it is set to 4
+            x_acc_len = 4
 
         if dbg:
             print 'Acc Length',acc_len
@@ -477,9 +481,9 @@ class Roach():
 
         # Load X control register
         pows = 2**numpy.array([16,8,4,0])
-        vect = numpy.array([x_acc_len,pktdla,rnum-1,mypoln])
+        vect = numpy.array([x_acc_len,0,rnum-1,mypoln])
         if dbg:
-            print 'X Control Register vector [Acc Length,Pktdla,Board,Poln]',vect,'packed',hex((vect*pows).sum())
+            print 'X Control Register vector [Acc Length,0,Board,Poln]',vect,'packed',hex((vect*pows).sum())
         else:
             self.fpga.write_int('swreg_ctrl_x',(vect*pows).sum())
 
@@ -1493,3 +1497,20 @@ def plot_apratio(po=None,ac=None,co=numpy.zeros((16,2,34))+16.,fseq=None,lineplo
                 ax[j*4+2,i].get_yaxis().set_ticks([])
                 ax[j*4+3,i].get_yaxis().set_ticks([])
 
+def seteq(coeff):
+    ro = [Roach('roach'+str(i+1)) for i in range(8)]
+    for rn in ro:
+        for i in range(4):
+            rn.set_eq(xn=i,coeff=coeff)
+        rn.fpga.stop()
+        
+def readeq():
+    ro = [Roach('roach'+str(i+1)) for i in range(8)]
+    for rn in ro:
+        print ' '
+        print rn.roach_ip,
+        for i in range(4):
+            buf = rn.fpga.read('eq_x'+str(i)+'_coeffs',8192*4)
+            vals = numpy.array(struct.unpack('>16384h',buf),dtype='>h')
+            print ' eq_x'+str(i)+'_coeffs is',vals[0]/64.,
+        rn.fpga.stop()
