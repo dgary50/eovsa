@@ -19,9 +19,10 @@ import matplotlib.pyplot as plt
 from glob import glob
 import matplotlib.dates as mdates
 import os
-#import pcapture2 as p
+# import pcapture2 as p
 import pdb
-#import chan_util_bc as cu
+
+# import chan_util_bc as cu
 
 bl2ord = ri.bl2ord
 
@@ -333,7 +334,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
             't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
 
 
-def graph_results(refcal,unwrap=True,savefigs=False):
+def graph_results(refcal, unwrap=True, savefigs=False):
     '''Provide an output from sql2refcal() (single refcal result) or sql2refcalX() (list of refcal results).
        Plot phase and amp vs. bands
        
@@ -360,11 +361,11 @@ def graph_results(refcal,unwrap=True,savefigs=False):
                 ax2[pol, ant].plot(allbands[ind], ref['amp'][ant, pol, ind], '.', markersize=5)
                 ax2[pol, ant].set_xlim([1, 34])
                 ax2[pol, ant].set_ylim([0, 1.])
-                if len(ind) == 0: 
-                    ax1[pol,ant].text(17,0,'No Cal',ha='center')
-                    ax2[pol,ant].text(17,0.5,'No Cal',ha='center')
+                if len(ind) == 0:
+                    ax1[pol, ant].text(17, 0, 'No Cal', ha='center')
+                    ax2[pol, ant].text(17, 0.5, 'No Cal', ha='center')
                     if pol == 0:
-                        bad += ' Ant '+str(ant+1)
+                        bad += ' Ant ' + str(ant + 1)
 
                 if ant == 0:
                     ax1[pol, ant].set_ylabel('Phase (radian)')
@@ -383,25 +384,27 @@ def graph_results(refcal,unwrap=True,savefigs=False):
     if savefigs:
         dstr = ref['timestamp'].iso[:10]
         tstr = ref['timestamp'].iso[11:19]
-        file1 = dstr.replace('-','')+'_refcal_pha.png'
-        f1.savefig('/common/webplots/refcal/'+file1)
-        file2 = dstr.replace('-','')+'_refcal_amp.png'
-        f2.savefig('/common/webplots/refcal/'+file2)
+        file1 = dstr.replace('-', '') + '_refcal_pha.png'
+        f1.savefig('/common/webplots/refcal/' + file1)
+        file2 = dstr.replace('-', '') + '_refcal_amp.png'
+        f2.savefig('/common/webplots/refcal/' + file2)
         maxlen = 0
-        idx, = np.where(ref['flag'][0,0] == 0)
+        idx, = np.where(ref['flag'][0, 0] == 0)
         for ant in range(13):
-           for pol in range(2):
-              ind, = np.where(ref['flag'][ant, pol] == 0)
-              if len(ind) > maxlen:
-                  idx = ind
-                  maxlen = len(idx)
-        bstr = str(idx[0]+1)+'~'+str(idx[-1]+1)
+            for pol in range(2):
+                ind, = np.where(ref['flag'][ant, pol] == 0)
+                if len(ind) > maxlen:
+                    idx = ind
+                    maxlen = len(idx)
+        bstr = str(idx[0] + 1) + '~' + str(idx[-1] + 1)
         if bad != '':
-            badstr = 'No calibration for:'+bad
+            badstr = 'No calibration for:' + bad
         else:
             badstr = ''
-        print '|',dstr.replace('-','/'),'||',tstr,'||  || 0 ||  ||',bstr,'|| [http://ovsa.njit.edu/refcal/'+file1,'Phase] || [http://ovsa.njit.edu/refcal/'+file2,'Amp] ||',badstr
+        print '|', dstr.replace('-',
+                                '/'), '||', tstr, '||  || 0 ||  ||', bstr, '|| [http://ovsa.njit.edu/refcal/' + file1, 'Phase] || [http://ovsa.njit.edu/refcal/' + file2, 'Amp] ||', badstr
         print '|-'
+
 
 def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
     '''Fit the phase difference between a phase calibration (or another refcal)
@@ -424,74 +427,81 @@ def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
         # fghz: frequency in GHz
         # ph0 = 0: phase offset identically set to zero (not fitted)
         # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns 
-        return 2.*np.pi*fghz*mbd
+        return 2. * np.pi * fghz * mbd
 
     def mbdfunc1(fghz, ph0, mbd):
         # fghz: frequency in GHz
         # ph0: phase offset in radians
         # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns 
-        return ph0 + 2.*np.pi*fghz*mbd
+        return ph0 + 2. * np.pi * fghz * mbd
 
     t_pha = phacal['timestamp']
     if refcal is None:
         refcal = sql2refcal(t_pha)
     t_ref = refcal['timestamp']
-    dpha=phacal['pha']-refcal['pha']
-    flag_pha=phacal['flag']
-    flag_ref=refcal['flag']
-    f, ax=plt.subplots(2, 13, figsize=(13,5))
-    f.suptitle('Phase Diff vs. Freq from '+t_pha.iso+', relative to '+t_ref.iso)
-    poff = [[],[]]
-    pslope = [[],[]]
-    flag = [[],[]]
-    for ant in range(13):
-        if verbose: print 'ant: ',ant
+    dpha = phacal['pha'] - refcal['pha']
+    flag_pha = phacal['flag']
+    flag_ref = refcal['flag']
+    f, ax = plt.subplots(2, 13, figsize=(13, 5))
+    f.suptitle('Phase Diff vs. Freq from ' + t_pha.iso + ', relative to ' + t_ref.iso)
+    poff = [[], []]
+    pslope = [[], []]
+    flag = [[], []]
+    for ant in range(15):
+        if verbose: print 'ant: ', ant
         for pol in range(2):
-            if verbose: print 'pol: ', pol
-            ind, = np.where((flag_pha[ant,pol] == 0) & (flag_ref[ant,pol]==0))
-            dpha_unw = np.unwrap(dpha[ant,pol,ind])
-            fghz = phacal['fghz'][ind]
-            if len(fghz) > 3:
-                # Ensure that offset is close to zero, modulo 2*pi
-                if dpha_unw[0] > np.pi: dpha_unw -= 2*np.pi
-                if dpha_unw[0] < -np.pi: dpha_unw += 2*np.pi
-            sig_pha = phacal['sigma'][ant,pol,ind]
-            sig_ref = refcal['sigma'][ant,pol,ind]
-            amp_pha = phacal['amp'][ant,pol,ind]
-            amp_ref = refcal['amp'][ant,pol,ind]
-            sigma = ((sig_pha/amp_pha)**2. + (sig_ref/amp_ref)**2.)**0.5
-            ax[pol,ant].plot(fghz, dpha_unw,'.k')
-            ax[pol,ant].set_ylim([-10,10])
-            ax[pol,ant].set_xlim([0,18])
-            # Do a linear fit on the residual phases
-            if len(fghz) > 3:
-                if fitoffsets:
-                    popt, pcov = curve_fit(mbdfunc1, fghz, dpha_unw, p0=[0.,0.], sigma=sigma, absolute_sigma=False)
-                    poff[pol].append(popt[0])
-                    pslope[pol].append(popt[1])
-                    flag[pol].append(0)
-                    ax[pol,ant].plot(fghz, mbdfunc1(fghz, *popt),'r--')
-                    if verbose: print 'Phase offset (deg):',np.degrees(popt[0])
-                    if verbose: print 'MBD (ns):', popt[1]
+            if ant < 12:
+                if verbose: print 'pol: ', pol
+                ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
+                dpha_unw = np.unwrap(dpha[ant, pol, ind])
+                fghz = phacal['fghz'][ind]
+                if len(fghz) > 3:
+                    # Ensure that offset is close to zero, modulo 2*pi
+                    if dpha_unw[0] > np.pi: dpha_unw -= 2 * np.pi
+                    if dpha_unw[0] < -np.pi: dpha_unw += 2 * np.pi
+                sig_pha = phacal['sigma'][ant, pol, ind]
+                sig_ref = refcal['sigma'][ant, pol, ind]
+                amp_pha = phacal['amp'][ant, pol, ind]
+                amp_ref = refcal['amp'][ant, pol, ind]
+                sigma = ((sig_pha / amp_pha) ** 2. + (sig_ref / amp_ref) ** 2.) ** 0.5
+                ax[pol, ant].plot(fghz, dpha_unw, '.k')
+                ax[pol, ant].set_ylim([-10, 10])
+                ax[pol, ant].set_xlim([0, 18])
+                # Do a linear fit on the residual phases
+                if len(fghz) > 3:
+                    if fitoffsets:
+                        popt, pcov = curve_fit(mbdfunc1, fghz, dpha_unw, p0=[0., 0.], sigma=sigma, absolute_sigma=False)
+                        poff[pol].append(popt[0])
+                        pslope[pol].append(popt[1])
+                        flag[pol].append(0)
+                        ax[pol, ant].plot(fghz, mbdfunc1(fghz, *popt), 'r--')
+                        if verbose: print 'Phase offset (deg):', np.degrees(popt[0])
+                        if verbose: print 'MBD (ns):', popt[1]
+                    else:
+                        popt, pcov = curve_fit(mbdfunc0, fghz, dpha_unw, p0=[0.], sigma=sigma, absolute_sigma=False)
+                        poff[pol].append(0.0)
+                        pslope[pol].append(popt[0])
+                        flag[pol].append(0)
+                        ax[pol, ant].plot(fghz, mbdfunc0(fghz, *popt), 'r--')
+                        if verbose: print 'Phase offset (deg): 0.0 (not fit)'
+                        if verbose: print 'MBD (ns):', popt[0]
+                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
                 else:
-                    popt, pcov = curve_fit(mbdfunc0, fghz, dpha_unw, p0=[0.], sigma=sigma, absolute_sigma=False)
                     poff[pol].append(0.0)
-                    pslope[pol].append(popt[0])
-                    flag[pol].append(0)
-                    ax[pol,ant].plot(fghz, mbdfunc0(fghz, *popt),'r--')
-                    if verbose: print 'Phase offset (deg): 0.0 (not fit)'
-                    if verbose: print 'MBD (ns):', popt[0]
-                ax[pol,ant].text(9,8,'Ant '+str(ant+1),ha='center')
+                    pslope[pol].append(0.0)
+                    flag[pol].append(1)
+                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                    ax[pol, ant].text(9, 0, 'No Cal', ha='center')
             else:
                 poff[pol].append(0.0)
                 pslope[pol].append(0.0)
                 flag[pol].append(1)
-                ax[pol,ant].text(9,8,'Ant '+str(ant+1),ha='center')
-                ax[pol,ant].text(9,0,'No Cal',ha='center')
-    ax[0,0].set_ylabel('Phase Diff [rad]')
-    ax[1,0].set_ylabel('Phase Diff [rad]')
-    for i in range(13): ax[1,i].set_xlabel('f [GHz]')
-    return {'t_pha':t_pha, 't_ref':t_ref, 'poff':np.array(poff),'pslope':np.array(pslope),'flag':np.array(flag),'phacal':phacal}
+    ax[0, 0].set_ylabel('Phase Diff [rad]')
+    ax[1, 0].set_ylabel('Phase Diff [rad]')
+    for i in range(13): ax[1, i].set_xlabel('f [GHz]')
+    return {'t_pha': t_pha, 't_ref': t_ref, 'poff': np.array(poff), 'pslope': np.array(pslope), 'flag': np.array(flag),
+            'phacal': phacal}
+
 
 def sql2refcal(t):
     '''Supply a timestamp in Time format, return the closest refcal data'''
@@ -522,15 +532,20 @@ def sql2refcalX(trange, *args, **kwargs):
             try:
                 ref = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
                 flag = stf.extract(buf, xml['Refcal_Flag'])
+                fghz = stf.extract(buf, xml['Fghz'])
+                sigma = stf.extract(buf, xml['Refcal_Sigma'])
                 timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
                 tbg = Time(stf.extract(buf, xml['T_beg']), format='lv')
                 ted = Time(stf.extract(buf, xml['T_end']), format='lv')
                 pha = np.angle(ref)
                 amp = np.absolute(ref)
-                refcals.append({'pha': pha, 'amp': amp, 'flag': flag, 'timestamp': timestamp, 't_bg': tbg,
-                                't_ed': ted})
+                refcals.append(
+                    {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp,
+                     't_bg': tbg,
+                     't_ed': ted})
             except:
-                continue
+                print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']),
+                                                                            format='lv').iso)
         return refcals
     elif isinstance(bufs, str):
         refcal = stf.extract(bufs, xml['Refcal_Real']) + stf.extract(bufs, xml['Refcal_Imag']) * 1j
@@ -544,3 +559,53 @@ def sql2refcalX(trange, *args, **kwargs):
         amp = np.absolute(refcal)
         return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg,
                 't_ed': ted}
+
+
+def sql2phacalX(trange, *args, **kwargs):
+    '''Supply a timestamp in Time format, return the closest phacal data.
+        If a time range is provided, return records within the time range.'''
+    import cal_header as ch
+    import stateframe as stf
+    xml, bufs = ch.read_calX(9, t=trange, *args, **kwargs)
+    if isinstance(bufs, list):
+        phacals = []
+        for i, buf in enumerate(bufs):
+            try:
+                phacal_flag = stf.extract(buf, xml['Phacal_Flag'])
+                fghz = stf.extract(buf, xml['Fghz'])
+                sigma = stf.extract(buf, xml['Phacal_Sigma'])
+                timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
+                tbg = Time(stf.extract(buf, xml['T_beg']), format='lv')
+                ted = Time(stf.extract(buf, xml['T_end']), format='lv')
+                pha = stf.extract(buf, xml['Phacal_Pha'])
+                amp = stf.extract(buf, xml['Phacal_Amp'])
+                poff, pslope = stf.extract(buf, xml['MBD'])
+                flag = stf.extract(buf, xml['Flag'])
+                t_ref = stf.extract(buf, xml['T_refcal'])
+                phacals.append(
+                    {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
+                     'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
+                                'timestamp': timestamp,
+                                't_bg': tbg,
+                                't_ed': ted}})
+            except:
+                print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']),
+                                                                            format='lv').iso)
+        return phacals
+    elif isinstance(bufs, str):
+        phacal_flag = stf.extract(bufs, xml['Phacal_Flag'])
+        fghz = stf.extract(bufs, xml['Fghz'])
+        sigma = stf.extract(bufs, xml['Phacal_Sigma'])
+        timestamp = Time(stf.extract(bufs, xml['Timestamp']), format='lv')
+        tbg = Time(stf.extract(bufs, xml['T_beg']), format='lv')
+        ted = Time(stf.extract(bufs, xml['T_end']), format='lv')
+        pha = stf.extract(bufs, xml['Phacal_Pha'])
+        amp = stf.extract(bufs, xml['Phacal_Amp'])
+        poff, pslope = stf.extract(bufs, xml['MBD'])
+        flag = stf.extract(bufs, xml['Flag'])
+        t_ref = Time(stf.extract(bufs, xml['T_refcal']), format='lv')
+        return {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
+                'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
+                           'timestamp': timestamp,
+                           't_bg': tbg,
+                           't_ed': ted}}
