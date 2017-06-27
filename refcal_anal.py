@@ -8,10 +8,12 @@
 #    the fitted phase slopes and offsets
 #  2017-06-27 DG
 #    Extended graph_results() to save figures and print string for pasting
-#    into the wiki table (if savefigs argument is set to True)
+#    into the wiki table (if savefigs argument is set to True).  Also updated
+#    phacal_anal() to default to not including a phase offset in the fit, but
+#    will do so if fitoffsets=True.
 #
 import read_idb as ri
-from util import Time
+from util import Time, ant_str2list
 import numpy as np
 import matplotlib.pyplot as plt
 from glob import glob
@@ -162,7 +164,7 @@ def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=
         times = out['times']
 
     nscan = len(scanlist)
-    ant_list = p.ant_str2list(ant_str)
+    ant_list = ant_str2list(ant_str)
     nant = len(ant_list)
     bds0 = bandplt
     nband = len(bds0)
@@ -399,16 +401,30 @@ def graph_results(refcal,unwrap=True,savefigs=False):
         print '|',dstr.replace('-','/'),'||',tstr,'||  || 0 ||  ||',bstr,'|| [http://ovsa.njit.edu/refcal/'+file1,'Phase] || [http://ovsa.njit.edu/refcal/'+file2,'Amp] ||',badstr
         print '|-'
 
-def phacal_anal(phacal, refcal=None, verbose=False):
+def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
     '''Fit the phase difference between a phase calibration (or another refcal)
        and the reference calibration.  Returns the phase slopes and, optionally,
        the offsets, along with the relevant times, as a dictionary.
        
-       pfit    A python dictionary with 
+       Returns:
+       pfit    A python dictionary with the following keys:
+           't_pha' : Central time of the phase calibration data
+           't_ref' : Central time of the reference calibration data
+           'poff'  : Phase offsets (zero if fitoffsets=False) for each antenna, polarization
+           'pslope': Phase slope for each antenna, polarization
+           'flag'  : Indication of bad data for each antenna, polarization (0 = good, 1 = bad)
+           'phacal': Actual instance of phase calibration dictionary, containing frequency-dependent
+                       amplitudes, phases, etc.
     '''
     from scipy.optimize import curve_fit
 
-    def mbdfunc(fghz, ph0, mbd):
+    def mbdfunc0(fghz, mbd):
+        # fghz: frequency in GHz
+        # ph0 = 0: phase offset identically set to zero (not fitted)
+        # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns 
+        return 2.*np.pi*fghz*mbd
+
+    def mbdfunc1(fghz, ph0, mbd):
         # fghz: frequency in GHz
         # ph0: phase offset in radians
         # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns 
@@ -416,7 +432,7 @@ def phacal_anal(phacal, refcal=None, verbose=False):
 
     t_pha = phacal['timestamp']
     if refcal is None:
-        refcal = ra.sql2refcal(t_pha) 
+        refcal = sql2refcal(t_pha) 
     t_ref = refcal['timestamp']
     dpha=phacal['pha']-refcal['pha']
     flag_pha=phacal['flag']
@@ -447,14 +463,23 @@ def phacal_anal(phacal, refcal=None, verbose=False):
             ax[pol,ant].set_xlim([0,18])
             # Do a linear fit on the residual phases
             if len(fghz) > 3:
-                popt, pcov = curve_fit(mbdfunc, fghz, dpha_unw, p0=[0.,0.], sigma=sigma, absolute_sigma=False)
-                poff[pol].append(popt[0])
-                pslope[pol].append(popt[1])
-                flag[pol].append(0)
-                ax[pol,ant].plot(fghz, mbdfunc(fghz, *popt),'r--')
+                if fitoffsets:
+                    popt, pcov = curve_fit(mbdfunc1, fghz, dpha_unw, p0=[0.,0.], sigma=sigma, absolute_sigma=False)
+                    poff[pol].append(popt[0])
+                    pslope[pol].append(popt[1])
+                    flag[pol].append(0)
+                    ax[pol,ant].plot(fghz, mbdfunc1(fghz, *popt),'r--')
+                    if verbose: print 'Phase offset (deg):',np.degrees(popt[0])
+                    if verbose: print 'MBD (ns):', popt[1]
+                else:
+                    popt, pcov = curve_fit(mbdfunc0, fghz, dpha_unw, p0=[0.], sigma=sigma, absolute_sigma=False)
+                    poff[pol].append(0.0)
+                    pslope[pol].append(popt[0])
+                    flag[pol].append(0)
+                    ax[pol,ant].plot(fghz, mbdfunc0(fghz, *popt),'r--')
+                    if verbose: print 'Phase offset (deg): 0.0 (not fit)'
+                    if verbose: print 'MBD (ns):', popt[0]
                 ax[pol,ant].text(9,8,'Ant '+str(ant+1),ha='center')
-                if verbose: print 'Phase offset (deg):',np.degrees(popt[0])
-                if verbose: print 'MBD (ns):', popt[1]
             else:
                 poff[pol].append(0.0)
                 pslope[pol].append(0.0)
@@ -464,7 +489,7 @@ def phacal_anal(phacal, refcal=None, verbose=False):
     ax[0,0].set_ylabel('Phase Diff [rad]')
     ax[1,0].set_ylabel('Phase Diff [rad]')
     for i in range(13): ax[1,i].set_xlabel('f [GHz]')
-    return {'t_pha':t_pha, 't_ref':t_ref, 'poff':np.array(poff),'pslope':np.array(pslope),'flag':np.array(flag)}
+    return {'t_pha':t_pha, 't_ref':t_ref, 'poff':np.array(poff),'pslope':np.array(pslope),'flag':np.array(flag),'phacal':phacal}
     
 def sql2refcal(t):
     '''Supply a timestamp in Time format, return the closest refcal data'''
