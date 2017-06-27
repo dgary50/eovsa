@@ -29,7 +29,7 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     fpath = '/data1/eovsa/fits/UDB/' + trange[0].iso[:4] + '/'
     t1 = trange[0].to_datetime()
     t2 = trange[1].to_datetime()
-    daydelta = (t2.date()-t1.date()).days
+    daydelta = (t2.date() - t1.date()).days
     tnow = Time.now()
     if t1.date() != t2.date():
         # End day is different than start day, so read and concatenate two fdb files
@@ -373,30 +373,44 @@ def sql2refcal(t):
     fghz = stf.extract(buf, xml['Fghz'])
     sigma = stf.extract(buf, xml['Refcal_Sigma'])
     timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
-    tbg = Time(stf.extract(buf, xml['t_bg']), format='lv')
-    ted = Time(stf.extract(buf, xml['t_ed']), format='lv')
+    tbg = Time(stf.extract(buf, xml['T_beg']), format='lv')
+    ted = Time(stf.extract(buf, xml['T_end']), format='lv')
     pha = np.angle(refcal)
     amp = np.absolute(refcal)
     return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg,
             't_ed': ted}
 
 
-def sql2refcalX(trange):
+def sql2refcalX(trange, *args, **kwargs):
+    '''same as sql2refcal. trange can be either a timestamp or a timerange.'''
     import cal_header as ch
     import stateframe as stf
-    xml, bufs = ch.read_calX(8, t=trange)
-    refcals = []
-    for i, buf in enumerate(bufs):
-        try:
-            ref = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
-            flag = stf.extract(buf, xml['Refcal_Flag'])
-            timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
-            tbg = Time(stf.extract(buf, xml['t_bg']), format='lv')
-            ted = Time(stf.extract(buf, xml['t_ed']), format='lv')
-            pha = np.angle(ref)
-            amp = np.absolute(ref)
-            refcals.append({'pha': pha, 'amp': amp, 'flag': flag, 'timestamp': timestamp, 't_bg': tbg,
-                            't_ed': ted})
-        except:
-            continue
-    return refcals
+    xml, bufs = ch.read_calX(8, t=trange, *args, **kwargs)
+    if isinstance(bufs, list):
+        refcals = []
+        for i, buf in enumerate(bufs):
+            try:
+                ref = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
+                flag = stf.extract(buf, xml['Refcal_Flag'])
+                timestamp = Time(stf.extract(buf, xml['Timestamp']), format='lv')
+                tbg = Time(stf.extract(buf, xml['T_beg']), format='lv')
+                ted = Time(stf.extract(buf, xml['T_end']), format='lv')
+                pha = np.angle(ref)
+                amp = np.absolute(ref)
+                refcals.append({'pha': pha, 'amp': amp, 'flag': flag, 'timestamp': timestamp, 't_bg': tbg,
+                                't_ed': ted})
+            except:
+                continue
+        return refcals
+    elif isinstance(bufs, str):
+        refcal = stf.extract(bufs, xml['Refcal_Real']) + stf.extract(bufs, xml['Refcal_Imag']) * 1j
+        flag = stf.extract(bufs, xml['Refcal_Flag'])
+        fghz = stf.extract(bufs, xml['Fghz'])
+        sigma = stf.extract(bufs, xml['Refcal_Sigma'])
+        timestamp = Time(stf.extract(bufs, xml['Timestamp']), format='lv')
+        tbg = Time(stf.extract(bufs, xml['T_beg']), format='lv')
+        ted = Time(stf.extract(bufs, xml['T_end']), format='lv')
+        pha = np.angle(refcal)
+        amp = np.absolute(refcal)
+        return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg,
+                't_ed': ted}

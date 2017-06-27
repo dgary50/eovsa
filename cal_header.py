@@ -919,7 +919,7 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse = False):
+def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse=False):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
         or for the current time if None.
         :param caltype: 
@@ -1469,7 +1469,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return buf  # write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal):
+def refcal2sql(rfcal, timestamp=None):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1481,10 +1481,13 @@ def refcal2sql(rfcal):
     if not 'vis' in rfcal.keys():
         raise KeyError('Key "vis" not exist')
     ver = cal_types()[typedef][2]
-    if 'timestamp' in rfcal.keys():
-        t = int(rfcal['timestamp'].lv)
+    if timestamp:
+        t = int(timestamp.lv)
     else:
-        t = int(util.Time.now().lv)
+        if 'timestamp' in rfcal.keys():
+            t = int(rfcal['timestamp'].lv)
+        else:
+            t = int(util.Time.now().lv)
     if 't_gcal' in rfcal.keys():
         tgcal = int(rfcal['t_gcal'].lv)
     else:
