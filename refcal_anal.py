@@ -599,7 +599,7 @@ def sql2phacalX(trange, *args, **kwargs):
                 amp = stf.extract(buf, xml['Phacal_Amp'])
                 tmp = stf.extract(buf, xml['MBD'])
                 poff, pslope = tmp[:,:,0],tmp[:,:,1]
-                flag = stf.extract(buf, xml['Flag'])
+                flag = stf.extract(buf, xml['Flag'])[:,:,0]
                 t_ref = Time(stf.extract(buf, xml['T_refcal']), format='lv')
                 phacals.append(
                     {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
@@ -622,7 +622,7 @@ def sql2phacalX(trange, *args, **kwargs):
         amp = stf.extract(bufs, xml['Phacal_Amp'])
         tmp = stf.extract(bufs, xml['MBD'])
         poff, pslope = tmp[:, :, 0], tmp[:, :, 1]
-        flag = stf.extract(bufs, xml['Flag'])
+        flag = stf.extract(bufs, xml['Flag'])[:,:,0]
         t_ref = Time(stf.extract(bufs, xml['T_refcal']), format='lv')
         return {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
                 'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
