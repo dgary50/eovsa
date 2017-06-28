@@ -104,8 +104,9 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
        ***Optional keywords***
        projid: string -- predefined PROJECTID when setting up the observations. Default is 'PHASECAL'
        srcid: string -- if provided, then only use the specified source. E.g., '1229+020' is often used for
-              reference calibration
+              reference calibration. Default is to use all scans.
        quackint: interval in seconds to skip at the beginning of each scan
+       navg: number of data points to average
        ***Output dictionary***
 
     '''
