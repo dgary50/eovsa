@@ -252,6 +252,8 @@
 #      Updated $CAPTURE-1S handling to allow it to work when no <stem> argument is given.
 #    2017-May-18  DG
 #      Commented out lines relating STARBURST
+#    2017-Jun-28  DG
+#      Added "crossed" keyword handling for $PA_ADJUST command
 #
 
 import os, signal
@@ -2421,17 +2423,21 @@ class App():
                 elif ctlline.split()[0].upper() == '$PA-TRACK':
                     # Track 27-m focus rotation mechanism to correct for parallactic angle 
                     # of given antenna (does nothing if antenna not correctly specified)
-                    #   Usage: $PA-TRACK ant4
+                    #   Usage: $PA-TRACK ant4 <CROSSED>
                     print 'Got '+ctlline.split()[0].upper()+' command.'
                     if self.PAthread is None or not self.PAthread.is_alive():
                         # Thread is not already running, so it is safe to proceed
-                        antstr = ctlline.strip().split()[-1].upper()
+                        antstr = ctlline.strip().split()[1].upper()
+                        crossed = False
+                        if len(ctlline.strip().split()) == 3:
+                            if ctlline.strip().split()[2].upper() == 'CROSSED':
+                                crossed = True
                         print 'Given antenna is '+antstr
                         try:
                             # Spawn the stateframe.PA_adjust() routine to update PA once/minute
                             antn = pcapture2.ant_str2list(antstr)[0]
                             print 'Antenna index is',antn
-                            self.PAthread = threading.Thread(target=stateframe.PA_adjust,kwargs={'ant':antn})
+                            self.PAthread = threading.Thread(target=stateframe.PA_adjust,kwargs={'ant':antn,'crossed':crossed})
                             self.PAthread.daemon = True
                             self.PAthread.start()
                             print 'PAthread started.'
