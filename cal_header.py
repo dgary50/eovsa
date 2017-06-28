@@ -575,6 +575,7 @@ def phacal2xml():
     buf += str2bin('<NumElts>12</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
+    # Default is the timestamp of the daily phase calibration
     # Time of creation of the table (precise time not critical)
     buf += str2bin('<DBL>')
     buf += str2bin('<Name>Timestamp</Name>')
@@ -588,12 +589,28 @@ def phacal2xml():
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
 
-    # Timestamp of the daily phase calibration (double) of [s, in LabVIEW format]
+    # Timestamp of the reference gain calibration (double) of [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
     buf += str2bin('<DBL>')
     buf += str2bin('<Name>T_refcal</Name>')
     buf += str2bin('<Val></Val>')
     buf += str2bin('</DBL>')
+
+    # List of multi-band delay of daily phase calibration relative to refcal ([phase_offset, phase_slope] x npol x nant) (2 x 2 x 15).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>MBD</Name>')
+    buf += str2bin(
+        '<Dimsize>15</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of flag of multi-band delay of daily phase calibration ([phase_offset, phase_slope] x npol x nant) (2 x 2 x 15).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Flag</Name>')
+    buf += str2bin(
+        '<Dimsize>15</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
 
     # Timestamp of the begin time of phacal (double) of [s, in LabVIEW format]
     # Time of creation of the table (precise time not critical)
@@ -609,13 +626,6 @@ def phacal2xml():
     buf += str2bin('<Val></Val>')
     buf += str2bin('</DBL>')
 
-    # Timestamp of the delay center change (double) of [s, in LabVIEW format]
-    # Time of creation of the table (precise time not critical)
-    buf += str2bin('<DBL>')
-    buf += str2bin('<Name>T_dla</Name>')
-    buf += str2bin('<Val></Val>')
-    buf += str2bin('</DBL>')
-
     # List of averaged band frequencies in GHz.
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Fghz</Name>')
@@ -626,7 +636,7 @@ def phacal2xml():
     # List of real part of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
-    buf += str2bin('<Name>Phacal_Real</Name>')
+    buf += str2bin('<Name>Phacal_Amp</Name>')
     buf += str2bin(
         '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
@@ -634,7 +644,15 @@ def phacal2xml():
     # List of imaginary part of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
-    buf += str2bin('<Name>Phacal_Imag</Name>')
+    buf += str2bin('<Name>Phacal_Pha</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of sigmas of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Phacal_Sigma</Name>')
     buf += str2bin(
         '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
@@ -645,22 +663,6 @@ def phacal2xml():
     buf += str2bin('<Name>Phacal_Flag</Name>')
     buf += str2bin(
         '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of multi-band delay of delay center change (nant x npol x [phase_offset, phase_slope]) (15 x 2 x 2).
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>MBD0</Name>')
-    buf += str2bin(
-        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of multi-band delay of daily phase calibration relative to refcal (nant x npol x [phase_offset, phase_slope]) (15 x 2 x 2).
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>MBD1</Name>')
-    buf += str2bin(
-        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -919,7 +921,7 @@ def read_cal(type, t=None):
         return {}, None
 
 
-def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse = False):
+def read_calX(caltype, t=None, verbose=True, neat=False, gettime=False, reverse=False):
     ''' Read the calibration data of the given type, for the given time or time-range (as a Time() object), 
         or for the current time if None.
         :param caltype: 
@@ -1469,7 +1471,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return buf  # write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal):
+def refcal2sql(rfcal, timestamp=None):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1481,10 +1483,13 @@ def refcal2sql(rfcal):
     if not 'vis' in rfcal.keys():
         raise KeyError('Key "vis" not exist')
     ver = cal_types()[typedef][2]
-    if 'timestamp' in rfcal.keys():
-        t = int(rfcal['timestamp'].lv)
+    if timestamp:
+        t = int(timestamp.lv)
     else:
-        t = int(util.Time.now().lv)
+        if 'timestamp' in rfcal.keys():
+            t = int(rfcal['timestamp'].lv)
+        else:
+            t = int(util.Time.now().lv)
     if 't_gcal' in rfcal.keys():
         tgcal = int(rfcal['t_gcal'].lv)
     else:
@@ -1565,7 +1570,7 @@ def refcal2sql(rfcal):
     # return buf
 
 
-def phacal2sql(phcal):
+def phacal2sql(phcal, timestamp=None):
     ''' Write daily phase calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1578,48 +1583,27 @@ def phacal2sql(phcal):
     if not 'phacal' in phcal.keys():
         raise KeyError('Key "phacal" not exist')
     ver = cal_types()[typedef][2]
-    if 'timestamp' in phcal.keys():
-        t = int(phcal['timestamp'].lv)
+    if timestamp:
+        t = int(timestamp.lv)
     else:
-        t = int(util.Time.now().lv)
-    if 't_refcal' in phcal.keys():
-        trefcal = int(phcal['t_refcal'].lv)
+        if 't_pha' in phcal.keys():
+            t = int(phcal['t_pha'].lv)
+        else:
+            t = int(util.Time.now().lv)
+    if 't_ref' in phcal.keys():
+        trefcal = int(phcal['t_ref'].lv)
     else:
         trefcal = -1
 
-    if 't_bg' in phcal.keys():
-        tbg = int(phcal['t_bg'].lv)
+    if 't_bg' in phcal['phacal'].keys():
+        tbg = int(phcal['phacal']['t_bg'].lv)
     else:
         tbg = -1
 
-    if 't_ed' in phcal.keys():
-        ted = int(phcal['t_ed'].lv)
+    if 't_ed' in phcal['phacal'].keys():
+        ted = int(phcal['phacal']['t_ed'].lv)
     else:
         ted = -1
-
-    if 't_dla' in phcal.keys():
-        tdla = int(phcal['t_delay'].lv)
-    else:
-        tdla = -1
-
-    if 'flag' in phcal.keys():
-        flag = phcal['flag']
-    else:
-        flag = np.zeros_like(np.real(phcal['phacal']))
-
-    if 'mbd0' in phcal.keys():
-        mbd0 = phcal['mbd0']
-    else:
-        s = list(phcal['phacal'].shape)
-        s[2] = 2
-        mbd0 = np.zeros(s)
-
-    if 'mbd1' in phcal.keys():
-        mbd1 = phcal['mbd1']
-    else:
-        s = list(phcal['phacal'].shape)
-        s[2] = 2
-        mbd1 = np.zeros(s)
 
     # Write timestamp
     buf = struct.pack('d', t)
@@ -1627,60 +1611,71 @@ def phacal2sql(phcal):
     buf += struct.pack('d', ver)
     # Write timestamp of reference calibration
     buf += struct.pack('d', trefcal)
+
+    # Write multi-band delay of table
+    mbd = np.array([phcal['poff'], phcal['pslope']])
+    buf += struct.pack('I', 15)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 2)
+    for i in range(2):
+        for j in range(2):
+            buf += struct.pack('15f', *mbd[i, j])
+
+    # Write the flag of multi-band delay of table
+    flag = np.array([phcal['flag'], phcal['flag']])
+    buf += struct.pack('I', 15)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 2)
+    for i in range(2):
+        for j in range(2):
+            buf += struct.pack('15f', *flag[i, j])
+
     # Write timestamp of begin time of phacal
     buf += struct.pack('d', tbg)
-    # Write timestamp of begin time of phacal
+    # Write timestamp of end time of phacal
     buf += struct.pack('d', ted)
-    # Write timestamp of delay center change of phacal
-    buf += struct.pack('d', tdla)
 
     # Write table of the averaged band frequencies
     buf += struct.pack('I', 34)
-    buf += struct.pack('34f', *phcal['fghz'])
+    buf += struct.pack('34f', *phcal['phacal']['fghz'])
 
-    # Write real part of table
-    rphcal = np.real(phcal['phacal'])
+    # Write amplitude of phcal
+    aphcal = np.real(phcal['phacal']['amp'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *rphcal[i, j])
+            buf += struct.pack('34f', *aphcal[i, j])
 
-    # Write imag part of table
-    iphcal = np.imag(phcal['phacal'])
+    # Write phase of phcal
+    pphcal = np.array(phcal['phacal']['pha'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *iphcal[i, j])
+            buf += struct.pack('34f', *pphcal[i, j])
 
-    # Write Flag of table
-    flag = np.array(flag, dtype=float)
+    # Write Sigma of phcal
+    sigma = np.array(phcal['phacal']['sigma'])
     buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *flag[i, j])
+            buf += struct.pack('34f', *sigma[i, j])
 
-    # Write multi-band delay 0 of table
-    buf += struct.pack('I', 2)
+    # Write Flag of phcal
+    phacal_flag = np.array(phcal['phacal']['flag'], dtype=float)
+    buf += struct.pack('I', 34)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('2f', *mbd0[i, j])
+            buf += struct.pack('34f', *phacal_flag[i, j])
 
-    # Write multi-band delay 1 of table
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
-        for j in range(2):
-            buf += struct.pack('2f', *mbd1[i, j])
     t = util.Time(t, format='lv')
     print 'sending phacal of {} to SQL database.'.format(t.iso)
-    # return write_cal(typedef, buf, t)
-    return buf
+    return write_cal(typedef, buf, t)
+    # return buf
