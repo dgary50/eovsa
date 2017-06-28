@@ -468,7 +468,7 @@ def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
     for ant in range(15):
         if verbose: print 'ant: ', ant
         for pol in range(2):
-            if ant < 12:
+            if ant < 13:
                 if verbose: print 'pol: ', pol
                 ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
                 dpha_unw = np.unwrap(dpha[ant, pol, ind])
@@ -514,8 +514,6 @@ def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
                 poff[pol].append(0.0)
                 pslope[pol].append(0.0)
                 flag[pol].append(1)
-                ax[pol,ant].text(9,8,'Ant '+str(ant+1),ha='center')
-                ax[pol,ant].text(9,0,'No Cal',ha='center')
     for j in range(2): ax[j,0].set_ylabel('Phase Diff [rad]')
     for i in range(13): 
         ax[1,i].set_xlabel('f [GHz]')
