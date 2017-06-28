@@ -520,7 +520,7 @@ def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
         ax[1,i].set_xlabel('f [GHz]')
         if i != 0: 
             for j in range(2): ax[j, i].set_yticklabels([])
-    return {'t_pha':t_pha, 't_ref':t_ref, 'poff':np.array(poff),'pslope':np.array(pslope),'flag':np.array(flag),'phacal':phacal}
+    return {'t_pha':t_pha, 't_ref':t_ref, 'poff':np.transpose(poff),'pslope':np.transpose(pslope),'flag':np.transpose(flag),'phacal':phacal}
     
 def sql2refcal(t):
     '''Supply a timestamp in Time format, return the closest refcal data'''
@@ -598,7 +598,8 @@ def sql2phacalX(trange, *args, **kwargs):
                 ted = Time(stf.extract(buf, xml['T_end']), format='lv')
                 pha = stf.extract(buf, xml['Phacal_Pha'])
                 amp = stf.extract(buf, xml['Phacal_Amp'])
-                poff, pslope = stf.extract(buf, xml['MBD'])
+                tmp = stf.extract(buf, xml['MBD'])
+                poff, pslope = tmp[:,:,0],tmp[:,:,1]
                 flag = stf.extract(buf, xml['Flag'])
                 t_ref = Time(stf.extract(buf, xml['T_refcal']), format='lv')
                 phacals.append(
@@ -620,7 +621,8 @@ def sql2phacalX(trange, *args, **kwargs):
         ted = Time(stf.extract(bufs, xml['T_end']), format='lv')
         pha = stf.extract(bufs, xml['Phacal_Pha'])
         amp = stf.extract(bufs, xml['Phacal_Amp'])
-        poff, pslope = stf.extract(bufs, xml['MBD'])
+        tmp = stf.extract(bufs, xml['MBD'])
+        poff, pslope = tmp[:, :, 0], tmp[:, :, 1]
         flag = stf.extract(bufs, xml['Flag'])
         t_ref = Time(stf.extract(bufs, xml['T_refcal']), format='lv')
         return {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
