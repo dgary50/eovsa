@@ -904,9 +904,8 @@ class App():
         # i is the ordinal number of the antenna in the list (self.antlist)
         sf = self.accini['sf']
         ant = sf['Antenna'][iant-1]['Controller']
-        i = np.where(self.antlist == iant)[0] 
+        i = int(np.where(self.antlist == iant)[0])  # Behavior of numpy changed!
         #pos = self.S[i].get()
-
         self.Lbtrip[i].delete(0,END)
 
         # Status Bits

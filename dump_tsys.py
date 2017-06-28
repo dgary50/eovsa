@@ -35,6 +35,9 @@
 #  2017-May-13  BC
 #    Added rd_ufdb() routine to read the contents of an UFDB file. This is similar
 #    to rd_fdb() but instead works to find UDB files.
+#  2017-May-17  DG
+#    Added auto keyword to read_miriad_tsys_16(), which returns the real
+#    part of the autocorrelation instead of total power, in the tsys key.
 
 import subprocess, time, sys, glob
 import numpy as np
@@ -209,7 +212,7 @@ def rd_miriad_tsys(trange,udb=False):
     fghz = fghz[good]
     return {'source':src, 'fghz':fghz, 'ut_mjd':utd, 'tsys':tsys}
 
-def rd_miriad_tsys_16(trange,udb=False):
+def rd_miriad_tsys_16(trange,udb=False,auto=False):
 
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by trange.  This version works only for 16-ant correlator
@@ -217,7 +220,10 @@ def rd_miriad_tsys_16(trange,udb=False):
     '''
     import read_idb
     out = read_idb.read_idb(trange)
-    return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':out['p']}
+    if auto:
+        return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':np.real(out['a'][:,:2])}
+    else:
+        return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':out['p']}
 
 def rd_miriad_tsamp(trange,udb=False):
     ''' Read total power data (TSYS) directly from Miriad files for time range

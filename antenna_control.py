@@ -2,9 +2,16 @@ def get_trip(tripcode):
     ''' Given a numerical antenna controller Trip code, looks up the meaning of the
         Trip and returns documentation (description and options for solving) based
         on the Control Techniques documentation. '''
-    f = open('CT_Trip_Info.txt','r')
-    lines = f.readlines()
-    f.close()
+    import os
+    # Open CT_Trip_Info text file (should be in PYTHONPATH)
+    for p in os.environ['PYTHONPATH'].split(os.pathsep):
+        if p == '': p = '.'
+        try:
+            f = open(p+os.sep+'CT_Trip_Info.txt','r')
+            lines = f.readlines()
+            f.close()
+        except:
+            pass
     bl = []
     for i,line in enumerate(lines):
         if line.strip() == '':
