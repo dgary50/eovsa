@@ -596,20 +596,20 @@ def phacal2xml():
     buf += str2bin('<Val></Val>')
     buf += str2bin('</DBL>')
 
-    # List of multi-band delay of daily phase calibration relative to refcal ([phase_offset, phase_slope] x npol x nant) (2 x 2 x 15).
+    # List of multi-band delay of daily phase calibration relative to refcal (nant x npol x [phase_offset, phase_slope]) (15 x 2 x 2).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>MBD</Name>')
     buf += str2bin(
-        '<Dimsize>15</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flag of multi-band delay of daily phase calibration ([phase_offset, phase_slope] x npol x nant) (2 x 2 x 15).
+    # List of flag of multi-band delay of daily phase calibration (nant x npol x [phase_offset, phase_slope]) (15 x 2 x 2).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Flag</Name>')
     buf += str2bin(
-        '<Dimsize>15</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # Timestamp of the begin time of phacal (double) of [s, in LabVIEW format]
@@ -1613,22 +1613,22 @@ def phacal2sql(phcal, timestamp=None):
     buf += struct.pack('d', trefcal)
 
     # Write multi-band delay of table
-    mbd = np.array([phcal['poff'], phcal['pslope']])
+    mbd = np.concatenate((np.expand_dims(phcal['poff'],2), np.expand_dims(phcal['pslope'],2)),axis=2)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 2)
-    for i in range(2):
+    for i in range(15):
         for j in range(2):
-            buf += struct.pack('15f', *mbd[i, j])
+            buf += struct.pack('2f', *mbd[i, j])
 
     # Write the flag of multi-band delay of table
-    flag = np.array([phcal['flag'], phcal['flag']])
+    flag = np.concatenate((np.expand_dims(phcal['flag'], 2), np.expand_dims(phcal['flag'], 2)), axis=2)
+    buf += struct.pack('I', 2)
+    buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 2)
-    for i in range(2):
+    for i in range(15):
         for j in range(2):
-            buf += struct.pack('15f', *flag[i, j])
+            buf += struct.pack('2f', *flag[i, j])
 
     # Write timestamp of begin time of phacal
     buf += struct.pack('d', tbg)
