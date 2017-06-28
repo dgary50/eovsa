@@ -228,6 +228,7 @@ def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=
                     ax1[ant, b].plot_date(refcal['timestamp'].plot_date, phavg, 'o')
                     ax2[ant, b].plot_date(refcal['timestamp'].plot_date, ampavg, 'o')
 
+
 def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 17, 23], doplot=True):
     '''Analyze the visibility data from rd_refcal and return time averaged visibility values and flags.
        ***Optional Keywords***
@@ -261,19 +262,19 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         times_ = out['times']
         fghzs = out['fghzs']
 
-    fghz=fghzs[0]
+    fghz = fghzs[0]
     times = np.concatenate(times_)
     vis = np.concatenate(vis, axis=3)
-    #only keep the first 2 polarizations
-    vis = vis[:,:2]
+    # only keep the first 2 polarizations
+    vis = vis[:, :2]
     if timerange:
         tidx, = np.where((times > timerange[0].jd) & (times < timerange[1].jd))
         if len(tidx) == 0:
             print 'no records within the selected timerange. Abort...'
         for i in range(len(scanlist)):
             sidx, = np.where((times_[i] > timerange[0].jd) & (times_[i] < timerange[1].jd))
-            if len(sidx) > 0: 
-                src=srclist[i]
+            if len(sidx) > 0:
+                src = srclist[i]
                 break
         vis = vis[:, :, :, tidx]
         timeavg = times[tidx]
@@ -319,8 +320,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
     timestamp = Time(np.mean(timeavg), format='jd')
     timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd) / 2., format='jd')
     if doplot:
-        visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp, 
-                  't_bg':timeavg[0], 't_ed':timeavg[-1], 'flag': flag}
+        visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp,
+                  't_bg': timeavg[0], 't_ed': timeavg[-1], 'flag': flag}
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt)
         f2, ax2 = plt.subplots(2, 13, figsize=(12, 5))
         f3, ax3 = plt.subplots(2, 13, figsize=(12, 5))
@@ -348,8 +349,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                     ax2[pol, ant].set_xticks([])
                     ax3[pol, ant].set_title('Ant ' + str(ant + 1))
                     ax3[pol, ant].set_xticks([])
-    return {'src':src, 'vis': vis_, 'pha':np.angle(vis_), 'amp':np.abs(vis_), 'fghz':fghz, 'flag': flag, 
-            'sigma':sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal,
+    return {'src': src, 'vis': vis_, 'pha': np.angle(vis_), 'amp': np.abs(vis_), 'fghz': fghz, 'flag': flag,
+            'sigma': sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal,
             't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
 
 
@@ -420,7 +421,8 @@ def graph_results(refcal, unwrap=True, savefigs=False):
             badstr = 'No calibration for:' + bad
         else:
             badstr = ''
-        print '|',dstr.replace('-','/'),'||',tstr,'|| ',ref['src'],' || || 0 ||  ||',bstr,'|| [http://ovsa.njit.edu/refcal/'+file1,'Phase] || [http://ovsa.njit.edu/refcal/'+file2,'Amp] ||',badstr
+        print '|', dstr.replace('-', '/'), '||', tstr, '|| ', ref[
+            'src'], ' || || 0 ||  ||', bstr, '|| [http://ovsa.njit.edu/refcal/' + file1, 'Phase] || [http://ovsa.njit.edu/refcal/' + file2, 'Amp] ||', badstr
         print '|-'
 
 
@@ -514,13 +516,15 @@ def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
                 poff[pol].append(0.0)
                 pslope[pol].append(0.0)
                 flag[pol].append(1)
-    for j in range(2): ax[j,0].set_ylabel('Phase Diff [rad]')
-    for i in range(13): 
-        ax[1,i].set_xlabel('f [GHz]')
-        if i != 0: 
+    for j in range(2): ax[j, 0].set_ylabel('Phase Diff [rad]')
+    for i in range(13):
+        ax[1, i].set_xlabel('f [GHz]')
+        if i != 0:
             for j in range(2): ax[j, i].set_yticklabels([])
-    return {'t_pha':t_pha, 't_ref':t_ref, 'poff':np.transpose(poff),'pslope':np.transpose(pslope),'flag':np.transpose(flag),'phacal':phacal}
-    
+    return {'t_pha': t_pha, 't_ref': t_ref, 'poff': np.transpose(poff), 'pslope': np.transpose(pslope),
+            'flag': np.transpose(flag), 'phacal': phacal}
+
+
 def sql2refcal(t):
     '''Supply a timestamp in Time format, return the closest refcal data'''
     import cal_header as ch
@@ -598,8 +602,8 @@ def sql2phacalX(trange, *args, **kwargs):
                 pha = stf.extract(buf, xml['Phacal_Pha'])
                 amp = stf.extract(buf, xml['Phacal_Amp'])
                 tmp = stf.extract(buf, xml['MBD'])
-                poff, pslope = tmp[:,:,0],tmp[:,:,1]
-                flag = stf.extract(buf, xml['Flag'])[:,:,0]
+                poff, pslope = tmp[:, :, 0], tmp[:, :, 1]
+                flag = stf.extract(buf, xml['Flag'])[:, :, 0]
                 t_ref = Time(stf.extract(buf, xml['T_refcal']), format='lv')
                 phacals.append(
                     {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
@@ -622,7 +626,7 @@ def sql2phacalX(trange, *args, **kwargs):
         amp = stf.extract(bufs, xml['Phacal_Amp'])
         tmp = stf.extract(bufs, xml['MBD'])
         poff, pslope = tmp[:, :, 0], tmp[:, :, 1]
-        flag = stf.extract(bufs, xml['Flag'])[:,:,0]
+        flag = stf.extract(bufs, xml['Flag'])[:, :, 0]
         t_ref = Time(stf.extract(bufs, xml['T_refcal']), format='lv')
         return {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
                 'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
