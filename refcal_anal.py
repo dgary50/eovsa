@@ -470,7 +470,7 @@ def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
     for ant in range(15):
         if verbose: print 'ant: ', ant
         for pol in range(2):
-            if ant < 12:
+            if ant < 13:
                 if verbose: print 'pol: ', pol
                 ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
                 dpha_unw = np.unwrap(dpha[ant, pol, ind])
