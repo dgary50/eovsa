@@ -664,7 +664,7 @@ class TimeLV(TimeFromEpoch):
     epoch_val2 = None
     epoch_scale = 'utc'
     epoch_format = 'jd'
-    
+
 class Time(astroTime):
     ''' Extends astropy Time object to handle LabVIEW timestamps
         (format 'lv').
@@ -678,7 +678,16 @@ class Time(astroTime):
              precision=precision, in_subfmt=in_subfmt, out_subfmt=out_subfmt,
              location=location, copy=copy)
         import pytz
-        self.LocalTime = pytz.utc.localize(self.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles'))
+        try:
+            self.LocalTime = pytz.utc.localize(self.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles'))
+        except:
+            try:
+                locT = []
+                for ll in self:
+                    locT.append(pytz.utc.localize(ll.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles')))
+                self.LocalTime = locT
+            except:
+                pass
 
 from math import floor
 
