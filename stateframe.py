@@ -58,6 +58,9 @@
 #      starting the sweep (or times out and starts sweep after 2 minutes).
 #   2017-Feb-01  DG
 #      Increase timeout for solar power stations from 0.2 to 0.4 s.
+#   2017-Jun-28  DG
+#      Add "crossed" keyword to PA_adjust() to orient the feed 90 degrees
+#      from the parallactic angle
 #
 
 import struct, sys
@@ -514,7 +517,7 @@ def azel_from_sqldict(sqldict, antlist=None):
             'dElevation':delv,'ActualElevation':el_act,'RequestedElevation':el_req,
             'ParallacticAngle':chi/dtor, 'TrackFlag':trackflag}
             
-def PA_adjust(ant=None):
+def PA_adjust(ant=None, crossed=False):
     ''' Spawned task to check the changing parallactic angle of given
         antenna and rotate the position angle of the focus rotation
         mechanism on Ant14 to counteract it.  Checks for Abort message
@@ -523,6 +526,10 @@ def PA_adjust(ant=None):
         This routine is invoked with $PA-TRACK command in the schedule,
         and aborts with $PA-STOP command, or if Ant14 is removed from
         the current subarray.
+        
+        Optional keyword:
+          crossed    Boolean. If True, rotates the FRM to be 90-degrees
+                       from the nominal parallactic angle. Default is False
     '''
     import time
     import adc_cal2
@@ -546,6 +553,10 @@ def PA_adjust(ant=None):
             # Do this only if stateframe timestamp is valid--otherwise just skip this update
             # Get Chi for this antenna from the stateframe, converted to degrees
             chi = extract(data,chikey)[ant]*180/np.pi
+            
+            # If the crossed keyword is set, the orientation angle is 90-degrees from chi
+            if crossed: chi += 90
+            
             # Make sure it is in range...
             if chi > 90.:
                 chi = 180. - chi
