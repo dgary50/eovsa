@@ -664,7 +664,7 @@ class TimeLV(TimeFromEpoch):
     epoch_val2 = None
     epoch_scale = 'utc'
     epoch_format = 'jd'
-    
+
 class Time(astroTime):
     ''' Extends astropy Time object to handle LabVIEW timestamps
         (format 'lv').
@@ -689,7 +689,6 @@ class Time(astroTime):
                 self.LocalTime = locT
             except:
                 pass
-
 
 from math import floor
 
