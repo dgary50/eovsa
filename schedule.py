@@ -2039,7 +2039,7 @@ class App():
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
-        elif cmds[0].upper() == 'PACAL':
+        elif cmds[0][:5].upper() == 'PACAL':
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '

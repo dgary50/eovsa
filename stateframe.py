@@ -574,7 +574,8 @@ def PA_adjust(ant=None, crossed=False):
                 msg = q.get_nowait()
                 if msg == 'Abort':
                     # Got abort message, so exit.
-                    break
+                    adc_cal2.send_cmds(['frm-set-pa 0 ant14'],acc)
+                    return
             except:
                 pass
             time.sleep(1)
