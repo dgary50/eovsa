@@ -17,9 +17,18 @@
 #  2017-06-28 DG
 #    Added doplot keyword to refcal_anal(), default is True, to allow the summary 
 #    plot of the results to be optional.
+#  2017-07-03  DG
+#    Added return of HA and DEC keys in rd_refcal(), as keys 'has' and 'decs'.
+#    My plan is to do baseline analysis of multi-source data, and these are
+#    needed for that.  Also added routine unrot_refcal(), which applies the
+#    correction for feed rotation and returns another refcal in the same format.
+#    Right now, it will only work for data taken since 2017-07-01.  Also added
+#    partially complete routine fit_blerror(), which will use the data from
+#    an all-night multi-source, multi-frequency calibration to determine
+#    baseline errors.  Currently works for only Bx and By.
 #
 import read_idb as ri
-from util import Time, ant_str2list
+from util import Time, ant_str2list, lobe, nearest_val_idx
 import numpy as np
 import matplotlib.pyplot as plt
 from glob import glob
@@ -121,10 +130,14 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
     bandnames = []
     times = []
     fghzs = []
+    has = []
+    decs = []
     for n, scan in enumerate(scanlist):
         print 'Reading scan: ' + scan
         out = ri.read_idb([scan], navg=navg, quackint=quackint)
         times.append(out['time'])
+        has.append(out['ha'])
+        decs.append(out['dec'])
         nt = len(out['time'])
         if nt == 0:
             continue
@@ -143,9 +156,60 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
         fghzs.append(fghz)
         bandnames.append(bds)
     return {'scanlist': scanlist, 'srclist': srclist, 'tstlist': sclist['tstlist'], 'tedlist': sclist['tedlist'],
-            'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs, 'times': times}
+            'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs, 'times': times, 'has':has, 'decs':decs}
 
-
+def unrot_refcal(refcal_in):
+    ''' Apply feed-rotation correction to data read with rd_refcal(), returning updated data in
+        the same format for further processing.
+    '''
+    import dbutil as db
+    import copy
+    import chan_util_bc as cu
+    refcal = copy.deepcopy(refcal_in)
+    blah = np.load('/common/tmp/Feed_rotation/20170702121949_delay_phase.npz')
+    dph = blah['dph']
+    band=[]
+    for f in blah['fghz']:
+        band.append(cu.freq2bdname(f))
+    bds, sidx = np.unique(band, return_index=True)
+    nbd = len(bds)
+    eidx = np.append(sidx[1:], len(band))
+    dxy = np.zeros((14, 34), dtype=np.float)
+    fghz = np.zeros(34)
+    # average dph frequencies within each band, to convert to 34-band representation
+    for b, bd in enumerate(bds):
+        fghz[bd - 1] = np.nanmean(blah['fghz'][sidx[b]:eidx[b]])
+        for a in range(14):
+            dxy[a,bd-1] = np.angle(np.sum(np.exp(1j*dph[a, sidx[b]:eidx[b]])))
+    # Read parallactic angles for entire time range
+    trange = Time([refcal['tstlist'][0].iso,refcal['tedlist'][-1].iso])
+    times, chi = db.get_chi(trange)
+    tchi = times.jd
+    nscans = len(refcal['scanlist'])
+    for i in range(nscans):
+        t = refcal['times'][i]
+        vis = copy.deepcopy(refcal['vis'][i])
+        idx = nearest_val_idx(t,tchi)
+        pa = chi[idx]   # Parallactic angle for the times of this refcal.
+        pa[:,[8,9,10,12]] = 0.0
+        nt = len(idx)   # Number of times in this refcal
+        # Apply X-Y delay phase correction
+        for a in range(13):
+            a1 = lobe(dxy[a] - dxy[13])
+            a2 = -dxy[13] + np.pi/2
+            a3 = dxy[a] - np.pi/2
+            for j in range(nt):
+                vis[a,1,:,j] *= np.exp(1j*a1)
+                vis[a,2,:,j] *= np.exp(1j*a2) 
+                vis[a,3,:,j] *= np.exp(1j*a3)
+        for j in range(nt):
+            for a in range(13):
+                refcal['vis'][i][a,0,:,j] = vis[a,0,:,j]*np.cos(pa[j,a]) + vis[a,3,:,j]*np.sin(pa[j,a])
+                refcal['vis'][i][a,2,:,j] = vis[a,2,:,j]*np.cos(pa[j,a]) + vis[a,1,:,j]*np.sin(pa[j,a])
+                refcal['vis'][i][a,3,:,j] = vis[a,3,:,j]*np.cos(pa[j,a]) - vis[a,0,:,j]*np.sin(pa[j,a])
+                refcal['vis'][i][a,1,:,j] = vis[a,1,:,j]*np.cos(pa[j,a]) - vis[a,2,:,j]*np.sin(pa[j,a])  
+    return refcal                
+    
 def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=None, pol=0,
           tformat='%H:%M'):
     '''Produce a figure showing phases and amplitudes of selected antennas, bands, and polarization.
@@ -633,3 +697,46 @@ def sql2phacalX(trange, *args, **kwargs):
                            'timestamp': timestamp,
                            't_bg': tbg,
                            't_ed': ted}}
+
+def fit_blerror(out, idxlist):
+    ''' Determines baseline errors on baselines with Ant 14, by fitting the
+        phase variations due to baseline error dependences on HA and Dec.
+        (Currently only fits Bx and By errors, Bz to be added later)
+        
+        Required inputs:
+        out   a list of calibrator observation results returned by rd_refcal(),
+                corrected for feed rotation by unrot_refcal().
+        
+        Output:
+        dbx, dby   Arrays of errors, in cm, for all baselines with Ant 14, on
+                     both polarizations and in all bands (1-34).  Size is 
+                     [nant, npol, nband] = [13, 2, 34]
+    '''
+    from scipy.optimize import curve_fit
+
+    def bxyfunc(ha, poff, dbx, dby):
+        # ha: hour angle
+        # poff: constant phase offset
+        # dbx: baseline x error [cm] * cos(dec) * fghz
+        # dby: baseline y error [cm] * cos(dec) * fghz
+        return (2.*np.pi)/30. * (dbx * np.cos(ha) - dby * np.sin(ha)) + poff
+
+    ha = []
+    ph = []
+    dec = out['decs'][idxlist[0]]
+    fghz = out['fghzs'][idxlist[0]]
+    for i in idxlist:
+        ha.append(out['has'][i])
+        ph.append(np.angle(out['vis'][i]))
+    ha = np.concatenate(ha)
+    ph = np.concatenate(ph,3)
+    nant, npol, nf, nt = ph.shape
+    dbx = np.zeros((13,2,nf),np.float)
+    dby = np.zeros((13,2,nf),np.float)
+    for a in range(13):
+        for pol in range(2):
+            for f in range(nf):
+                popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a,pol,f]), p0=[0., 0., 0.], sigma=None, absolute_sigma=False)
+                dbx[a,pol,f] = popt[1]/(np.cos(dec)*fghz[f])
+                dby[a,pol,f] = popt[2]/(np.cos(dec)*fghz[f])
+    return dbx, dby
