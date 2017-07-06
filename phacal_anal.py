@@ -73,4 +73,6 @@ def phacal_anal(refcal, verbose=False):
     print '{} out of {} PHASECAL results were sent to SQL database.'.format(ct_accept, nscanidx)
     print 'PHASECAL: time/            source/          status'
     for idx, ll in enumerate(scanidx_sql):
-        print '{0}: {1}~{2}/ {3}/ {4}'.format(ll['id'],out['tstlist'][ll['id']].isot[:-4],out['tedlist'][ll['id']].isot[:-4], out['srclist'][ll['id']], ll['status'])
+        print '{0}: {1}~{2}/ {3}/ {4}'.format(ll['id'], out['tstlist'][ll['id']].isot[:-4],
+                                              out['tedlist'][ll['id']].isot[:-4], out['srclist'][ll['id']],
+                                              ll['status'])
