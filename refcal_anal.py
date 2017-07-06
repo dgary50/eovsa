@@ -262,6 +262,15 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         times_ = out['times']
         fghzs = out['fghzs']
 
+    scanidx = range(len(scanlist))
+    if len(set(np.array(srclist)[scanidx]))>1:
+        prompt = ''
+        while not (prompt.lower() in ['y', 'n']):
+            prompt = raw_input('Multiple sources are selected. Are you sure to continue? [y/n]')
+        if prompt.lower() == 'n':
+            print 'Abort...'
+            return None
+
     fghz = fghzs[0]
     times = np.concatenate(times_)
     vis = np.concatenate(vis, axis=3)
@@ -324,7 +333,9 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                   't_bg': timeavg[0], 't_ed': timeavg[-1], 'flag': flag}
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt)
         f2, ax2 = plt.subplots(2, 13, figsize=(12, 5))
+        plt.title('source: {}'.format(srclist[scanidx[0]]))
         f3, ax3 = plt.subplots(2, 13, figsize=(12, 5))
+        plt.title('source: {}'.format(srclist[scanidx[0]]))
         allbands = np.arange(34) + 1
         for ant in range(13):
             for pol in range(2):
@@ -426,7 +437,7 @@ def graph_results(refcal, unwrap=True, savefigs=False):
         print '|-'
 
 
-def phacal_anal(phacal, refcal=None, fitoffsets=False, verbose=False):
+def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
     '''Fit the phase difference between a phase calibration (or another refcal)
        and the reference calibration.  Returns the phase slopes and, optionally,
        the offsets, along with the relevant times, as a dictionary.
