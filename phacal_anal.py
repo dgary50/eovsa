@@ -18,7 +18,7 @@ import refcal_anal as ra
 import cal_header as ch
 
 
-def phacal_anal(refcal, verbose=False):
+def phacal_anal(refcal, minsnr=0.7, verbose=False):
     '''Fit the phase difference between a phase calibration (or another refcal)
        and the reference calibration.  Returns the phase slopes and, optionally,
        the offsets, along with the relevant times, as a dictionary.
@@ -57,7 +57,7 @@ def phacal_anal(refcal, verbose=False):
     ct_accept = 0
     for idx, ll in enumerate(scanidx):
         print 'processing PHASECAL {}/{} ...'.format(idx + 1, nscanidx)
-        phacal = ra.phase_diff(ra.refcal_anal(out, scanidx=[ll], minsnr=0.7), refcal=refcal)
+        phacal = ra.phase_diff(ra.refcal_anal(out, scanidx=[ll], minsnr=minsnr, doplot=False), refcal=refcal)
         prompt = ''
         while not (prompt.lower() in ['y', 'n']):
             prompt = raw_input('Do you want to accept this phacal results? [y/n]')
