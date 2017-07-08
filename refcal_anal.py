@@ -698,7 +698,7 @@ def sql2phacalX(trange, *args, **kwargs):
                            't_bg': tbg,
                            't_ed': ted}}
 
-def fit_blerror(out, idxlist):
+def fit_blerror(out):
     ''' Determines baseline errors on baselines with Ant 14, by fitting the
         phase variations due to baseline error dependences on HA and Dec.
         (Currently only fits Bx and By errors, Bz to be added later)
@@ -717,26 +717,62 @@ def fit_blerror(out, idxlist):
     def bxyfunc(ha, poff, dbx, dby):
         # ha: hour angle
         # poff: constant phase offset
-        # dbx: baseline x error [cm] * cos(dec) * fghz
-        # dby: baseline y error [cm] * cos(dec) * fghz
-        return (2.*np.pi)/30. * (dbx * np.cos(ha) - dby * np.sin(ha)) + poff
+        # dbx: baseline x error [ns] * cos(dec) * fghz
+        # dby: baseline y error [ns] * cos(dec) * fghz
+        return (2.*np.pi) * (dbx * np.cos(ha) - dby * np.sin(ha)) + poff
 
-    ha = []
-    ph = []
-    dec = out['decs'][idxlist[0]]
-    fghz = out['fghzs'][idxlist[0]]
-    for i in idxlist:
-        ha.append(out['has'][i])
-        ph.append(np.angle(out['vis'][i]))
-    ha = np.concatenate(ha)
-    ph = np.concatenate(ph,3)
-    nant, npol, nf, nt = ph.shape
-    dbx = np.zeros((13,2,nf),np.float)
-    dby = np.zeros((13,2,nf),np.float)
-    for a in range(13):
-        for pol in range(2):
-            for f in range(nf):
-                popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a,pol,f]), p0=[0., 0., 0.], sigma=None, absolute_sigma=False)
-                dbx[a,pol,f] = popt[1]/(np.cos(dec)*fghz[f])
-                dby[a,pol,f] = popt[2]/(np.cos(dec)*fghz[f])
+    gdbands = np.array([4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25])
+    halist = []  # List used later for Bz
+    declist = [] # List used later for Bz
+    srcs = np.unique(out['srclist'])
+    # First fit for Bx and By errors for all sources with longer than 4-hour HA range 
+    for src in srcs:
+        idxlist, = np.where(np.array(out['srclist']) == src)
+        ha = []
+        ph = []
+        dec = out['decs'][idxlist[0]]
+        declist.append(dec)
+        fghz = out['fghzs'][idxlist[0]]
+        for i in idxlist:
+            ha.append(out['has'][i])
+            ph.append(np.angle(out['vis'][i]))
+        ha = np.concatenate(ha)
+        halist.append(ha)
+        print 'Result for source',src,':'
+        if ha[-1] - ha[0] < np.pi/3.:
+            print '***HA range is too short to fit for dBx, dBy'
+            print '***Must be at least 4 hours.  Will skip this source.'
+        else:
+            ph = np.concatenate(ph,3)
+            nant, npol, nf, nt = ph.shape
+            dbx = np.zeros((13,2,nf),np.float)
+            dby = np.zeros((13,2,nf),np.float)
+            for a in range(13):
+                for pol in range(2):
+                    for f in gdbands:
+                        popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a,pol,f]), p0=[0., 0., 0.], sigma=None, absolute_sigma=False)
+                        dbx[a,pol,f] = popt[1]/(np.cos(dec)*fghz[f])  # Convert to ns
+                        dby[a,pol,f] = popt[2]/(np.cos(dec)*fghz[f])  # Convert to ns
+            dBx = np.median(np.mean(dbx[:,:,gdbands],1),1)
+            xstd = np.std(np.mean(dbx[:,:,gdbands],1),1)
+            dBy = np.median(np.mean(dby[:,:,gdbands],1),1)
+            ystd = np.std(np.mean(dby[:,:,gdbands],1),1)
+            
+            print '          dBx [m]       dBy [m]'
+            for i in range(13):
+                print 'Ant {:2d}'.format(i+1),'{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0] - dBx[i],xstd[i],dBy[0] - dBy[i],ystd[i])
+            print 'Ant 14','{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0],xstd[0],dBy[0],ystd[0])
+        print ' '
+    # Now fit for Bz errors (makes assumption that Bx and By errors are already small
+    # nhamin = len(halist[0])
+    # minsrc = 0
+    # for i,src in enumerate(srcs):
+        # idxlist, = np.where(np.array(out['srclist']) == src)
+        # # Find which source has the smalled number of measurements,
+        # # and find the indexes in all sources nearest to that source's HAs
+        # if nhamin > len(halist[i]):
+            # nhamin = len(halist[i])
+            # minsrc = i
+    # for i,src in enumerate(srcs):
+        # idxs.append(nearest_val_idx(halist[minsrc],halist[k])
     return dbx, dby
