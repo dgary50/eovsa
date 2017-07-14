@@ -12,6 +12,8 @@ Created on Wed Jun 18 18:14:41 2014
 #     27-m HA limit has to be less that -51 for now, due to cable tension
 #     problem discovered yesterday, so a check for that is added to
 #     check_27m_visible().
+#   2017-Jul-13  DG
+#     27-m cable tension was fixed, so now we can go back to the 55-degree limit.
 
 from eovsa_lst import eovsa_ha
 from numpy import rad2deg
@@ -48,9 +50,9 @@ def check_27m_visible(ha,dec):
     #       only need to check ha against HAlim    
     HAlim = get_27m_HAlim(dec)
     if abs(ha)<HAlim:
-        if ha < -51:
-            # Temporary HA limit due to problem with HA cable on 27-m, 2017-01-31
-            return False
+        #if ha < -51:
+        #    # Temporary HA limit due to problem with HA cable on 27-m, 2017-01-31 (Commented out 2017-07-13)
+        #    return False
         return True
     else:
         return False
