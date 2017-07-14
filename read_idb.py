@@ -76,6 +76,11 @@
 #    in fghz
 #  2017-Jun-12  DG
 #    Fix allday_udb() to find files on following date up to 09 UT
+#  2017-Jul-12
+#    Fixed long-standing bug in get_trange_files(), which no longer worked on DPP.
+#  2017-Jul-13  DG
+#    Major update to allday_udb() to overplot GOES data (if available) and scan type info.
+#
 
 import aipy
 import os
@@ -525,6 +530,120 @@ def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
         for j in range(2):
             ax[0,j].text(0.5,1.3,polstr[j],ha='center',va='center',transform=ax[0,j].transAxes,fontsize=14)
 
+def allday_udb2(t=None, doplot=True, goes_plot=True, savfig=False):
+    # Plots (and returns) UDB data for an entire day
+    from sunpy import lightcurve
+    from sunpy.time import TimeRange
+    from flare_monitor import flare_monitor
+    if t is None:
+        t = Time.now()
+    date = t.iso[:10].replace('-','')
+    # Look also at the following day, up to 9 UT
+    date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
+    year = date[:4]
+    files = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date+'*')
+    files.sort()
+    files2 = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date2+'0*')
+    files2.sort()
+    files = np.concatenate((np.array(files),np.array(files2)))
+    # Eliminate files starting before 10 UT on date (but not on date2)
+    for i,file in enumerate(files):
+        if file[-6] != '0':
+            break
+    try:
+        files = files[i:]
+    except:
+        print 'No files found in /data1/eovsa/fits/UDB/ for',date
+        return {}
+    out = read_idb(files,src='Sun')
+    trange = Time(out['time'][[0,-1]], format = 'jd')
+    fghz = out['fghz']
+    if doplot:
+        f, ax = plt.subplots(1,1,figsize=(14,5))
+        pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+        X = np.sort(pdata.flatten())   # Sorted, flattened array
+        # Set any time gaps to nan
+        tdif = out['time'][1:] - out['time'][:-1]
+        bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
+        pdata[:,bad] = 0
+        vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        im = ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
+        plt.colorbar(im,ax=ax,label='Amplitude [arb. units]')
+        ax.xaxis_date()
+        ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        ax.set_ylim(fghz[0], fghz[-1])
+        ax.set_xlabel('Time [UT]')
+        ax.set_ylabel('Frequency [GHz]')
+        ax.set_title('EOVSA 1-min Data for '+t.iso[:10])
+
+        if goes_plot:
+            # Get GOES data for overplotting
+            trange = Time(out['time'][[0,-1]], format = 'jd')
+            goes_tr = TimeRange(trange.iso)
+            # The GOES label is placed to start 20 min into the day
+            goes_label_time = Time(out['time'][[0]], format = 'jd').plot_date + 0.014
+            # Retrieve GOES data for the day, but this only goes to end of UT day
+            try:
+                goes = lightcurve.GOESLightCurve.create(goes_tr)
+                goes.data['xrsb'] = 2* (np.log10(goes.data['xrsb'])) + 26
+                ytext = np.median(goes.data['xrsb']) - 1
+                ax.text (goes_label_time, ytext, 'GOES soft x-ray data', color = 'yellow')
+                goes.data['xrsb'].plot(color = 'yellow')
+                # If the day goes past 0 UT, get GOES data for the next UT day
+                if int(trange[1].mjd) != int(trange[0].mjd):
+                    goes_tr2 = TimeRange([trange[1].iso[:10], trange[1].iso])
+                    goesday2 = lightcurve.GOESLightCurve.create(goes_tr2)
+                    goesday2.data['xrsb'] = 2* (np.log10(goesday2.data['xrsb'])) + 26
+                    goesday2.data['xrsb'].plot(color = 'yellow')
+            except:
+                # Looks like the GOES data do not exist, so just skip it
+                pass
+        ax.set_xlim(trange.plot_date)
+
+        ut, fl, projdict = flare_monitor(t)
+        if fl == []:
+            print 'Error retrieving data for',t.iso[:10],'from SQL database.'
+            return
+        if projdict == {}:
+            print 'No annotation can be added to plot for',t.iso[:10]
+        else:
+            nscans = len(projdict['Project'])
+            SOS = Time(projdict['Timestamp'],format='lv').plot_date
+            EOS = Time(projdict['EOS'],format='lv').plot_date
+            yran = np.array(ax.get_ylim())
+            for i in range(nscans):
+                uti = SOS[i]*np.array([1.,1.])
+                #if uti[0] >= trange[0].plot_date:
+                ax.plot_date(uti,yran,'g',lw=0.5)
+                if projdict['Project'][i] == 'NormalObserving' or projdict['Project'][i] == 'Normal Observing':
+                    ax.text(uti[0],yran[1]*0.935,'SUN',fontsize=8, color = 'white')
+                elif projdict['Project'][i] == 'None':
+                    ax.text(uti[0],yran[1]*0.975,'IDLE',fontsize=8, color = 'white')
+                elif projdict['Project'][i][:4] == 'GAIN':
+                    ax.text(uti[0],yran[1]*0.955,'GCAL',fontsize=8, color = 'white')
+                elif projdict['Project'][i] == 'SOLPNTCAL':
+                    ax.text(uti[0],yran[1]*0.955,'TPCAL',fontsize=8, color = 'white')
+                elif projdict['Project'][i] == 'PHASECAL':
+                    ax.text(uti[0],yran[1]*0.955,'PCAL',fontsize=8, color = 'white')
+                else:
+                    ax.text(uti[0],yran[1]*0.975,projdict['Project'][i],fontsize=8, color = 'white')
+            if len(projdict['EOS']) == nscans:
+                known = ['GAIN','PHAS','SOLP']  # known calibration types (first 4 letters)
+                for i in range(nscans):
+                    uti = EOS[i]*np.array([1.,1.])
+                    ax.plot_date(uti,yran,'r--',lw=0.5)
+                    uti = np.array([SOS[i],EOS[i]])
+                    if projdict['Project'][i] == 'NormalObserving':
+                        ax.plot_date(uti,yran[1]*np.array([0.93,0.93]),ls='-',marker='None',color='#aaffaa',lw=2,solid_capstyle='butt')
+                    elif projdict['Project'][i][:4] in known:
+                        ax.plot_date(uti,yran[1]*np.array([0.95,0.95]),ls='-',marker='None',color='#aaaaff',lw=2,solid_capstyle='butt')
+                    else:
+                        ax.plot_date(uti,yran[1]*np.array([0.97,0.97]),ls='-',marker='None',color='#ffaaaa',lw=2,solid_capstyle='butt')
+
+            if savfig:
+                plt.savefig('/common/webplots/flaremon/daily/XSP'+date+'.png',bbox_inches='tight')
+    return out
+
 def allday_udb(t=None, doplot=True, savfig=False):
     # Plots (and returns) UDB data for an entire day
     if t is None:
@@ -820,7 +939,8 @@ def get_trange_files(trange):
         os.listdir(folder)
     except:
         try:
-            os.listdir('/data1/IDB')
+            folder = '/data1/IDB'
+            os.listdir(folder)
         except:
             print 'Something wrong with the definition of EOVSA data directory.'
             print 'Best to define a EOVSADB variable in .cshrc (c-shell) or .bashrc (bash)'
