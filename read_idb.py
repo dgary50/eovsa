@@ -530,7 +530,7 @@ def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
         for j in range(2):
             ax[0,j].text(0.5,1.3,polstr[j],ha='center',va='center',transform=ax[0,j].transAxes,fontsize=14)
 
-def allday_udb2(t=None, doplot=True, goes_plot=True, savfig=False):
+def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False):
     # Plots (and returns) UDB data for an entire day
     from sunpy import lightcurve
     from sunpy.time import TimeRange
@@ -644,48 +644,48 @@ def allday_udb2(t=None, doplot=True, goes_plot=True, savfig=False):
                 plt.savefig('/common/webplots/flaremon/daily/XSP'+date+'.png',bbox_inches='tight')
     return out
 
-def allday_udb(t=None, doplot=True, savfig=False):
-    # Plots (and returns) UDB data for an entire day
-    if t is None:
-        t = Time.now()
-    date = t.iso[:10].replace('-','')
-    # Look also at the following day, up to 9 UT
-    date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
-    year = date[:4]
-    files = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date+'*')
-    files.sort()
-    files2 = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date2+'0*')
-    files2.sort()
-    files = np.concatenate((np.array(files),np.array(files2)))
-    # Eliminate files starting before 10 UT on date (but not on date2)
-    for i,file in enumerate(files):
-        if file[-6] != '0':
-            break
-    try:
-        files = files[i:]
-    except:
-        print 'No files found in /data1/eovsa/fits/UDB/ for',date
-        return {}
-    out = read_idb(files,src='Sun')
-    if doplot:
-        f, ax = plt.subplots(1,1)
-        f.set_size_inches(14,5)
-        pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
-        X = np.sort(pdata.flatten())   # Sorted, flattened array
-        # Set any time gaps to nan
-        tdif = out['time'][1:] - out['time'][:-1]
-        bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
-        pdata[:,bad] = 0
-        vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
-        ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
-        ax.xaxis_date()
-        ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))
-        ax.set_xlabel('Time [UT]')
-        ax.set_ylabel('Frequency [GHz]')
-        ax.set_title('EOVSA 1-min Data for '+t.iso[:10])
-        if savfig:
-            plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
-    return out
+# def allday_udb(t=None, doplot=True, savfig=False):
+    # # Plots (and returns) UDB data for an entire day
+    # if t is None:
+        # t = Time.now()
+    # date = t.iso[:10].replace('-','')
+    # # Look also at the following day, up to 9 UT
+    # date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
+    # year = date[:4]
+    # files = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date+'*')
+    # files.sort()
+    # files2 = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date2+'0*')
+    # files2.sort()
+    # files = np.concatenate((np.array(files),np.array(files2)))
+    # # Eliminate files starting before 10 UT on date (but not on date2)
+    # for i,file in enumerate(files):
+        # if file[-6] != '0':
+            # break
+    # try:
+        # files = files[i:]
+    # except:
+        # print 'No files found in /data1/eovsa/fits/UDB/ for',date
+        # return {}
+    # out = read_idb(files,src='Sun')
+    # if doplot:
+        # f, ax = plt.subplots(1,1)
+        # f.set_size_inches(14,5)
+        # pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+        # X = np.sort(pdata.flatten())   # Sorted, flattened array
+        # # Set any time gaps to nan
+        # tdif = out['time'][1:] - out['time'][:-1]
+        # bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
+        # pdata[:,bad] = 0
+        # vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        # ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
+        # ax.xaxis_date()
+        # ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        # ax.set_xlabel('Time [UT]')
+        # ax.set_ylabel('Frequency [GHz]')
+        # ax.set_title('EOVSA 1-min Data for '+t.iso[:10])
+        # if savfig:
+            # plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
+    # return out
         
 def get_IDBfiles(showthelast=10):
     #This will return the most recent IDB files saved to the 
