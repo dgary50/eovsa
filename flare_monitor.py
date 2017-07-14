@@ -66,7 +66,7 @@ def flare_monitor(t):
     '''
     import dbutil
     # timerange is 13 UT to 02 UT on next day, relative to the day in Time() object t
-    trange = Time([int(t.mjd) + 13./24,int(t.mjd) + 26./24],format='mjd')
+    trange = Time([int(t.mjd) + 12./24,int(t.mjd) + 26./24],format='mjd')
     tstart, tend = trange.lv.astype('str')
     cursor = dbutil.get_cursor()
     mjd = t.mjd
