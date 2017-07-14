@@ -61,6 +61,11 @@
 #      refcal2sql() and refcal2xml()
 #   2017-05-14  SJ
 #      Added read_calX() routine.
+#   2017-07-08  DG
+#      Added lorx argument to dla_update2sql(), to enable scheme to write
+#      Ant 14 low-frequency receiver delays into the Ant 15 slot.  The schedule
+#      will interpret the Ant 15 slot as Ant 14 whenever the low-frequency
+#      receiver is in place (I hope).
 #
 import struct, util
 import stateframe as sf
@@ -1235,15 +1240,19 @@ def dcm_table2sql(filename, t=None):
     return write_cal(typedef, buf, t)
 
 
-def dla_update2sql(dla_update, xy_delay=None, t=None):
+def dla_update2sql(dla_update, xy_delay=None, t=None, lorx=False):
     ''' Write delay_center updates to SQL server table abin,
         with the timestamp given by Time() object t (or current time, if none)
 
         Input:
           dla_update   a 14-element array of delay differences [ns], already
-                          coverted to be relative to Ant 1
+                          converted to be relative to Ant 1
           xy_delay     an optional 14-element array of delay differences [ns] in 
                           Y relative to X
+        Optional argument:
+          lorx         if True, ONLY the Ant 14 delay update is applied, and ONLY
+                          to the Ant 15 slot, which is the delay setting to use
+                          for Ant 14 Lo-frequency receiver.
     '''
     if dla_update[0] != 0.0:
         print 'First delay in list is not zero.  Delays must be relative to Ant 1'
@@ -1262,8 +1271,14 @@ def dla_update2sql(dla_update, xy_delay=None, t=None):
     # Apply corrections, forcing them to be relative to ant 1 (reference antenna),
     rel_dla_ns = dla_update
     xy_dla_ns = xy_delay  # XY delay is not relative to Ant 1
-    dcen[:14, 0] -= rel_dla_ns
-    dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
+    if lorx:
+        # This is the case of updating the Lo-frequency receiver delays ONLY
+        # Only change Ant 15 entries, using the Ant 14 information
+        dcen[14, 0] -= rel_dla_ns[13]
+        dcen[14, 1] -= rel_dla_ns[13] + xy_dla_ns[13]
+    else:
+        dcen[:14, 0] -= rel_dla_ns
+        dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
