@@ -396,6 +396,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp,
                   't_bg': timeavg[0], 't_ed': timeavg[-1], 'flag': flag}
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt)
+        graph(out, visavg, scanidx=scanidx, bandplt=bandplt, pol=1)
         f2, ax2 = plt.subplots(2, 13, figsize=(12, 5))
         plt.title('source: {}'.format(srclist[scanidx[0]]))
         f3, ax3 = plt.subplots(2, 13, figsize=(12, 5))
