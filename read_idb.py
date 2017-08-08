@@ -80,6 +80,9 @@
 #    Fixed long-standing bug in get_trange_files(), which no longer worked on DPP.
 #  2017-Jul-13  DG
 #    Major update to allday_udb() to overplot GOES data (if available) and scan type info.
+#  2017-Jul-15  DG
+#    Simpler calculation for band names from frequency, instead of calling freq2bdname(),
+#    which anyway does not work...
 #
 
 import aipy
@@ -356,9 +359,10 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     ha[np.where(ha > np.pi)] -= 2*np.pi
     ha[np.where(ha < -np.pi)] += 2*np.pi
     # Find out band name for each frequency
-    bd=[]
-    for f in freq:
-        bd.append(cu.freq2bdname(f))
+    bd = (freq*2 - 1).astype(np.int)
+    #bd=[]
+    #for f in freq:
+    #    bd.append(cu.freq2bdname(f))
     out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'band':np.array(bd),'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
     return out
 
@@ -530,13 +534,15 @@ def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
         for j in range(2):
             ax[0,j].text(0.5,1.3,polstr[j],ha='center',va='center',transform=ax[0,j].transAxes,fontsize=14)
 
-def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False):
+def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=False):
     # Plots (and returns) UDB data for an entire day
     from sunpy import lightcurve
     from sunpy.time import TimeRange
     from flare_monitor import flare_monitor
     if t is None:
         t = Time.now()
+    # Cannot get a GOES plot unless doplot is True
+    if goes_plot: doplot = True
     date = t.iso[:10].replace('-','')
     # Look also at the following day, up to 9 UT
     date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
@@ -556,6 +562,9 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False):
         print 'No files found in /data1/eovsa/fits/UDB/ for',date
         return {}
     out = read_idb(files,src='Sun')
+    if gain_corr:
+        import gaincal2 as gc
+        out = gc.apply_gain_corr(out)
     trange = Time(out['time'][[0,-1]], format = 'jd')
     fghz = out['fghz']
     if doplot:
@@ -578,10 +587,12 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False):
 
         if goes_plot:
             # Get GOES data for overplotting
-            trange = Time(out['time'][[0,-1]], format = 'jd')
             goes_tr = TimeRange(trange.iso)
+            goes_label = ['A','B','C','M','X']
             # The GOES label is placed to start 20 min into the day
             goes_label_time = Time(out['time'][[0]], format = 'jd').plot_date + 0.014
+            rightaxis_label_time = trange[1].plot_date
+
             # Retrieve GOES data for the day, but this only goes to end of UT day
             try:
                 goes = lightcurve.GOESLightCurve.create(goes_tr)
@@ -589,6 +600,13 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False):
                 ytext = np.median(goes.data['xrsb']) - 1
                 ax.text (goes_label_time, ytext, 'GOES soft x-ray data', color = 'yellow')
                 goes.data['xrsb'].plot(color = 'yellow')
+            except:
+                # Looks like the GOES data do not exist, so just skip it
+                pass
+            for k,i in enumerate([10,12,14,16,18]):
+                ax.text(rightaxis_label_time, i-0.4, goes_label[k], fontsize = '12')
+                ax.plot_date(rightaxis_label_time + np.array([-0.005,0.0]),[i,i],'-',color='yellow')
+            try:
                 # If the day goes past 0 UT, get GOES data for the next UT day
                 if int(trange[1].mjd) != int(trange[0].mjd):
                     goes_tr2 = TimeRange([trange[1].iso[:10], trange[1].iso])

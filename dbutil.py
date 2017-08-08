@@ -27,6 +27,9 @@
 #      Added return of average wind speed to a14_wscram()
 #   2017-May-16  DG
 #      Added get_reboot() for finding ROACH reboot times
+#   2017-Aug-06  DG
+#      Changed get_dbrecs() so that timerange is inclusive, i.e.
+#      returns data for both start and end second.
 #
 
 import stateframedef
@@ -80,7 +83,7 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
             if len(timestamp) == 2:
                 # This is a timerange as Time object.  Generate nrecs from time difference (in s)
                 ts = timestamp[0].lv
-                nrecs = int(round(timestamp[1].lv - timestamp[0].lv))
+                nrecs = int(round(timestamp[1].lv - timestamp[0].lv)) + 1
             else:
                 print 'Too many times in Time() object.'
                 return {}

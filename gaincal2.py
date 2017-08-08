@@ -11,6 +11,16 @@
 #  2017-06-12  DG
 #    Important change to apply_gain_corr() so that it does not drop unmeasured
 #    points.  Instead, it uses the gain state of the nearest time in case of a missing one
+#  2017-07-13  DG
+#    Fixed a bug in apply_gain_corr() -- defined trange, when tref not given.
+#  2017-07-15  DG
+#    Rather extensive changes to allow for correct gain correction for averaged
+#    data.  When apply_gain_corr() is called with data with a cadence dt longer than
+#    1 s (e.g. UDB data), it will detect it and apply the approporiate average
+#    correction.
+#  2017-08-06  DG
+#    Changed get_gain_state() to return data for inclusive timerange, i.e. it
+#    includes the begin and end times.
 #
 import dbutil as db
 import read_idb as ri
@@ -32,6 +42,8 @@ def get_fseqfile(t=None):
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
         fseqfile = data['LODM_LO1A_FSeqFile'][0].replace('\x00','')
+        if fseqfile == 'none':
+            fseqfile = None
     else:
         print 'Error: ',msg
         fseqfile = None
@@ -68,7 +80,7 @@ def fseqfile2bandlist(fseqfile=None):
         bandlist += [band]*int(np.round(dwellist[band-1]/0.02))
     return np.array(bandlist)
     
-def get_gain_state(trange):
+def get_gain_state(trange, dt=None):
     ''' Get all gain-state information for a given timerange.  Returns a dictionary
         with keys as follows:
         
@@ -84,17 +96,37 @@ def get_gain_state(trange):
                    If DPPoffset-on is 1, then dcmoff is a table of offsets to the 
                       base attenuation, size (nt, 50).  The offset applies to all 
                       antennas/polarizations.
+                      
+        Optional keywords:
+           dt      Seconds between entries to read from SQL stateframe database. 
+                     If omitted, 1 s is assumed.
     '''
-    tstart,tend = [str(i) for i in trange.lv]
+    if dt is None:
+        tstart,tend = [str(i) for i in trange.lv]
+    else:
+        # Expand time by 1/2 of dt before and after
+        tstart = str(np.round(trange[0].lv - dt/2))
+        tend = str(np.round(trange[1].lv + dt/2))
     cursor = db.get_cursor()
     ver = db.find_table_version(cursor,trange[0].lv)
     # Get front end attenuator states
     query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
             +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
-            +ver+'_vD15 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+            +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp <= '+tend
+    #if dt:
+    #    # If dt (seconds between measurements) is set, add appropriate SQL statement to query
+    #    query += ' and (cast(Timestamp as bigint) % '+str(dt)+') = 0 '
+    query += ' order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
-        times = Time(data['Timestamp'].astype('int'),format='lv')[::15]
+        if dt:
+            # If we want other than full cadence, get new array shapes and times
+            n = len(data['Timestamp'])  # Original number of times
+            new_n = (n/15/dt)*15*dt     # Truncated number of times equally divisible by dt
+            new_shape = (n/15/dt,dt,15) # New shape of truncated arrays
+            times = Time(data['Timestamp'][:new_n].astype('int')[::15*dt],format='lv')
+        else:
+            times = Time(data['Timestamp'].astype('int')[::15],format='lv')
         h1 = data['Ante_Fron_FEM_HPol_Atte_First']
         h2 = data['Ante_Fron_FEM_HPol_Atte_Second']
         v1 = data['Ante_Fron_FEM_VPol_Atte_First']
@@ -118,6 +150,12 @@ def get_gain_state(trange):
                 h2[bad,i] = h2[good[idx],i]
                 v1[bad,i] = v1[good[idx],i]
                 v2[bad,i] = v2[good[idx],i]
+        if dt:
+            # If we want other than full cadence, find mean over dt measurements
+            h1 = np.mean(h1[:new_n/15].reshape(new_shape),1)
+            h2 = np.mean(h2[:new_n/15].reshape(new_shape),1)
+            v1 = np.mean(v1[:new_n/15].reshape(new_shape),1)
+            v2 = np.mean(v2[:new_n/15].reshape(new_shape),1)
         # Put results in canonical order [nant, nt]
         h1 = h1.T
         h2 = h2.T
@@ -134,7 +172,7 @@ def get_gain_state(trange):
     dcmattn = np.moveaxis(dcmattn,0,2)
     # See if DPP offset is enabled
     query = 'select Timestamp,DPPoffsetattn_on from fV' \
-            +ver+'_vD1 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+            +ver+'_vD1 where Timestamp >= '+tstart+' and Timestamp <= '+tend+'order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
         dppon = data['DPPoffsetattn_on']
@@ -142,10 +180,14 @@ def get_gain_state(trange):
             dcm_off = None
         else:
             query = 'select Timestamp,DCMoffset_attn from fV' \
-                    +ver+'_vD50 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+                    +ver+'_vD50 where Timestamp >= '+tstart+' and Timestamp <= '+tend
+            #if dt:
+            #    # If dt (seconds between measurements) is set, add appropriate SQL statement to query
+            #    query += ' and (cast(Timestamp as bigint) % '+str(dt)+') = 0 '
+            query += ' order by Timestamp'
             data, msg = db.do_query(cursor, query)
             if msg == 'Success':
-                otimes = Time(data['Timestamp'].astype('int'),format='lv')[::15]
+                otimes = Time(data['Timestamp'].astype('int')[::15],format='lv')
                 dcmoff = data['DCMoffset_attn']
                 dcmoff.shape = (nt, 50)
                 # We now have a time-history of offsets, at least some of which are non-zero.
@@ -153,7 +195,8 @@ def get_gain_state(trange):
                 # Get fseqfile name at mean of timerange, from stateframe SQL database
                 fseqfile = get_fseqfile(Time(int(np.mean(trange.lv)),format='lv')) 
                 if fseqfile is None:
-                    return {}
+                    print 'Error: No active fseq file.'
+                    dcm_off = None
                 else:
                     # Get fseqfile from ACC and return bandlist
                     bandlist = fseqfile2bandlist(fseqfile)
@@ -164,12 +207,18 @@ def get_gain_state(trange):
                     dcm_off[:,bandlist - 1] = dcmoff
                     # Put into canonical order [nband, nt]
                     dcm_off = dcm_off.T
+                    if dt:
+                        # If we want other than full cadence, find mean over dt measurements
+                        new_nt = len(times)
+                        dcm_off = dcm_off[:,:new_nt*dt]
+                        dcm_off.shape = (34,dt,new_nt)
+                        dcm_off = np.mean(dcm_off,1)
             else:
                 print 'Error reading DCM attenuations:',msg
-                return {}
+                dcm_off = None
     else:
         print 'Error reading DPPon state:',msg
-        return {}
+        dcm_off = None
     cursor.close()
     return {'times':times,'h1':h1,'v1':v1,'h2':h2,'v2':v2,'dcmattn':dcmattn,'dcmoff':dcm_off}
 
@@ -190,6 +239,7 @@ def apply_gain_corr(data, tref=None):
     import copy
     if tref is None:
         # No reference time specified, so get nearest earlier REFCAL
+        trange = Time(data['time'][[0,-1]],format='jd')
         xml, buf = ch.read_cal(8,t=trange[0])
         tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
     # Get the gain state at the reference time (actually median over 1 minute)
@@ -203,8 +253,11 @@ def apply_gain_corr(data, tref=None):
 
     # Get timerange from data
     trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    # Get time cadence
+    dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
+    if dt == 1: dt = None
     # Get the gain state of the requested timerange
-    src_gs = get_gain_state(trange)   # solar gain state for timerange of file
+    src_gs = get_gain_state(trange,dt)   # solar gain state for timerange of file
     nt = len(src_gs['times'])
     antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
     for i in range(15):
