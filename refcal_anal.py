@@ -91,7 +91,7 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     tedlist = []
     srclist = []
     for i in range(len(tslist)):
-        if tslist[i].jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
+        if tslist[i].jd >= trange[0].jd and tslist[i].jd <= trange[1].jd:
             flist.append(fpath + ufdb['FILE'][scanidx[i]].astype('str'))
             tstlist.append(tslist[i])
             tedlist.append(telist[i])
@@ -113,8 +113,9 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
        ***Optional keywords***
        projid: string -- predefined PROJECTID when setting up the observations. Default is 'PHASECAL'
        srcid: string -- if provided, then only use the specified source. E.g., '1229+020' is often used for
-              reference calibration
+              reference calibration. Default is to use all scans.
        quackint: interval in seconds to skip at the beginning of each scan
+       navg: number of data points to average
        ***Output dictionary***
 
     '''
