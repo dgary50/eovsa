@@ -59,7 +59,7 @@ def apply_attn_corr(data, tref=None):
         readXdata() routine.
     '''
     from gaincal2 import get_gain_state
-    from util import common_val_idx, nearest_val_idx
+    from util import common_val_idx, nearest_val_idx, bl2ord
     import copy
     if tref is None:
         # No reference time specified, so get nearest earlier REFCAL
@@ -94,10 +94,11 @@ def apply_attn_corr(data, tref=None):
     fghz = data['fghz']
     nf = len(fghz)
     blist = (fghz*2 - 1).astype(int) - 1       # Band list corresponding to frequencies in data
-    blgain = np.zeros((nf,136,4,nt),float)     # Baseline-based gains vs. frequency
-    for k,bl in enumerate(get_bl_order()):
-        i, j = bl
-        if i < 15 and j < 15:
+    nblant = 136
+    blgain = np.zeros((nf,nblant,4,nt),float)     # Baseline-based gains vs. frequency
+    for i in range(14):
+        for j in range(i,14):
+            k = bl2ord[i,j]
             blgain[:,k,0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
             blgain[:,k,1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
             blgain[:,k,2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
@@ -107,11 +108,12 @@ def apply_attn_corr(data, tref=None):
     antgainf = 10**(antgain[blist]/10.)
 
     idx = nearest_val_idx(data['time'],src_gs['times'].jd)
+    nt = len(idx)  # New number of times
     # Correct the auto- and cross-correlation data
     cdata['x'] *= blgain[:,:,:,idx]
     # Reshape px and py arrays
-    cdata['px'].shape = (134,16,3,nt)
-    cdata['py'].shape = (134,16,3,nt)
+    cdata['px'].shape = (nf,16,3,nt)
+    cdata['py'].shape = (nf,16,3,nt)
     # Correct the power
     cdata['px'][:,:15,0] *= antgainf[:,:,0,idx]
     cdata['py'][:,:15,0] *= antgainf[:,:,1,idx]
@@ -119,8 +121,8 @@ def apply_attn_corr(data, tref=None):
     cdata['px'][:,:15,1] *= antgainf[:,:,0,idx]**2
     cdata['py'][:,:15,1] *= antgainf[:,:,1,idx]**2
     # Reshape px and py arrays back to original
-    cdata['px'].shape = (134*16*3,nt)
-    cdata['py'].shape = (134*16*3,nt)
+    cdata['px'].shape = (nf*16*3,nt)
+    cdata['py'].shape = (nf*16*3,nt)
     return cdata
     
 def get_calfac(t=None):
@@ -162,19 +164,21 @@ def unrot(data, azeldict=None):
                      x is updated.
     '''
     import copy
-    from util import lobe
+    from util import lobe, bl2ord
     trange = Time(data['time'][[0,-1]],format='jd')
 
     if azeldict is None:
         azeldict = get_sql_info(trange)
-    chi = azeldict['ParallacticAngle']  # (nt, nant)
+    chi = azeldict['ParallacticAngle']*np.pi/180.  # (nt, nant)
     # Correct parallactic angle for equatorial mounts, relative to Ant14
-    for i in [8,9,10,12,13]:
-        chi[:,i] -= chi[:,13]
+    chi[:,[8,9,10,12,13]] = 0  # Currently 0, but can be measured and updated
         
     # Ensure that nearest valid parallactic angle is used for times in the data
-    good, = np.where(azeldict['ActualAzimuth'][0] != 0)
-    tidx = nearest_val_idx(data['time'],azeldict['Time'][good].jd)
+    good = np.where(azeldict['ActualAzimuth'] != 0)
+    tidx = []    # List of arrays of indexes for each antenna
+    for i in range(14):
+        gd = good[0][np.where(good[1] == i)]
+        tidx.append(nearest_val_idx(data['time'],azeldict['Time'][gd].jd))
 
     # Read X-Y Delay phase from SQL database and get common frequencies
     xml, buf = ch.read_cal(11,t=trange[0])
@@ -189,29 +193,64 @@ def unrot(data, azeldict=None):
     nf, nbl, npol, nt = data['x'].shape
     nf = len(fidx1)
     # Correct data for X-Y delay phase
-    for k,bl in enumerate(get_bl_order()):
-        i, j = bl
-        if i < 14 and j < 14 and i != j:
+    for i in range(13):
+        for j in range(i+1,14):
+            k = bl2ord[i,j]
             a1 = lobe(dph[i,fidx2] - dph[j,fidx2])
             a2 = -dph[j,fidx2] + np.pi/2
             a3 = dph[i,fidx2] - np.pi/2
             data['x'][fidx1,k,1] *= np.repeat(np.exp(1j*a1),nt).reshape(nf,nt)
             data['x'][fidx1,k,2] *= np.repeat(np.exp(1j*a2),nt).reshape(nf,nt) 
             data['x'][fidx1,k,3] *= np.repeat(np.exp(1j*a3),nt).reshape(nf,nt)
+
     
     # Correct data for differential feed rotation
     cdata = copy.deepcopy(data)
     for n in range(nt):
-        for k,bl in enumerate(get_bl_order()):
-            i, j = bl
-            if i < 14 and j < 14 and i != j:
-                dchi = chi[n,i] - chi[n,j]
+        for i in range(13):
+            for j in range(i+1,14):
+                k = bl2ord[i,j]
+                dchi = chi[tidx[i][n],i] - chi[tidx[j][n],j]
                 cchi = np.cos(dchi)
                 schi = np.sin(dchi)
                 cdata['x'][:,k,0,n] = data['x'][:,k,0,n]*cchi + data['x'][:,k,3,n]*schi
                 cdata['x'][:,k,2,n] = data['x'][:,k,2,n]*cchi + data['x'][:,k,1,n]*schi
                 cdata['x'][:,k,3,n] = data['x'][:,k,3,n]*cchi - data['x'][:,k,0,n]*schi
                 cdata['x'][:,k,1,n] = data['x'][:,k,1,n]*cchi - data['x'][:,k,2,n]*schi
-    # Set flags for any missing frequencies (hopefully this also works when missing is np.array([]))
-    cdata[missing] = np.ma.masked
+    # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
+    cdata['x'][missing] = np.ma.masked
     return cdata
+    
+def udb_corr(filename):
+    ''' Complete routine to read in an existing idb or udb file and output
+        a new file of the same name in the local directory, with all corrections
+        applied.
+    '''
+    import udb_util as uu
+    import time
+    from pathlib2 import Path
+    t1 = time.time()
+    out = uu.readXdata(filename)
+    print 'Reading file took',time.time()-t1,'s'
+    trange = Time(out['time'][[0,-1]],format='jd')
+    t1 = time.time()
+    azeldict = get_sql_info(trange)
+    print 'Reading SQL info took',time.time()-t1,'s'
+    # Correct data for attenuation changes
+    t1 = time.time()
+    cout = apply_attn_corr(out)
+    print 'Applying attn correction took',time.time()-t1,'s'
+    t1 = time.time()
+    # Correct data for differential feed rotation
+    coutu = unrot(cout)
+    print 'Applying feed rotation correction took',time.time()-t1,'s'
+    # Apply calibration to convert to solar flux units
+    #coutcal = apply_sfu(coutu)
+    ufilename = filename.split('/')[-1]
+    if Path(ufilename).exists():
+        # Handle case of existing file, by appending _n, where n increments (up to 9)
+        if ufilename[-2] == '_':
+            ufilename = ufilename[:-1]+str(int(ufilename[-1])+1)
+        else:
+            ufilename += '_1'
+    ufile_out = uu.udbfile_write(coutu, filename, ufilename)

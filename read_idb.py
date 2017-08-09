@@ -83,22 +83,24 @@
 #  2017-Jul-15  DG
 #    Simpler calculation for band names from frequency, instead of calling freq2bdname(),
 #    which anyway does not work...
+#  2017-Aug-09  DG
+#    Change output plot to have fixed timerange, 13:30 - 02:30 UT
 #
 
 import aipy
 import os
-from util import Time, nearest_val_idx
+from util import Time, nearest_val_idx, bl2ord, ant_str2list
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
-import spectrogram_fit as sp
-import pcapture2 as p
+#import spectrogram_fit as sp
+#import pcapture2 as p
 import eovsa_lst as el
 import copy
 import chan_util_bc as cu
 
-bl2ord = p.bl_list()
+#bl2ord = p.bl_list()
 
 def read_udb(filename):
     ''' This routine reads the data from a UDB file.
@@ -468,7 +470,7 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
     '''
     import matplotlib.pyplot as plt
     
-    ant_list = p.ant_str2list(ant_str)
+    ant_list = ant_str2list(ant_str)
     nant = len(ant_list)
     if ptype != 'amp' and ptype != 'phase':
         print "Invalid plot type.  Must be 'amp' or 'phase'."
@@ -503,7 +505,7 @@ def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
     import matplotlib.pyplot as plt
     ha=out['ha']
     fghz=out['fghz']
-    ant_list = p.ant_str2list(ant_str)
+    ant_list = ant_str2list(ant_str)
     nant = len(ant_list)
     if ptype != 'amp' and ptype != 'phase':
         print "Invalid plot type.  Must be 'amp' or 'phase'."
@@ -616,7 +618,9 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=Fals
             except:
                 # Looks like the GOES data do not exist, so just skip it
                 pass
-        ax.set_xlim(trange.plot_date)
+        pstart = Time(t.iso[:10]+' 13:30').plot_date
+        prange = [pstart,pstart+13./24]
+        ax.set_xlim(prange)
 
         ut, fl, projdict = flare_monitor(t)
         if fl == []:
@@ -989,83 +993,83 @@ def get_trange_files(trange):
             filelist.append(filename)
     return filelist
     
-def show_selfcalibrated(index, trange, plot='multipanel', antennas=0):
-    #for index, choose a time when the flare starting, with a large slope. 
-    #the options for plot are 'multipanel' , 'saturation' , and 'uncalibrated'
-    #antennas controls which pair the saturation plot shows. 
+# def show_selfcalibrated(index, trange, plot='multipanel', antennas=0):
+    # #for index, choose a time when the flare starting, with a large slope. 
+    # #the options for plot are 'multipanel' , 'saturation' , and 'uncalibrated'
+    # #antennas controls which pair the saturation plot shows. 
   
-    data = get_trange_files(trange)
-    IDBdata, uvw, freq, times = get_X_data(data)
+    # data = get_trange_files(trange)
+    # IDBdata, uvw, freq, times = get_X_data(data)
     
-    s = sp.Spectrogram(trange)
-    s.fidx = [0,IDBdata.shape[2]]
-    tsys, std = s.get_median_data()
+    # s = sp.Spectrogram(trange)
+    # s.fidx = [0,IDBdata.shape[2]]
+    # tsys, std = s.get_median_data()
     
-    pcal = np.angle(IDBdata[:,:, :, index])
-    acal = abs(IDBdata[:,:, :, index])
-    calout = copy.copy(IDBdata)
-    # Calibrate for time 'index', just before the initial peak of the flare.
-    for i in range(IDBdata.shape[3]):
-        calout[:,:,:,i] = calout[:,:,:,i]*(np.cos(pcal)-1j*np.sin(pcal))/acal
-    # Normalize to the total power spectrum at the same time, with reference
-    # to the shortest baseline (preserves the relative amplitudes on various
-    # baselines and polarizations.
-    norm = abs(calout[:,:, :, index])
-    for i in range(12):
-        for j in range(2):
-            norm[i,j,:] = tsys[:,index]*abs(calout[i,j,:,index]) / abs(calout[0,0,:,index])
-    for i in range(IDBdata.shape[3]):
-        calout[:,:,:,i] = calout[:,:,:,i]*norm       
-    if plot == 'multipanel':
-        # Multi-panel Plot
-        f, ax = plt.subplots(4,5)
-        sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
-        for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
-            if (i > 4):
-                ax[2,i % 5].imshow(abs(calout[ibl,0,50:,:]))
-                ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                ax[3,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
-                ax[3,i % 5].text(100,10,sbl[i]+' Phase')
-            else:
-                ax[0,i % 5].imshow(abs(calout[ibl,0,50:,:]))
-                ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                ax[1,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
-                ax[1,i % 5].text(100,10,sbl[i]+' Phase')
-            ax[2,4].imshow(tsys[50:,:])
-            ax[2,4].text(100,10,'Total Power',color='white')
-            plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
-    else:
-        if plot == 'saturation':
-            # Saturation Plot
-            ants_ = 'Ants ' + str(antennas+1) + '-' + str(antennas+2)
-            plt.figure()
-            plt.plot(tsys[IDBdata.shape[2]-110,:],abs(calout[antennas, 0, IDBdata.shape[2]-110,:]),'.',label=str(freq[IDBdata.shape[2]-110])[:5]+' GHz')
-            plt.plot(tsys[IDBdata.shape[2]-60,:],abs(calout[antennas, 0, IDBdata.shape[2]-60,:]),'.',label=str(freq[IDBdata.shape[2]-60])[:5]+' GHz')
-            plt.plot(tsys[IDBdata.shape[2]-10,:],abs(calout[antennas, 0, IDBdata.shape[2]-10,:]),'.',label=str(freq[IDBdata.shape[2]-10])[:5]+' GHz')
-            plt.xlabel('Total Power [sfu]')
-            plt.ylabel('Correlated Power (' + ants_ + ') [sfu]')
-            plt.legend(loc='lower right')    
-        else:
-            if plot == 'uncalibrated':                          
-                #"uncalibrated" 
-                f, ax = plt.subplots(4,5)
-                sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
-                for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
-                    if (i > 4):
-                        ax[2,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
-                        ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                        ax[3,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
-                        ax[3,i % 5].text(100,10,sbl[i]+' Phase')
-                    else:
-                        ax[0,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
-                        ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                        ax[1,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
-                        ax[1,i % 5].text(100,10,sbl[i]+' Phase')
-                ax[2,4].imshow(tsys[50:,:])
-                ax[2,4].text(100,10,'Total Power',color='white')
-                plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
-            else:
-                print 'please choose valid plot type'
+    # pcal = np.angle(IDBdata[:,:, :, index])
+    # acal = abs(IDBdata[:,:, :, index])
+    # calout = copy.copy(IDBdata)
+    # # Calibrate for time 'index', just before the initial peak of the flare.
+    # for i in range(IDBdata.shape[3]):
+        # calout[:,:,:,i] = calout[:,:,:,i]*(np.cos(pcal)-1j*np.sin(pcal))/acal
+    # # Normalize to the total power spectrum at the same time, with reference
+    # # to the shortest baseline (preserves the relative amplitudes on various
+    # # baselines and polarizations.
+    # norm = abs(calout[:,:, :, index])
+    # for i in range(12):
+        # for j in range(2):
+            # norm[i,j,:] = tsys[:,index]*abs(calout[i,j,:,index]) / abs(calout[0,0,:,index])
+    # for i in range(IDBdata.shape[3]):
+        # calout[:,:,:,i] = calout[:,:,:,i]*norm       
+    # if plot == 'multipanel':
+        # # Multi-panel Plot
+        # f, ax = plt.subplots(4,5)
+        # sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
+        # for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
+            # if (i > 4):
+                # ax[2,i % 5].imshow(abs(calout[ibl,0,50:,:]))
+                # ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                # ax[3,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
+                # ax[3,i % 5].text(100,10,sbl[i]+' Phase')
+            # else:
+                # ax[0,i % 5].imshow(abs(calout[ibl,0,50:,:]))
+                # ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                # ax[1,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
+                # ax[1,i % 5].text(100,10,sbl[i]+' Phase')
+            # ax[2,4].imshow(tsys[50:,:])
+            # ax[2,4].text(100,10,'Total Power',color='white')
+            # plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
+    # else:
+        # if plot == 'saturation':
+            # # Saturation Plot
+            # ants_ = 'Ants ' + str(antennas+1) + '-' + str(antennas+2)
+            # plt.figure()
+            # plt.plot(tsys[IDBdata.shape[2]-110,:],abs(calout[antennas, 0, IDBdata.shape[2]-110,:]),'.',label=str(freq[IDBdata.shape[2]-110])[:5]+' GHz')
+            # plt.plot(tsys[IDBdata.shape[2]-60,:],abs(calout[antennas, 0, IDBdata.shape[2]-60,:]),'.',label=str(freq[IDBdata.shape[2]-60])[:5]+' GHz')
+            # plt.plot(tsys[IDBdata.shape[2]-10,:],abs(calout[antennas, 0, IDBdata.shape[2]-10,:]),'.',label=str(freq[IDBdata.shape[2]-10])[:5]+' GHz')
+            # plt.xlabel('Total Power [sfu]')
+            # plt.ylabel('Correlated Power (' + ants_ + ') [sfu]')
+            # plt.legend(loc='lower right')    
+        # else:
+            # if plot == 'uncalibrated':                          
+                # #"uncalibrated" 
+                # f, ax = plt.subplots(4,5)
+                # sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
+                # for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
+                    # if (i > 4):
+                        # ax[2,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
+                        # ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                        # ax[3,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
+                        # ax[3,i % 5].text(100,10,sbl[i]+' Phase')
+                    # else:
+                        # ax[0,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
+                        # ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                        # ax[1,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
+                        # ax[1,i % 5].text(100,10,sbl[i]+' Phase')
+                # ax[2,4].imshow(tsys[50:,:])
+                # ax[2,4].text(100,10,'Total Power',color='white')
+                # plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
+            # else:
+                # print 'please choose valid plot type'
 
 def unrot(data,params=[1.,0.,0.],reverse=False):
     ''' params gives non-ideal behavior of second ant, as a, d, chi0,

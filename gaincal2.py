@@ -229,7 +229,7 @@ def apply_gain_corr(data, tref=None):
         Inputs:
           data     A dictionary such as that returned by read_idb().
           tref     A Time() object with the reference time, or if None,
-                     the gain state of the nearest earlier SOLPNTCAL is 
+                     the gain state of the nearest earlier REFCAL is 
                      used.
         Output:
           cdata    A dictionary with the gain-corrected data.  The keys
@@ -241,7 +241,11 @@ def apply_gain_corr(data, tref=None):
         # No reference time specified, so get nearest earlier REFCAL
         trange = Time(data['time'][[0,-1]],format='jd')
         xml, buf = ch.read_cal(8,t=trange[0])
-        tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+        if xml == {}:
+            # No refcal for this date, so just use an early time as reference
+            tref = Time(trange[0].iso[:10]+' 13:30')
+        else:
+            tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
     # Get the gain state at the reference time (actually median over 1 minute)
     trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
     ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
