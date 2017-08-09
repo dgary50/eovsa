@@ -77,6 +77,9 @@
 #   2017-May-17  DG
 #    Added 'auto' keyword to solpntanal(), for optionally analyzing solar
 #    pointing based on auto-correlation instead of total power.
+#   2017-Jul-30  DG
+#    Added 'auto' keyword to sp_apply_cal2() and sp_bg_subtract2(), to apply
+#    the calibration to auto-correlation if desired.
 #
 
 if __name__ == "__main__":
@@ -560,7 +563,7 @@ def sp_read_calfac(t):
     ''' Read the contents of a SOLPNT calibration file and return
         fghz, calfac, offsun arrays
     '''
-    files = glob.glob('/data1/TPCAL/*')
+    files = glob.glob('/dppdata1/TPCAL/*')
     for file in files:
         if file.find(t.iso.replace('-','')[:8]) != -1:
             npol,nf,nant = file.replace('.dat','').split('_')[1:]
@@ -576,7 +579,7 @@ def sp_read_calfac(t):
     print 'Calibration file not found for date',t.iso
     return None, None, None
 
-def sp_apply_cal2(out,calfac,offsun):
+def sp_apply_cal2(out, calfac, offsun, auto=False):
     ''' Given "standard" output of tp_display.rd_tsys_multi(),
         and corresponding calibration data from sp_read_calfac(),
         apply the calibration and return the calibrated output.
@@ -588,8 +591,12 @@ def sp_apply_cal2(out,calfac,offsun):
     osun = np.rollaxis(offsun,2,0)
     cfac = np.rollaxis(calfac,2,0)
     nant,npol,nf = cfac.shape
-    for i in range(nt):
-        out['p'][:nant,:,good,i] = (out['p'][:nant,:,good,i]-osun[:,:,good])*cfac[:,:,good]
+    if auto:
+        for i in range(nt):
+            out['a'][:nant,:2,good,i] = (out['a'][:nant,:2,good,i]-osun[:,:,good])*cfac[:,:,good]
+    else:
+        for i in range(nt):
+            out['p'][:nant,:,good,i] = (out['p'][:nant,:,good,i]-osun[:,:,good])*cfac[:,:,good]
 #        out['tsys'][:,1,good,i] = (out['tsys'][:,1,good,i]-offsun[1,good,:])*calfac[1,good,:]
     return out
         
@@ -608,7 +615,7 @@ def sp_apply_cal(out,fghz,calfac,offsun):
 #        out['tsys'][:,1,good,i] = (out['tsys'][:,1,good,i]-offsun[1,good,:])*calfac[1,good,:]
     return out
     
-def sp_bg_subtract2(out,idx):
+def sp_bg_subtract2(out, idx, auto=False):
     ''' Given "standard" output of tp_display.rd_tsys_multi(),
         and a range of time indexes idx into the arrays, use the
         median of data at times indicated by idx as background.
@@ -618,13 +625,23 @@ def sp_bg_subtract2(out,idx):
     # Create the backgrounds (shape nf,nant)
     if len(idx) == 1:
         # Only one index in idx, so no median necessary
-        bg = out['p'][:,:,:,idx]
+        if auto:
+            bg = out['a'][:,:,:,idx]
+        else:
+            bg = out['p'][:,:,:,idx]
     else:
         # Multiple values in idx, so do median
-        bg = np.median(out['p'][:,:,:,idx],3)
+        if auto:
+            bg = np.median(out['a'][:,:,:,idx],3)
+        else:
+            bg = np.median(out['p'][:,:,:,idx],3)
     # Perform the background subtraction
-    for i in range(nt):
-        out['p'][:,:,:,i] -= bg
+    if auto:
+        for i in range(nt):
+            out['a'][:,:,:,i] -= bg
+    else:
+        for i in range(nt):
+            out['p'][:,:,:,i] -= bg
     return out
     
 def sp_bg_subtract(out,idx):
@@ -808,22 +825,42 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         antennas.  The antennas to update are specified with ant_str 
         (defaults to no antennas, for safety).        
     '''
+    def send_cmds(cmds,acc):
+        ''' Sends a series of commands to ACC.  The sequence of commands
+            is not checked for validity!
+            
+            cmds   a list of strings, each of which must be a valid command
+        '''
+        import socket
+
+        for cmd in cmds:
+            #print 'Command:',cmd
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                s.connect((acc['host'],acc['scdport']))
+                s.send(cmd)
+                time.sleep(0.01)
+                s.close()
+            except:
+                print 'Error: Could not send command',cmd,' to ACC.'
+        return
+
     oldant = [8,9,10,12]
     if ant_str is None:
         print 'No antenna list specified, so there is nothing to do!'
         return
+
     try:
         timestamp = int(Time(t,format='mjd').lv)
     except:
         print 'Error interpreting time as Time() object'
         return
-    import pcapture2 as p
+    from util import ant_str2list
     import dbutil as db
-    import adc_cal2 as ac
     import stateframe as stf
     accini = stf.rd_ACCfile()
     acc = {'host': accini['host'], 'scdport':accini['scdport']}
-    antlist = p.ant_str2list(ant_str)
+    antlist = ant_str2list(ant_str)
     if antlist is None:
         return
     cursor = db.get_cursor()
@@ -848,8 +885,26 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         print 'Commands to be sent:'
         print cmd1
         print cmd7
-        ac.send_cmds([cmd1],acc)
-        ac.send_cmds([cmd7],acc)
+        send_cmds([cmd1],acc)
+        send_cmds([cmd7],acc)
+        
+def solpnt2sql(t):
+    ''' Handles the complete processing of a solar calibration, from analysis through
+        writing the calibration data to the SQL database
+    '''
+    import cal_header as ch
+    x1, y1, qual1 = solpntanal(t)
+    calfac1, offsun1 = sp_get_calfac(x1, y1)
+    x2, y2, qual2 = solpntanal(t,auto=True)
+    calfac2, offsun2 = sp_get_calfac(x2, y2)
+    tpcal_dict = {'fghz':x1['fghz'],'timestamp':Time(x1['ut_mjd'][0],format='mjd').lv,
+                  'tpcalfac':calfac1,'accalfac':calfac2,'tpoffsun':offsun1,'acoffsun':offsun2}
+    ok = raw_input('Okay to write result to SQL database? [Y/N]: ')
+    if ok == 'Y':
+        ch.tpcal2sql(tpcal_dict)
+        print 'Result was written to the SQL database'
+    else:
+        print 'Result was NOT written to the SQL database'
 
 if __name__ == "__main__":
     ''' Run automatically via cron job, or at command line.

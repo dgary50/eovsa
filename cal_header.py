@@ -61,6 +61,15 @@
 #      refcal2sql() and refcal2xml()
 #   2017-05-14  SJ
 #      Added read_calX() routine.
+#   2017-07-08  DG
+#      Added lorx argument to dla_update2sql(), to enable scheme to write
+#      Ant 14 low-frequency receiver delays into the Ant 15 slot.  The schedule
+#      will interpret the Ant 15 slot as Ant 14 whenever the low-frequency
+#      receiver is in place (I hope).
+#   2017-08-06  DG
+#      Added new calibration types tpcal (replaces proto_tpcal, adding
+#      auto-correlation information) and xy_phasecal, containing the X-Y delay 
+#      phase vs. frequency for each antenna.
 #
 import struct, util
 import stateframe as sf
@@ -85,8 +94,10 @@ def cal_types():
             5: ['Equalizer gains', 'eq_gain2xml', 1.0],
             6: ['DCM attenuator values [units=dB]', 'dcm_attn_val2xml', 1.0],
             7: ['FEM attenuator values [units=dB]', 'fem_attn_val2xml', 1.0],
-            8: ['Reference Calibration', 'refcal2xml', 1.0],
-            9: ['Daily phase Calibration', 'phacal2xml', 1.0]}
+            8: ['Reference calibration', 'refcal2xml', 1.0],
+            9: ['Daily phase calibration', 'phacal2xml', 1.0],
+           10: ['Total power calibration', 'tpcal2xml', 1.0],
+           11: ['X-Y phase calibration', 'xy_phasecal2xml', 1.0]}
 
 
 def str2bin(string):
@@ -184,7 +195,155 @@ def proto_tpcal2xml(nant, nfrq):
 
     return buf
 
+    
+def tpcal2xml(nant, nfrq):
+    ''' Writes the XML description of the total power calibration binary
+        data (SOLPNTCAL result), for both power and auto-correlation.  
+        Returns a binary representation of the text file, for putting into the SQL 
+        database.  The format varies due to variable numbers of antennas/frequencies.
+    '''
+    version = cal_types()[10][2]
 
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>TPcal</Name>')
+    buf += str2bin('<NumElts>5</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Start time of SOLPNT observation on which calibration is based
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>' + str(version) + '</Val>')
+    buf += str2bin('</DBL>')
+
+    # Array of frequencies in GHz (nfrq)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FGHz</Name>')
+    buf += str2bin('<Dimsize>' + str(nfrq) + '</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Array of Poln (2)
+    # Polarization list (Miriad definition) (signed int)
+    #     1: Stokes I
+    #     2: Stokes Q
+    #     3: Stokes U
+    #     4: Stokes V
+    #    -1: Circular RR
+    #    -2: Circular LL
+    #    -3: Circular RL
+    #    -4: Circular LR
+    #    -5: Linear XX
+    #    -6: Linear YY
+    #    -7: Linear XY
+    #    -8: Linear YX
+    #     0: Not used
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Poln</Name>')
+    buf += str2bin('<Dimsize>2</Dimsize>\n<I32>\n<Name></Name>\n<Val></Val>\n</I32>')
+    buf += str2bin('</Array>')
+
+    # Array of clusters for each antenna (nant)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Antenna</Name>')
+    buf += str2bin('<Dimsize>' + str(nant) + '</Dimsize>')
+
+    # Cluster containing information for one antenna
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name></Name>')
+    buf += str2bin('<NumElts>5</NumElts>')
+
+    # Antenna number (1-13).
+    buf += str2bin('<U16>')
+    buf += str2bin('<Name>Antnum</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</U16>')
+
+    # Total Power Calibration factors (nfrq x 2) = nfreq x npol
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>TPCalfac</Name>')
+    buf += str2bin(
+        '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Auto-Correlation Calibration factors (nfrq x 2) = nfreq x npol
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>ACCalfac</Name>')
+    buf += str2bin(
+        '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Total Power Offsun values (nfrq x 2) = nfreq x npol
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>TPOffsun</Name>')
+    buf += str2bin(
+        '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Auto-Correlation Offsun values (nfrq x 2) = nfreq x npol
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>ACOffsun</Name>')
+    buf += str2bin(
+        '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # End cluster
+    buf += str2bin('</Cluster>')  # End Calinfo cluster
+    buf += str2bin('</Array>')  # End Antenna array
+    buf += str2bin('</Cluster>')  # End TPcal cluster
+
+    return buf
+
+
+def xy_phasecal2xml():
+    ''' Writes the XML description of the X-Y delay phase calibration binary
+        data (get_xy_corr results), for antennas 1-14.  
+        Returns a binary representation of the text file, for putting into the SQL 
+        database.
+    '''
+    version = cal_types()[11][2]
+
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>XYcal</Name>')
+    buf += str2bin('<NumElts>4</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Start time of PHASECAL observation on which calibration is based
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>' + str(version) + '</Val>')
+    buf += str2bin('</DBL>')
+
+    # Fixed size array of frequencies in GHz (500)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FGHz</Name>')
+    buf += str2bin('<Dimsize>500</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Array of X-Y phases (14 x 500) for each of 14 antennas
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>XYphase</Name>')
+    buf += str2bin('<Dimsize>500</Dimsize><Dimsize>14</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')  # End XYphase array
+    buf += str2bin('</Cluster>')  # End XYcal cluster
+
+    return buf
+    
+    
 def dcm_master_table2xml():
     ''' Writes the XML description of the DCM master base attenuation 
         table (created by pcapture.py).  Returns a binary representation 
@@ -396,7 +555,7 @@ def dcm_attn_val2xml():
         '<Dimsize>4</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of attenuations (nant x npol x nbits) (4 x 2 x 16).
+    # List of imaginary part of attenuations (nant x npol x nbits) (4 x 2 x 16).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>DCM_Attn_Imag</Name>')
@@ -698,7 +857,7 @@ def send_xml2sql(type=None, t=None, test=False, nant=None, nfrq=None):
     for key in typdict.keys():
         # print 'Working on',typdict[key][0]
         # Execute the code to create the xml description for this key
-        if key == 1:
+        if key == 1 or key == 10:
             # Special case for TP calibration
             if nant is None or nfrq is None:
                 print 'For', typdict[key][0], 'values for both nant and nfrq are required.'
@@ -1146,7 +1305,99 @@ def proto_tpcal2sql(filename, t=None):
         buf += struct.pack(str(nfi * 2) + 'f', *(offsun[:, :, i].reshape(nfi * 2)))
     return write_cal(typedef, buf, t)
 
+def tpcal2sql(tpcal_dict, t=None):
+    ''' Writes TP calibration data from the input dictionary, as a record into 
+        the SQL server table abin.  The timestamp of the SQL record is given by
+        parameter t, or the timestamp of the start of the SOLPNTCAL if None.
 
+        The dictionary has the keys:
+        'fghz': List of frequencies, in GHz (nf)
+        'timestamp': The 'lv' format timestamp of the start of the SOLPNTCAL
+        'tpcalfac': The calibration factors for total power [sfu/corrrelator-unit] (npol,nf,nant)
+        'accalfac': The calibration factors for auto-correlation [sfu/correlator-unit] (npol,nf,nant)
+        'tpoffsun': The offsun total power, for subtraction prior to applying 
+                      calibration [correlator-units] (npol,nf,nant)
+        'acoffsun': The offsun auto-correlation, for subtraction prior to applying 
+                      calibration [correlator-units] (npol,nf,nant)
+
+        This kind of record is type definition 10.
+    '''
+    typedef = 10
+    ver = cal_types()[typedef][2]
+    npol, nf, nant = tpcal_dict['tpcalfac'].shape
+    if t is None:
+        t = util.Time(tpcal_dict['timestamp'],format='lv')
+    # For TP calibration, must explicitly write xml for this nant and nfrq, since
+    # the definition changes if nant and nfrq change
+    send_xml2sql(typedef, t, nant=nant, nfrq=nf)
+    # Write timestamp of data
+    tdata = util.Time(tpcal_dict['timestamp'],format='lv')
+    buf = struct.pack('d', int(tdata.lv))
+    # Write version number
+    buf += struct.pack('d', ver)
+    buf += struct.pack('I', nf)  # Length of frequency array
+    buf += struct.pack(str(nf) + 'f', *tpcal_dict['fghz'])
+    buf += struct.pack('I', 2)  # Length of frequency array
+    buf += struct.pack('2i', *np.array([-5, -6]))  # Polarizations XX and YY
+    buf += struct.pack('I', nant)  # Length of antenna array
+    for i in range(nant):
+        # Antenna number
+        buf += struct.pack('H', i + 1)
+        # Total Power Calibration factors
+        buf += struct.pack('I', nf)  # Number of frequencies
+        buf += struct.pack('I', 2)  # Number of polarizations
+        buf += struct.pack(str(nf * 2) + 'f', *(tpcal_dict['tpcalfac'][:, :, i].reshape(nf * 2)))
+        # Auto-Correlation Calibration factors
+        buf += struct.pack('I', nf)  # Number of frequencies
+        buf += struct.pack('I', 2)  # Number of polarizations
+        buf += struct.pack(str(nf * 2) + 'f', *(tpcal_dict['accalfac'][:, :, i].reshape(nf * 2)))
+        # Total Power Offsun level
+        buf += struct.pack('I', nf)  # Number of frequencies
+        buf += struct.pack('I', 2)  # Number of polarizations
+        buf += struct.pack(str(nf * 2) + 'f', *(tpcal_dict['tpoffsun'][:, :, i].reshape(nf * 2)))
+        # Auto-Correlation Offsun level
+        buf += struct.pack('I', nf)  # Number of frequencies
+        buf += struct.pack('I', 2)  # Number of polarizations
+        buf += struct.pack(str(nf * 2) + 'f', *(tpcal_dict['acoffsun'][:, :, i].reshape(nf * 2)))
+    return write_cal(typedef, buf, t)
+
+    
+def xy_phasecal2sql(xyphase_dict, t=None):
+    ''' Writes X-Y calibration data from the input dictionary, as a record into 
+        the SQL server table abin
+
+        The dictionary has the keys:
+        'fghz': List of frequencies, in GHz (nf)
+        'timestamp': The 'lv' format timestamp of the start of the PHASECAL
+        'xyphase': The X-Y delay phase returned by get_xy_corr() routine [radians] (nant,nf)
+
+        The record is written as 500 frequencies, zero-filled for nf:500
+        This kind of record is type definition 11.
+    '''
+    typedef = 11
+    ver = cal_types()[typedef][2]
+    nant, nf = xyphase_dict['xyphase'].shape
+    if t is None:
+        t = util.Time(xyphase_dict['timestamp'],format='lv')
+    # Write timestamp of data
+    t = util.Time(xyphase_dict['timestamp'],format='lv')
+    buf = struct.pack('d', int(t.lv))
+    # Write version number
+    buf += struct.pack('d', ver)
+    buf += struct.pack('I', 500)  # Length of frequency array
+    flist = np.zeros(500,np.float)
+    flist[:nf] = xyphase_dict['fghz']
+    buf += struct.pack('500f', *flist)
+    buf += struct.pack('I', 14)  # Length of antenna array
+    buf += struct.pack('I', 500)  # Length of frequency array
+    xyout = np.zeros((14,500),np.float)
+    xyout[:,:nf] = xyphase_dict['xyphase']
+    for i in range(14):
+        buf += struct.pack('500f', *xyout[i])
+
+    return write_cal(typedef, buf, t)
+
+    
 def dcm_master_table2sql(filename, tbl=None, t=None):
     ''' Writes a DCM master base attenuation calibration table as a record into 
         SQL server table abin. filename can either be a txt file (DCM_master_table.txt) 
@@ -1235,15 +1486,19 @@ def dcm_table2sql(filename, t=None):
     return write_cal(typedef, buf, t)
 
 
-def dla_update2sql(dla_update, xy_delay=None, t=None):
+def dla_update2sql(dla_update, xy_delay=None, t=None, lorx=False):
     ''' Write delay_center updates to SQL server table abin,
         with the timestamp given by Time() object t (or current time, if none)
 
         Input:
           dla_update   a 14-element array of delay differences [ns], already
-                          coverted to be relative to Ant 1
+                          converted to be relative to Ant 1
           xy_delay     an optional 14-element array of delay differences [ns] in 
                           Y relative to X
+        Optional argument:
+          lorx         if True, ONLY the Ant 14 delay update is applied, and ONLY
+                          to the Ant 15 slot, which is the delay setting to use
+                          for Ant 14 Lo-frequency receiver.
     '''
     if dla_update[0] != 0.0:
         print 'First delay in list is not zero.  Delays must be relative to Ant 1'
@@ -1262,8 +1517,14 @@ def dla_update2sql(dla_update, xy_delay=None, t=None):
     # Apply corrections, forcing them to be relative to ant 1 (reference antenna),
     rel_dla_ns = dla_update
     xy_dla_ns = xy_delay  # XY delay is not relative to Ant 1
-    dcen[:14, 0] -= rel_dla_ns
-    dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
+    if lorx:
+        # This is the case of updating the Lo-frequency receiver delays ONLY
+        # Only change Ant 15 entries, using the Ant 14 information
+        dcen[14, 0] -= rel_dla_ns[13]
+        dcen[14, 1] -= rel_dla_ns[13] + xy_dla_ns[13]
+    else:
+        dcen[:14, 0] -= rel_dla_ns
+        dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))

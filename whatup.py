@@ -15,6 +15,8 @@
 #    line thicknesses to distinguish equatorial mount coverage (thickest),
 #    az_el mount coverage (intermediate), and source outside of either coverage
 #    (thinnest).
+#  2017-07-13  DG
+#    27-m cable tension is fixed, so go back to +/- 55-degree HA limits.
 
 import os, util
 import eovsa_cat
@@ -109,9 +111,8 @@ def whatup(minflux=7., dur=24., t=None, showtp=False):
 
     for j in range(len(srclist)):
         #idx=where(abs(ha_deg[j]) < 55.)[0]
-        bad, = where(abs(ha_deg[j]) > 50.)   # For now, limit to +/- 50 HA
+        bad, = where(abs(ha_deg[j]) > 55.)   # Back to nominal +/- 55 HA
         eq_alt[j,bad] = nan
-        #idx=where(abs(ha_deg[j]) < 50.)[0]    # For now, limit to +/- 50 HA
         #ax.plot_date(ts.plot_date[idx],alt[j,idx],'-',linewidth=6,color=colors[j])
         ax.plot_date(ts.plot_date,eq_alt[j],'-',linewidth=6,color=colors[j])#,alpha=0.5)
 

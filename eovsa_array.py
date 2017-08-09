@@ -42,6 +42,10 @@
 #   2017-Apr-16  DG
 #      Final (?) update of Bx, By, and Bz based on very precise measurements on 2017 Apr. 16 
 #      But Ant 12 not working, so final numbers for it are still needed.
+#   2017-Jul-04  DG
+#      Update of Bx, By and Bz, based on 2017-Jul-03 measurements, mainly to correct ants 12 
+#      and 13 Bx and By, but also minor tweaks elsewhere.  Note that Ant 12 Bz could not be
+#      measured reliably due to large Bx, By errors, so it needs another Bz tweak.
 #
 
 import aipy, ephem, numpy
@@ -149,6 +153,10 @@ def bl_cor(x, y, z, iant):
     dx += numpy.array([0.00, 0.024,-0.015, 0.014, 0.010, 0.024, 0.012, 0.029,-0.020,-0.008, 0.012,0.0, 0.020, 0.020,0.0,0.0])
     dy += numpy.array([0.00, 0.014,-0.003, 0.000, 0.000, 0.006, 0.009, 0.016, 0.005,-0.002, 0.003,0.0, 0.010, 0.002,0.0,0.0])
     dz += numpy.array([0.00,-0.003,-0.017,-0.013, 0.004,-0.010,-0.011,-0.015,-0.010,-0.013,-0.018,0.0, 0.035,-0.018,0.0,0.0])
+    # New corrections mainly for Ant 12 and Ant 13, based on 2017 Jul 03 observations
+    dx += numpy.array([0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00, 0.045, 0.007, 0.003,0.0,0.0])/mperns
+    dy += numpy.array([0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00,-0.031,-0.003, 0.000,0.0,0.0])/mperns
+    dz += numpy.array([0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00, 0.006,  0.00,  0.00, 0.006, 0.000,-0.003, 0.000,0.0,0.0])/mperns
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
     yp = y - dy[iant]

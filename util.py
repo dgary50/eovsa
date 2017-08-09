@@ -22,6 +22,8 @@
 #    to those in first array.
 #  2017-Jan-15  DG
 #    Added lobe() function to put phase into +/- pi range
+#  2017-Aug-08  DG
+#    Added precision keyword to common_val_idx()
 # * 
 
 import StringUtil as su
@@ -664,7 +666,7 @@ class TimeLV(TimeFromEpoch):
     epoch_val2 = None
     epoch_scale = 'utc'
     epoch_format = 'jd'
-    
+
 class Time(astroTime):
     ''' Extends astropy Time object to handle LabVIEW timestamps
         (format 'lv').
@@ -677,8 +679,18 @@ class Time(astroTime):
         astroTime.__init__(self, val, val2, format=format, scale=scale,
              precision=precision, in_subfmt=in_subfmt, out_subfmt=out_subfmt,
              location=location, copy=copy)
+
         import pytz
-        self.LocalTime = pytz.utc.localize(self.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles'))
+        try:
+            self.LocalTime = pytz.utc.localize(self.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles'))
+        except:
+            try:
+                locT = []
+                for ll in self:
+                    locT.append(pytz.utc.localize(ll.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles')))
+                self.LocalTime = locT
+            except:
+                pass
 
 from math import floor
 
@@ -927,15 +939,29 @@ def UT1_UTC(mjd):
 
     return dut
 
-def common_val_idx(array1,array2):
+def common_val_idx(array1,array2,precision=None):
     ''' Find the common values in two sorted arrays, and return the array
-        of indexes of those common values in the two arrays.
+        of indexes of those common values in the two arrays.  If the
+        parameter precision is given, the input arrays are rounded to
+        that many decimal places before comparison.
+        
     '''
-    from numpy import intersect1d,searchsorted
+    from numpy import intersect1d,searchsorted,round
     
-    common = intersect1d(array1,array2,True)
-    idx1 = searchsorted(array1,common)
-    idx2 = searchsorted(array2,common)
+    if precision:
+        try:
+            ar1 = round(array1*10**precision)
+            ar2 = round(array2*10**precision)
+        except Exception as e:
+            print 'Error: common_val_idx: arrays could not be rounded to precision',precision
+            print e
+            return None, None
+    else:
+        ar1 = array1
+        ar2 = array2
+    common = intersect1d(ar1,ar2,True)
+    idx1 = searchsorted(ar1,common)
+    idx2 = searchsorted(ar2,common)
     return idx1, idx2
 
 def nearest_val_idx(array1,array2):

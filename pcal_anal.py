@@ -1,3 +1,13 @@
+#
+# History:
+#  2017-Mar-05 YC
+#    Initially written by Yi Chai
+#  2017-Mar-30 DG
+#    Extensive rewrites to streamline code and fix some bugs
+#  2017-Jul-11 DG
+#    Changed time plot frequency to middle frequency of range, and label 
+#    frequency on plot
+
 import numpy as np
 from util import Time
 ten_minutes = 600./86400.
@@ -102,16 +112,18 @@ def graph(f,navg=None,path=None):
         warn = ''
         color = '#1f77b4'   # Plot points with "normal" Blue color
     fig.set_size_inches(18,6)
+    nf = len(out['fghz'])
+    fstr = str(out['fghz'][nf/2]*1000)[:5]+' MHz '
     for k in range(13):
         for j in range(4):
             ax[j,k].cla()
-            ax[j,k].plot(out['ha'],np.angle(out['x'][ri.bl2ord[k,13],j,0]),'.',color=color)
+            ax[j,k].plot(out['ha'],np.angle(out['x'][ri.bl2ord[k,13],j,nf/2]),'.',color=color)
             ax[j,k].set_ylim(-4, 4)
             ax[j,k].xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
             if k in range(1,13): ax[j,k].yaxis.set_visible(False)
             if j in range(3): ax[j,k].xaxis.set_visible(False)
             if j == 0: ax[0,k].title.set_text('antenna %d' %(k+1))
-    fig.suptitle(out['source']+' '+Time(out['time'][0],format='jd').iso[:19]+' UT'+warn)
+    fig.suptitle(out['source']+'  '+Time(out['time'][0],format='jd').iso[:19]+' UT  '+fstr+warn)
     ax[0,0].set_ylabel('XX Phase')
     ax[1,0].set_ylabel('YY Phase')
     ax[2,0].set_ylabel('XY Phase')
