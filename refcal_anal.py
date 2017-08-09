@@ -91,7 +91,7 @@ def findfiles(trange, projid='PHASECAL', srcid=None):
     tedlist = []
     srclist = []
     for i in range(len(tslist)):
-        if tslist[i].jd >= trange[0].jd and telist[i].jd <= trange[1].jd:
+        if tslist[i].jd >= trange[0].jd and tslist[i].jd <= trange[1].jd:
             flist.append(fpath + ufdb['FILE'][scanidx[i]].astype('str'))
             tstlist.append(tslist[i])
             tedlist.append(telist[i])
