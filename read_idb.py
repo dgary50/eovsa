@@ -76,21 +76,31 @@
 #    in fghz
 #  2017-Jun-12  DG
 #    Fix allday_udb() to find files on following date up to 09 UT
+#  2017-Jul-12
+#    Fixed long-standing bug in get_trange_files(), which no longer worked on DPP.
+#  2017-Jul-13  DG
+#    Major update to allday_udb() to overplot GOES data (if available) and scan type info.
+#  2017-Jul-15  DG
+#    Simpler calculation for band names from frequency, instead of calling freq2bdname(),
+#    which anyway does not work...
+#  2017-Aug-09  DG
+#    Change output plot to have fixed timerange, 13:30 - 02:30 UT
+#
 
 import aipy
 import os
-from util import Time, nearest_val_idx
+from util import Time, nearest_val_idx, bl2ord, ant_str2list
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
-import spectrogram_fit as sp
-import pcapture2 as p
+#import spectrogram_fit as sp
+#import pcapture2 as p
 import eovsa_lst as el
 import copy
 import chan_util_bc as cu
 
-bl2ord = p.bl_list()
+#bl2ord = p.bl_list()
 
 def read_udb(filename):
     ''' This routine reads the data from a UDB file.
@@ -351,9 +361,10 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     ha[np.where(ha > np.pi)] -= 2*np.pi
     ha[np.where(ha < -np.pi)] += 2*np.pi
     # Find out band name for each frequency
-    bd=[]
-    for f in freq:
-        bd.append(cu.freq2bdname(f))
+    bd = (freq*2 - 1).astype(np.int)
+    #bd=[]
+    #for f in freq:
+    #    bd.append(cu.freq2bdname(f))
     out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'band':np.array(bd),'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
     return out
 
@@ -459,7 +470,7 @@ def summary_plot(out,ant_str='ant1-13',ptype='phase',pol='XX-YY'):
     '''
     import matplotlib.pyplot as plt
     
-    ant_list = p.ant_str2list(ant_str)
+    ant_list = ant_str2list(ant_str)
     nant = len(ant_list)
     if ptype != 'amp' and ptype != 'phase':
         print "Invalid plot type.  Must be 'amp' or 'phase'."
@@ -494,7 +505,7 @@ def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
     import matplotlib.pyplot as plt
     ha=out['ha']
     fghz=out['fghz']
-    ant_list = p.ant_str2list(ant_str)
+    ant_list = ant_str2list(ant_str)
     nant = len(ant_list)
     if ptype != 'amp' and ptype != 'phase':
         print "Invalid plot type.  Must be 'amp' or 'phase'."
@@ -525,10 +536,15 @@ def summary_plot_pcal(out,ant_str='ant1-14',ptype='phase',pol='XX-YY'):
         for j in range(2):
             ax[0,j].text(0.5,1.3,polstr[j],ha='center',va='center',transform=ax[0,j].transAxes,fontsize=14)
 
-def allday_udb(t=None, doplot=True, savfig=False):
+def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=False):
     # Plots (and returns) UDB data for an entire day
+    from sunpy import lightcurve
+    from sunpy.time import TimeRange
+    from flare_monitor import flare_monitor
     if t is None:
         t = Time.now()
+    # Cannot get a GOES plot unless doplot is True
+    if goes_plot: doplot = True
     date = t.iso[:10].replace('-','')
     # Look also at the following day, up to 9 UT
     date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
@@ -548,9 +564,13 @@ def allday_udb(t=None, doplot=True, savfig=False):
         print 'No files found in /data1/eovsa/fits/UDB/ for',date
         return {}
     out = read_idb(files,src='Sun')
+    if gain_corr:
+        import gaincal2 as gc
+        out = gc.apply_gain_corr(out)
+    trange = Time(out['time'][[0,-1]], format = 'jd')
+    fghz = out['fghz']
     if doplot:
-        f, ax = plt.subplots(1,1)
-        f.set_size_inches(14,5)
+        f, ax = plt.subplots(1,1,figsize=(14,5))
         pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
         X = np.sort(pdata.flatten())   # Sorted, flattened array
         # Set any time gaps to nan
@@ -558,15 +578,136 @@ def allday_udb(t=None, doplot=True, savfig=False):
         bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
         pdata[:,bad] = 0
         vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
-        ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
+        im = ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
+        plt.colorbar(im,ax=ax,label='Amplitude [arb. units]')
         ax.xaxis_date()
         ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        ax.set_ylim(fghz[0], fghz[-1])
         ax.set_xlabel('Time [UT]')
         ax.set_ylabel('Frequency [GHz]')
         ax.set_title('EOVSA 1-min Data for '+t.iso[:10])
-        if savfig:
-            plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
+
+        if goes_plot:
+            # Get GOES data for overplotting
+            goes_tr = TimeRange(trange.iso)
+            goes_label = ['A','B','C','M','X']
+            # The GOES label is placed to start 20 min into the day
+            goes_label_time = Time(out['time'][[0]], format = 'jd').plot_date + 0.014
+            rightaxis_label_time = trange[1].plot_date
+
+            # Retrieve GOES data for the day, but this only goes to end of UT day
+            try:
+                goes = lightcurve.GOESLightCurve.create(goes_tr)
+                goes.data['xrsb'] = 2* (np.log10(goes.data['xrsb'])) + 26
+                ytext = np.median(goes.data['xrsb']) - 1
+                ax.text (goes_label_time, ytext, 'GOES soft x-ray data', color = 'yellow')
+                goes.data['xrsb'].plot(color = 'yellow')
+            except:
+                # Looks like the GOES data do not exist, so just skip it
+                pass
+            for k,i in enumerate([10,12,14,16,18]):
+                ax.text(rightaxis_label_time, i-0.4, goes_label[k], fontsize = '12')
+                ax.plot_date(rightaxis_label_time + np.array([-0.005,0.0]),[i,i],'-',color='yellow')
+            try:
+                # If the day goes past 0 UT, get GOES data for the next UT day
+                if int(trange[1].mjd) != int(trange[0].mjd):
+                    goes_tr2 = TimeRange([trange[1].iso[:10], trange[1].iso])
+                    goesday2 = lightcurve.GOESLightCurve.create(goes_tr2)
+                    goesday2.data['xrsb'] = 2* (np.log10(goesday2.data['xrsb'])) + 26
+                    goesday2.data['xrsb'].plot(color = 'yellow')
+            except:
+                # Looks like the GOES data do not exist, so just skip it
+                pass
+        pstart = Time(t.iso[:10]+' 13:30').plot_date
+        prange = [pstart,pstart+13./24]
+        ax.set_xlim(prange)
+
+        ut, fl, projdict = flare_monitor(t)
+        if fl == []:
+            print 'Error retrieving data for',t.iso[:10],'from SQL database.'
+            return
+        if projdict == {}:
+            print 'No annotation can be added to plot for',t.iso[:10]
+        else:
+            nscans = len(projdict['Project'])
+            SOS = Time(projdict['Timestamp'],format='lv').plot_date
+            EOS = Time(projdict['EOS'],format='lv').plot_date
+            yran = np.array(ax.get_ylim())
+            for i in range(nscans):
+                uti = SOS[i]*np.array([1.,1.])
+                #if uti[0] >= trange[0].plot_date:
+                ax.plot_date(uti,yran,'g',lw=0.5)
+                if projdict['Project'][i] == 'NormalObserving' or projdict['Project'][i] == 'Normal Observing':
+                    ax.text(uti[0],yran[1]*0.935,'SUN',fontsize=8, color = 'white')
+                elif projdict['Project'][i] == 'None':
+                    ax.text(uti[0],yran[1]*0.975,'IDLE',fontsize=8, color = 'white')
+                elif projdict['Project'][i][:4] == 'GAIN':
+                    ax.text(uti[0],yran[1]*0.955,'GCAL',fontsize=8, color = 'white')
+                elif projdict['Project'][i] == 'SOLPNTCAL':
+                    ax.text(uti[0],yran[1]*0.955,'TPCAL',fontsize=8, color = 'white')
+                elif projdict['Project'][i] == 'PHASECAL':
+                    ax.text(uti[0],yran[1]*0.955,'PCAL',fontsize=8, color = 'white')
+                else:
+                    ax.text(uti[0],yran[1]*0.975,projdict['Project'][i],fontsize=8, color = 'white')
+            if len(projdict['EOS']) == nscans:
+                known = ['GAIN','PHAS','SOLP']  # known calibration types (first 4 letters)
+                for i in range(nscans):
+                    uti = EOS[i]*np.array([1.,1.])
+                    ax.plot_date(uti,yran,'r--',lw=0.5)
+                    uti = np.array([SOS[i],EOS[i]])
+                    if projdict['Project'][i] == 'NormalObserving':
+                        ax.plot_date(uti,yran[1]*np.array([0.93,0.93]),ls='-',marker='None',color='#aaffaa',lw=2,solid_capstyle='butt')
+                    elif projdict['Project'][i][:4] in known:
+                        ax.plot_date(uti,yran[1]*np.array([0.95,0.95]),ls='-',marker='None',color='#aaaaff',lw=2,solid_capstyle='butt')
+                    else:
+                        ax.plot_date(uti,yran[1]*np.array([0.97,0.97]),ls='-',marker='None',color='#ffaaaa',lw=2,solid_capstyle='butt')
+
+            if savfig:
+                plt.savefig('/common/webplots/flaremon/daily/XSP'+date+'.png',bbox_inches='tight')
     return out
+
+# def allday_udb(t=None, doplot=True, savfig=False):
+    # # Plots (and returns) UDB data for an entire day
+    # if t is None:
+        # t = Time.now()
+    # date = t.iso[:10].replace('-','')
+    # # Look also at the following day, up to 9 UT
+    # date2 = Time(t.mjd + 1,format='mjd').iso[:10].replace('-','')
+    # year = date[:4]
+    # files = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date+'*')
+    # files.sort()
+    # files2 = glob.glob('/data1/eovsa/fits/UDB/'+year+'/UDB'+date2+'0*')
+    # files2.sort()
+    # files = np.concatenate((np.array(files),np.array(files2)))
+    # # Eliminate files starting before 10 UT on date (but not on date2)
+    # for i,file in enumerate(files):
+        # if file[-6] != '0':
+            # break
+    # try:
+        # files = files[i:]
+    # except:
+        # print 'No files found in /data1/eovsa/fits/UDB/ for',date
+        # return {}
+    # out = read_idb(files,src='Sun')
+    # if doplot:
+        # f, ax = plt.subplots(1,1)
+        # f.set_size_inches(14,5)
+        # pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+        # X = np.sort(pdata.flatten())   # Sorted, flattened array
+        # # Set any time gaps to nan
+        # tdif = out['time'][1:] - out['time'][:-1]
+        # bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
+        # pdata[:,bad] = 0
+        # vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        # ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
+        # ax.xaxis_date()
+        # ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        # ax.set_xlabel('Time [UT]')
+        # ax.set_ylabel('Frequency [GHz]')
+        # ax.set_title('EOVSA 1-min Data for '+t.iso[:10])
+        # if savfig:
+            # plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
+    # return out
         
 def get_IDBfiles(showthelast=10):
     #This will return the most recent IDB files saved to the 
@@ -820,7 +961,8 @@ def get_trange_files(trange):
         os.listdir(folder)
     except:
         try:
-            os.listdir('/data1/IDB')
+            folder = '/data1/IDB'
+            os.listdir(folder)
         except:
             print 'Something wrong with the definition of EOVSA data directory.'
             print 'Best to define a EOVSADB variable in .cshrc (c-shell) or .bashrc (bash)'
@@ -851,83 +993,83 @@ def get_trange_files(trange):
             filelist.append(filename)
     return filelist
     
-def show_selfcalibrated(index, trange, plot='multipanel', antennas=0):
-    #for index, choose a time when the flare starting, with a large slope. 
-    #the options for plot are 'multipanel' , 'saturation' , and 'uncalibrated'
-    #antennas controls which pair the saturation plot shows. 
+# def show_selfcalibrated(index, trange, plot='multipanel', antennas=0):
+    # #for index, choose a time when the flare starting, with a large slope. 
+    # #the options for plot are 'multipanel' , 'saturation' , and 'uncalibrated'
+    # #antennas controls which pair the saturation plot shows. 
   
-    data = get_trange_files(trange)
-    IDBdata, uvw, freq, times = get_X_data(data)
+    # data = get_trange_files(trange)
+    # IDBdata, uvw, freq, times = get_X_data(data)
     
-    s = sp.Spectrogram(trange)
-    s.fidx = [0,IDBdata.shape[2]]
-    tsys, std = s.get_median_data()
+    # s = sp.Spectrogram(trange)
+    # s.fidx = [0,IDBdata.shape[2]]
+    # tsys, std = s.get_median_data()
     
-    pcal = np.angle(IDBdata[:,:, :, index])
-    acal = abs(IDBdata[:,:, :, index])
-    calout = copy.copy(IDBdata)
-    # Calibrate for time 'index', just before the initial peak of the flare.
-    for i in range(IDBdata.shape[3]):
-        calout[:,:,:,i] = calout[:,:,:,i]*(np.cos(pcal)-1j*np.sin(pcal))/acal
-    # Normalize to the total power spectrum at the same time, with reference
-    # to the shortest baseline (preserves the relative amplitudes on various
-    # baselines and polarizations.
-    norm = abs(calout[:,:, :, index])
-    for i in range(12):
-        for j in range(2):
-            norm[i,j,:] = tsys[:,index]*abs(calout[i,j,:,index]) / abs(calout[0,0,:,index])
-    for i in range(IDBdata.shape[3]):
-        calout[:,:,:,i] = calout[:,:,:,i]*norm       
-    if plot == 'multipanel':
-        # Multi-panel Plot
-        f, ax = plt.subplots(4,5)
-        sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
-        for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
-            if (i > 4):
-                ax[2,i % 5].imshow(abs(calout[ibl,0,50:,:]))
-                ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                ax[3,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
-                ax[3,i % 5].text(100,10,sbl[i]+' Phase')
-            else:
-                ax[0,i % 5].imshow(abs(calout[ibl,0,50:,:]))
-                ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                ax[1,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
-                ax[1,i % 5].text(100,10,sbl[i]+' Phase')
-            ax[2,4].imshow(tsys[50:,:])
-            ax[2,4].text(100,10,'Total Power',color='white')
-            plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
-    else:
-        if plot == 'saturation':
-            # Saturation Plot
-            ants_ = 'Ants ' + str(antennas+1) + '-' + str(antennas+2)
-            plt.figure()
-            plt.plot(tsys[IDBdata.shape[2]-110,:],abs(calout[antennas, 0, IDBdata.shape[2]-110,:]),'.',label=str(freq[IDBdata.shape[2]-110])[:5]+' GHz')
-            plt.plot(tsys[IDBdata.shape[2]-60,:],abs(calout[antennas, 0, IDBdata.shape[2]-60,:]),'.',label=str(freq[IDBdata.shape[2]-60])[:5]+' GHz')
-            plt.plot(tsys[IDBdata.shape[2]-10,:],abs(calout[antennas, 0, IDBdata.shape[2]-10,:]),'.',label=str(freq[IDBdata.shape[2]-10])[:5]+' GHz')
-            plt.xlabel('Total Power [sfu]')
-            plt.ylabel('Correlated Power (' + ants_ + ') [sfu]')
-            plt.legend(loc='lower right')    
-        else:
-            if plot == 'uncalibrated':                          
-                #"uncalibrated" 
-                f, ax = plt.subplots(4,5)
-                sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
-                for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
-                    if (i > 4):
-                        ax[2,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
-                        ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                        ax[3,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
-                        ax[3,i % 5].text(100,10,sbl[i]+' Phase')
-                    else:
-                        ax[0,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
-                        ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                        ax[1,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
-                        ax[1,i % 5].text(100,10,sbl[i]+' Phase')
-                ax[2,4].imshow(tsys[50:,:])
-                ax[2,4].text(100,10,'Total Power',color='white')
-                plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
-            else:
-                print 'please choose valid plot type'
+    # pcal = np.angle(IDBdata[:,:, :, index])
+    # acal = abs(IDBdata[:,:, :, index])
+    # calout = copy.copy(IDBdata)
+    # # Calibrate for time 'index', just before the initial peak of the flare.
+    # for i in range(IDBdata.shape[3]):
+        # calout[:,:,:,i] = calout[:,:,:,i]*(np.cos(pcal)-1j*np.sin(pcal))/acal
+    # # Normalize to the total power spectrum at the same time, with reference
+    # # to the shortest baseline (preserves the relative amplitudes on various
+    # # baselines and polarizations.
+    # norm = abs(calout[:,:, :, index])
+    # for i in range(12):
+        # for j in range(2):
+            # norm[i,j,:] = tsys[:,index]*abs(calout[i,j,:,index]) / abs(calout[0,0,:,index])
+    # for i in range(IDBdata.shape[3]):
+        # calout[:,:,:,i] = calout[:,:,:,i]*norm       
+    # if plot == 'multipanel':
+        # # Multi-panel Plot
+        # f, ax = plt.subplots(4,5)
+        # sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
+        # for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
+            # if (i > 4):
+                # ax[2,i % 5].imshow(abs(calout[ibl,0,50:,:]))
+                # ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                # ax[3,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
+                # ax[3,i % 5].text(100,10,sbl[i]+' Phase')
+            # else:
+                # ax[0,i % 5].imshow(abs(calout[ibl,0,50:,:]))
+                # ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                # ax[1,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
+                # ax[1,i % 5].text(100,10,sbl[i]+' Phase')
+            # ax[2,4].imshow(tsys[50:,:])
+            # ax[2,4].text(100,10,'Total Power',color='white')
+            # plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
+    # else:
+        # if plot == 'saturation':
+            # # Saturation Plot
+            # ants_ = 'Ants ' + str(antennas+1) + '-' + str(antennas+2)
+            # plt.figure()
+            # plt.plot(tsys[IDBdata.shape[2]-110,:],abs(calout[antennas, 0, IDBdata.shape[2]-110,:]),'.',label=str(freq[IDBdata.shape[2]-110])[:5]+' GHz')
+            # plt.plot(tsys[IDBdata.shape[2]-60,:],abs(calout[antennas, 0, IDBdata.shape[2]-60,:]),'.',label=str(freq[IDBdata.shape[2]-60])[:5]+' GHz')
+            # plt.plot(tsys[IDBdata.shape[2]-10,:],abs(calout[antennas, 0, IDBdata.shape[2]-10,:]),'.',label=str(freq[IDBdata.shape[2]-10])[:5]+' GHz')
+            # plt.xlabel('Total Power [sfu]')
+            # plt.ylabel('Correlated Power (' + ants_ + ') [sfu]')
+            # plt.legend(loc='lower right')    
+        # else:
+            # if plot == 'uncalibrated':                          
+                # #"uncalibrated" 
+                # f, ax = plt.subplots(4,5)
+                # sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
+                # for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
+                    # if (i > 4):
+                        # ax[2,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
+                        # ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                        # ax[3,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
+                        # ax[3,i % 5].text(100,10,sbl[i]+' Phase')
+                    # else:
+                        # ax[0,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
+                        # ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
+                        # ax[1,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
+                        # ax[1,i % 5].text(100,10,sbl[i]+' Phase')
+                # ax[2,4].imshow(tsys[50:,:])
+                # ax[2,4].text(100,10,'Total Power',color='white')
+                # plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
+            # else:
+                # print 'please choose valid plot type'
 
 def unrot(data,params=[1.,0.,0.],reverse=False):
     ''' params gives non-ideal behavior of second ant, as a, d, chi0,
