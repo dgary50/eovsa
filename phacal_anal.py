@@ -45,6 +45,7 @@ def phacal_anal(refcal, minsnr=0.7, doplot_refcal=False, verbose=False):
     etime = Time(btime.mjd + 1, format='mjd')
     trange = Time([btime, etime])
     out = ra.rd_refcal(trange, projid='PHASECAL')
+    out = ra.unrot_refcal(out)
     scanidx = []
     for ll in range(len(out['scanlist'])):
         if out['tstlist'][ll].mjd <= timestamp.mjd <= out['tedlist'][ll].mjd:
