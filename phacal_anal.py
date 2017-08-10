@@ -55,6 +55,7 @@ def phacal_anal(refcal, minsnr=0.7, doplot_refcal=False, verbose=False):
     nscanidx = len(scanidx)
     scanidx_sql = []
     ct_accept = 0
+    print '{} PHASECAL scan(s) found...'.format(nscanidx)
     for idx, ll in enumerate(scanidx):
         print 'processing PHASECAL {}/{} ...'.format(idx + 1, nscanidx)
         phacal = ra.phase_diff(ra.refcal_anal(out, scanidx=[ll], minsnr=minsnr, doplot=doplot_refcal), refcal=refcal)
