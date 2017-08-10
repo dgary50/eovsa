@@ -18,6 +18,11 @@
 #   2017-Apr-07  DG
 #      Cleaned up the "show" button output, and set the default directory
 #      for npz files to the phasecal web directory (/common/webplots/phasecal)
+#   2017-Jul-08  DG
+#      Added new menu item for setting the Ant 14 low-frequency receiver
+#      delays.  These delays are written into the Ant 15 slot by the
+#      cal_header.dla_update2sql() routine.  Note that delays for other
+#      antennas are not updated, even if they are non-zero (a warning is given).
 
 from Tkinter import *
 from tkFileDialog import askopenfile
@@ -49,6 +54,7 @@ class App():
 
         filemenu.add_command(label = 'Open npz File...', command = self.Opennpz)
         filemenu.add_command(label = 'Save Delays to ACC', command = self.Save)
+        filemenu.add_command(label = 'Save LoRX Delays to ACC', command = self.SaveLoRX)
 
         self.root.config(menu = self.menu)
 
@@ -349,6 +355,41 @@ class App():
                 #ch.dla_update2sql(-delays,xydelays)  # 300 MHz design uses flipped signs!
                 ch.dla_censql2table()
 
+    def SaveLoRX(self):
+        # Send saved Ant 14 delays as Ant 15 to the SQL database and the ACC (if the data source is not 'Simulation')
+        # Note, ONLY Ant 14 delay is changed, and it is ascribed to Ant 15.  No other delay changes are made.
+        if self.data_source == 'Data':
+            if (Time.now().mjd - self.time.mjd) > 1.0:
+                question = "Warning: Data more than a day old. Are you sure you want to save delays to SQL and ACC?"
+            else:
+                question = "Save delays to SQL and ACC?"
+            import cal_header as ch
+            
+            delays = self.delays[0] - self.delays
+            delays = np.append(delays,self.delays[0])
+            # Have to change the sign of Ant 14 Y-X delay, hence the minus sign
+            xydelays = np.append(self.xydelays,-float(self.dla14.get()))
+            # Do not change delays where both delays and xydelays are zero
+            # which is taken as a missing antenna
+            bad, = np.where(self.delays == 0)
+            bad2, = np.where(self.xydelays == 0)
+            idx1,idx2 = common_val_idx(bad,bad2)
+            delays[bad[idx1]] = 0.0
+            # Check that the delays to all antennas except Ant 14 are zero, or give warning if not
+            for i in range(13):
+                if delays[i] != 0.0:
+                    question = "Some Ant1-13 delays are not 0, but will NOT be updated.  Save anyway?"
+                    break
+                if xydelays[i] != 0.0:
+                    question = "Some Ant1-13 delays are not 0, but will NOT be updated.  Save anyway?"
+                    break
+            
+            if askyesno("Write Delays",question):
+                # All Y-X delays need a sign flip, hence the minus sign
+                ch.dla_update2sql(delays,-xydelays,lorx=True)
+                #ch.dla_update2sql(-delays,xydelays)  # 300 MHz design uses flipped signs!
+                ch.dla_censql2table()
+                
 app = App()
 
 mainloop()

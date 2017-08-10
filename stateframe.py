@@ -61,6 +61,9 @@
 #   2017-Jun-28  DG
 #      Add "crossed" keyword to PA_adjust() to orient the feed 90 degrees
 #      from the parallactic angle
+#   2017-Aug-09  DG
+#      Fixed a bug in TrackFlag and dAz, in azel_from_stateframe() and 
+#      azel_from_sqldict()
 #
 
 import struct, sys
@@ -400,12 +403,13 @@ def azel_from_stateframe(sf, data, antlist=None):
         else:
             chi.append(par_angle(el_act[i]*dtor,az_act[i]*dtor))
 
+    daz = np.array(az_act) - np.array(az_req)
     # Track limit is set at 1/10th of primary beam at 18 GHz
     tracklim = np.array([0.0555]*13+[0.0043]*2)       # 15-element array
-    trackflag = (np.array(daz) <= tracklim) & (np.array(delv) <= tracklim)
+    trackflag = (np.abs(daz) <= tracklim) & (np.abs(np.array(delv)) <= tracklim)
     trackflag = np.append(trackflag,False)   # Ant 16 is never tracking
 
-    return {'dAzimuth':np.array(daz),   'ActualAzimuth':np.array(az_act),  'RequestedAzimuth':np.array(az_req),
+    return {'dAzimuth':daz,   'ActualAzimuth':np.array(az_act),  'RequestedAzimuth':np.array(az_req),
             'dElevation':np.array(delv),'ActualElevation':np.array(el_act),'RequestedElevation':np.array(el_req),
             'ParallacticAngle':np.array(chi)/dtor, 'TrackFlag':trackflag}
 
@@ -499,7 +503,7 @@ def azel_from_sqldict(sqldict, antlist=None):
         az_act[good] = copy.deepcopy(az_req[good] + daz[good])
         delv[good] = copy.deepcopy(el1[good] - el_corr[good])
         el_act[good] = copy.deepcopy(el_req[good] + delv[good])
-        daz.shape = delv.shape = az_act.shape = el_act.shape = rms
+        daz.shape = delv.shape = az_req.shape = el_req.shape = az_act.shape = el_act.shape = rms
     chi = par_angle(el_act*dtor,az_act*dtor)
     # Override equatorial antennas
     for iant in [8,9,10,12,13,14]:
@@ -507,12 +511,15 @@ def azel_from_sqldict(sqldict, antlist=None):
         eqel, eqaz = hadec2altaz(az_act[:,iant]*dtor,el_act[:,iant]*dtor)
         chi[:,iant] = par_angle(eqel, eqaz)
 
+    daz = az_act - az_req
     # Track limit is set at 1/10th of primary beam at 18 GHz
     tracklim = np.array([0.0555]*13+[0.0043]*2)       # 15-element array
     trackflag = np.zeros(rms,'bool')
     for i in range(rms[0]):
-        trackflag[i,:] = (daz[i,:] <= tracklim) & (delv[i,:] <= tracklim)
+        trackflag[i,:] = (np.abs(daz[i,:]) <= tracklim) & (np.abs(delv[i,:]) <= tracklim)
 
+    trackflag[:,14] = False   # Ant 15 is never tracking
+    
     return {'dAzimuth':daz,   'ActualAzimuth':az_act,  'RequestedAzimuth':az_req,
             'dElevation':delv,'ActualElevation':el_act,'RequestedElevation':el_req,
             'ParallacticAngle':chi/dtor, 'TrackFlag':trackflag}
@@ -574,7 +581,8 @@ def PA_adjust(ant=None, crossed=False):
                 msg = q.get_nowait()
                 if msg == 'Abort':
                     # Got abort message, so exit.
-                    break
+                    adc_cal2.send_cmds(['frm-set-pa 0 ant14'],acc)
+                    return
             except:
                 pass
             time.sleep(1)

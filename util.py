@@ -22,6 +22,9 @@
 #    to those in first array.
 #  2017-Jan-15  DG
 #    Added lobe() function to put phase into +/- pi range
+#  2017-Aug-08  DG
+#    Added precision keyword to common_val_idx()
+#    Also added code for calculating baseline order
 # * 
 
 import StringUtil as su
@@ -937,15 +940,29 @@ def UT1_UTC(mjd):
 
     return dut
 
-def common_val_idx(array1,array2):
+def common_val_idx(array1,array2,precision=None):
     ''' Find the common values in two sorted arrays, and return the array
-        of indexes of those common values in the two arrays.
+        of indexes of those common values in the two arrays.  If the
+        parameter precision is given, the input arrays are rounded to
+        that many decimal places before comparison.
+        
     '''
-    from numpy import intersect1d,searchsorted
+    from numpy import intersect1d,searchsorted,round
     
-    common = intersect1d(array1,array2,True)
-    idx1 = searchsorted(array1,common)
-    idx2 = searchsorted(array2,common)
+    if precision:
+        try:
+            ar1 = round(array1*10**precision)
+            ar2 = round(array2*10**precision)
+        except Exception as e:
+            print 'Error: common_val_idx: arrays could not be rounded to precision',precision
+            print e
+            return None, None
+    else:
+        ar1 = array1
+        ar2 = array2
+    common = intersect1d(ar1,ar2,True)
+    idx1 = searchsorted(ar1,common)
+    idx2 = searchsorted(ar2,common)
     return idx1, idx2
 
 def nearest_val_idx(array1,array2):
@@ -1004,3 +1021,36 @@ def ant_str2list(ant_str):
         print 'Error: cannot interpret ant_str',ant_str
         return None
     return array(ant_list)
+
+def get_bl_order(n_ants):
+    """Return the order of baseline data output by a CASPER correlator
+    X engine."""
+    order1, order2 = [], []
+    for i in range(n_ants):
+        for j in range(int(n_ants/2),-1,-1):
+            k = (i-j) % n_ants
+            if i >= k: order1.append((k, i))
+            else: order2.append((i, k))
+    order2 = [o for o in order2 if o not in order1]
+    return tuple([o for o in order1 + order2])
+
+def bl_list(nant=16):
+    ''' Returns a two-dimensional array bl2ord that will translate
+        a pair of antenna indexes (antenna number - 1) to the ordinal
+        number of the baseline in the 'x' key.  Note bl2ord(i,j) = bl2ord(j,i),
+        and bl2ord(i,i) = nant*(nant-1)/2 + i.
+    '''
+    from numpy import ones
+    bl2ord = ones((nant,nant),dtype='int')*(-1)
+    nbl = nant*(nant-1)/2
+    k = 0
+    for i in range(nant-1):
+        for j in range(i+1,nant):
+            bl2ord[i,j] = k
+            bl2ord[j,i] = k
+            k+=1
+    for i in range(nant):
+        bl2ord[i,i] = nbl+i
+    return bl2ord
+    
+bl2ord = bl_list()

@@ -254,6 +254,17 @@
 #      Commented out lines relating STARBURST
 #    2017-Jun-28  DG
 #      Added "crossed" keyword handling for $PA_ADJUST command
+#    2017-Jul-08  DG
+#      Changes to allow detection of Ant 14 receiver position (based on stateframe
+#      information from FEMA, and remembered via self.lorx), and setting of Ant 14
+#      delays based on that, to those in slot for Ant 15.
+#    2017-Jul-10  DG
+#      After some confusing results, I realized that the ACC delay_centers.txt
+#      file also had to be changed, because the DPP is using that.  Therefore,
+#      the whole scheme was updated to read from SQL at a $SCAN-START, do the 
+#      swap at that point, if necessary, and then create and FTP the file. This
+#      solves another problem that the ACC file could in principle deviate from
+#      the SQL table.  Now it cannot (if all goes smoothly).
 #
 
 import os, signal
@@ -737,6 +748,9 @@ class App():
 
         t = util.Time.now()
         self.label.configure(text=t.iso)
+        
+        # Set default Ant 14 receiver position to the High-Frequency setting, i.e. lorx = False
+        self.lorx = False
 
         # Setup Project Tab
         fproj = Frame()
@@ -1875,16 +1889,23 @@ class App():
            where f_ADC is ADC clock frequency, in GHz.
         '''
         global sh_dict, sf_dict
-        # Delay centers.  These are read from file 'delay_centers.txt' in the
-        # ACC parm directory by init_scan_dict().
+        # Delay centers.  These are read from the SQL database whenever a scan starts.
         # The delay center offset (dlaoff) is now scaled to adc_clk, so that it is
         # 11,000 for 800 MHz, and 16,500 for 1200 MHz. 
-        # (800 MHz design has a range of 16,000, while 1200 MHz design has a range of 32,000).  
         # ****** Send delay0, which is actually the delay for the next upcoming second ******
         adc_clk = self.brd_clk_freq*4./1000.
         dlaoff = int(16500.*adc_clk/1.2)
+
+        # This swap is now done at $SCAN-START (and written to ACC)
+        #dcenidx = numpy.arange(16)
+        #if self.lorx:
+        #    # If the low-frequency receiver is in place (i.e. an RX-SELECT LO ANT14 command
+        #    # was sent), replace the Ant 14 delay centers with those in the Ant 15 slot.
+        #    dcenidx[13:15] = [14,13]
+        #dlax = numpy.round((sh_dict['dlacen'][dcenidx] - sf_dict['delay'])*adc_clk + dlaoff)
+        #dlay = dlax + (sh_dict['dlaceny'] - sh_dict['dlacen'])[dcenidx]
         dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + dlaoff)
-        dlay = dlax + sh_dict['dlaceny'] - sh_dict['dlacen']
+        dlay = dlax + (sh_dict['dlaceny'] - sh_dict['dlacen'])
         
         for r in self.roaches:
             if r.fpga:
@@ -2039,7 +2060,7 @@ class App():
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
-        elif cmds[0].upper() == 'PACAL':
+        elif cmds[0][:5].upper() == 'PACAL':
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
@@ -2262,6 +2283,63 @@ class App():
                     nodata = ctlline.strip().split(' ')[-1].upper()
                     # Do any tasks here that are required to start a new scan
                     sys.stdout.write('Started new scan\n')
+
+                    # Check for Ant 14 low-frequency receiver status
+                    self.lorx = False   # Default (normal) position is high frequency receiver
+                    # Check Ant 14 Receiver Position Status
+                    data, msg = stateframe.get_stateframe(self.accini)
+                    FEMA = self.accini['sf']['FEMA']
+                    if stateframe.extract(data,FEMA['Timestamp']) != 0:
+                        # This is a valid record, so proceed
+                        if stateframe.extract(data,FEMA['PowerStrip']['RFSwitchStatus']) == 0:
+                            # The switch position is right for LoRX
+                            RX_pos = stateframe.extract(data,FEMA['FRMServo']['RxSelect']['Position']) + stateframe.extract(data,FEMA['FRMServo']['RxSelect']['PositionError'])
+                            if RX_pos < 150.:
+                                # Consistent with LoRX being in position, or heading there, so set as True
+                                self.lorx = True
+                                print 'Ant 14 delays will be set for LO-Frequency Receiver'
+                            else:
+                                print 'Ant 14 outlet set for LO-Frequency Receiver, but RxcSelect position is wrong.'
+                                print 'Ant 14 delays will be set for HI-Frequency Receiver.'
+                        else:
+                            print 'Ant 14 delays will be set for HI-Frequency Receiver.'
+                    else:
+                        print 'LO-Frequency Receiver check failed due to bad (0) stateframe.'
+
+                    # Fetch current delay centers from SQL database, and write them to
+                    # the ACC file /parm/delay_centers.txt, which is used by the dppxmp program
+                    xml, buf = cal_header.read_cal(4)
+                    try:
+                        xml, buf = cal_header.read_cal(4)
+                        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+                        if self.lorx:
+                            # If the LO-frequency receiver is active, put delays in slot for Ant 15 into Ant 14
+                            dcenters[13] = dcenters[14]
+                        timestr = Time(int(stateframe.extract(buf, xml['Timestamp'])), format='lv').iso
+                        f = open('/tmp/delay_centers.txt', 'w')
+                        f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
+                        f.write('#     Date: ' + timestr + '\n')
+                        f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
+                        f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
+                        fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
+                        for i in range(16):
+                            f.write(fmt.format(i + 1, *dcenters[i]))
+                        f.close()
+                        time.sleep(0.1)  # Make sure file has time to be closed.
+                        f = open('/tmp/delay_centers.txt', 'r')
+                        acc = FTP('acc.solar.pvt')
+                        acc.login('admin', 'observer')
+                        acc.cwd('parm')
+                        # Send DCM table lines to ACC
+                        print acc.storlines('STOR delay_centers.txt', f)
+                        f.close()
+                        print 'Successfully wrote delay_centers.txt to ACC'
+                        
+                        sh_dict['dlacen']  = dcenters[:,0]
+                        sh_dict['dlaceny'] = dcenters[:,1]
+                    except:
+                        print t.iso,'SQL connection for delay centers failed.  Delay center not updated'
+
                     if self.subarray_name == 'Subarray1':
                         try:
                             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -2274,17 +2352,6 @@ class App():
                             s.close()
                         except:
                             pass
-                    # Fetch current delay centers from SQL database (NB: there is no check
-                    # that these match the ACC file /parm/delay_centers.txt, which is used
-                    # by the dppxmp program, so follow procedures to create this file!
-                    xml, buf = cal_header.read_cal(4)
-                    try:
-                        xml, buf = cal_header.read_cal(4)
-                        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
-                        sh_dict['dlacen']  = dcenters[:,0]
-                        sh_dict['dlaceny'] = dcenters[:,1]
-                    except:
-                        print t.iso,'SQL connection for delay centers failed.  Delay center not updated'
 
                     # We need an initial call to set_uvw() in order to set RA, Dec and HA
                     # coordinates in scan header dictionary.
