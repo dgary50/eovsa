@@ -37,6 +37,8 @@ import os
 # import pcapture2 as p
 import pdb
 
+# from IPython import embed
+
 # import chan_util_bc as cu
 
 bl2ord = ri.bl2ord
@@ -157,7 +159,8 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
         fghzs.append(fghz)
         bandnames.append(bds)
     return {'scanlist': scanlist, 'srclist': srclist, 'tstlist': sclist['tstlist'], 'tedlist': sclist['tedlist'],
-            'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs, 'times': times, 'has':has, 'decs':decs}
+            'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs, 'times': times, 'has': has, 'decs': decs}
+
 
 def unrot_refcal(refcal_in):
     ''' Apply feed-rotation correction to data read with rd_refcal(), returning updated data in
@@ -169,7 +172,7 @@ def unrot_refcal(refcal_in):
     refcal = copy.deepcopy(refcal_in)
     blah = np.load('/common/tmp/Feed_rotation/20170702121949_delay_phase.npz')
     dph = blah['dph']
-    band=[]
+    band = []
     for f in blah['fghz']:
         band.append(cu.freq2bdname(f))
     bds, sidx = np.unique(band, return_index=True)
@@ -181,38 +184,38 @@ def unrot_refcal(refcal_in):
     for b, bd in enumerate(bds):
         fghz[bd - 1] = np.nanmean(blah['fghz'][sidx[b]:eidx[b]])
         for a in range(14):
-            dxy[a,bd-1] = np.angle(np.sum(np.exp(1j*dph[a, sidx[b]:eidx[b]])))
+            dxy[a, bd - 1] = np.angle(np.sum(np.exp(1j * dph[a, sidx[b]:eidx[b]])))
     # Read parallactic angles for entire time range
-    trange = Time([refcal['tstlist'][0].iso,refcal['tedlist'][-1].iso])
+    trange = Time([refcal['tstlist'][0].iso, refcal['tedlist'][-1].iso])
     times, chi = db.get_chi(trange)
     tchi = times.jd
     nscans = len(refcal['scanlist'])
     for i in range(nscans):
         t = refcal['times'][i]
         vis = copy.deepcopy(refcal['vis'][i])
-        idx = nearest_val_idx(t,tchi)
-        pa = chi[idx]   # Parallactic angle for the times of this refcal.
-        pa[:,[8,9,10,12]] = 0.0
-        nt = len(idx)   # Number of times in this refcal
+        idx = nearest_val_idx(t, tchi)
+        pa = chi[idx]  # Parallactic angle for the times of this refcal.
+        pa[:, [8, 9, 10, 12]] = 0.0
+        nt = len(idx)  # Number of times in this refcal
         # Apply X-Y delay phase correction
         for a in range(13):
             a1 = lobe(dxy[a] - dxy[13])
-            a2 = -dxy[13] + np.pi/2
-            a3 = dxy[a] - np.pi/2
+            a2 = -dxy[13] + np.pi / 2
+            a3 = dxy[a] - np.pi / 2
             for j in range(nt):
-                vis[a,1,:,j] *= np.exp(1j*a1)
-                vis[a,2,:,j] *= np.exp(1j*a2) 
-                vis[a,3,:,j] *= np.exp(1j*a3)
+                vis[a, 1, :, j] *= np.exp(1j * a1)
+                vis[a, 2, :, j] *= np.exp(1j * a2)
+                vis[a, 3, :, j] *= np.exp(1j * a3)
         for j in range(nt):
             for a in range(13):
-                refcal['vis'][i][a,0,:,j] = vis[a,0,:,j]*np.cos(pa[j,a]) + vis[a,3,:,j]*np.sin(pa[j,a])
-                refcal['vis'][i][a,2,:,j] = vis[a,2,:,j]*np.cos(pa[j,a]) + vis[a,1,:,j]*np.sin(pa[j,a])
-                refcal['vis'][i][a,3,:,j] = vis[a,3,:,j]*np.cos(pa[j,a]) - vis[a,0,:,j]*np.sin(pa[j,a])
-                refcal['vis'][i][a,1,:,j] = vis[a,1,:,j]*np.cos(pa[j,a]) - vis[a,2,:,j]*np.sin(pa[j,a])  
-    return refcal                
-    
-def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=None, pol=0,
-          tformat='%H:%M'):
+                refcal['vis'][i][a, 0, :, j] = vis[a, 0, :, j] * np.cos(pa[j, a]) + vis[a, 3, :, j] * np.sin(pa[j, a])
+                refcal['vis'][i][a, 2, :, j] = vis[a, 2, :, j] * np.cos(pa[j, a]) + vis[a, 1, :, j] * np.sin(pa[j, a])
+                refcal['vis'][i][a, 3, :, j] = vis[a, 3, :, j] * np.cos(pa[j, a]) - vis[a, 0, :, j] * np.sin(pa[j, a])
+                refcal['vis'][i][a, 1, :, j] = vis[a, 1, :, j] * np.cos(pa[j, a]) - vis[a, 2, :, j] * np.sin(pa[j, a])
+    return refcal
+
+
+def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=None, pol=0, tformat='%H:%M'):
     '''Produce a figure showing phases and amplitudes of selected antennas, bands, and polarization.
        Optionally takes in time averaged 'refcal' (can be from refcal_anal() or sql database) 
        to show the selected time range and plot the averaged phase and amplitudes'''
@@ -328,7 +331,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
         fghzs = out['fghzs']
 
     scanidx = range(len(scanlist))
-    if len(set(np.array(srclist)[scanidx]))>1:
+    if len(set(np.array(srclist)[scanidx])) > 1:
         prompt = ''
         while not (prompt.lower() in ['y', 'n']):
             prompt = raw_input('Multiple sources are selected. Are you sure to continue? [y/n]')
@@ -394,8 +397,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
     timestamp = Time(np.mean(timeavg), format='jd')
     timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd) / 2., format='jd')
     if doplot:
-        visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp,
-                  't_bg': timeavg[0], 't_ed': timeavg[-1], 'flag': flag}
+        visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp, 't_bg': timeavg[0],
+                  't_ed': timeavg[-1], 'flag': flag}
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt)
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt, pol=1)
         f2, ax2 = plt.subplots(2, 13, figsize=(12, 5))
@@ -427,8 +430,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                     ax3[pol, ant].set_title('Ant ' + str(ant + 1))
                     ax3[pol, ant].set_xticks([])
     return {'src': src, 'vis': vis_, 'pha': np.angle(vis_), 'amp': np.abs(vis_), 'fghz': fghz, 'flag': flag,
-            'sigma': sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal,
-            't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
+            'sigma': sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal, 't_bg': Time(timeavg[0], format='jd'),
+            't_ed': Time(timeavg[-1], format='jd')}
 
 
 def graph_results(refcal, unwrap=True, savefigs=False):
@@ -503,6 +506,20 @@ def graph_results(refcal, unwrap=True, savefigs=False):
         print '|-'
 
 
+def mbdfunc0(fghz, mbd):
+    # fghz: frequency in GHz
+    # ph0 = 0: phase offset identically set to zero (not fitted)
+    # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns
+    return 2. * np.pi * fghz * mbd
+
+
+def mbdfunc1(fghz, ph0, mbd):
+    # fghz: frequency in GHz
+    # ph0: phase offset in radians
+    # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns
+    return ph0 + 2. * np.pi * fghz * mbd
+
+
 def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
     '''Fit the phase difference between a phase calibration (or another refcal)
        and the reference calibration.  Returns the phase slopes and, optionally,
@@ -520,31 +537,21 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
     '''
     from scipy.optimize import curve_fit
 
-    def mbdfunc0(fghz, mbd):
-        # fghz: frequency in GHz
-        # ph0 = 0: phase offset identically set to zero (not fitted)
-        # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns 
-        return 2. * np.pi * fghz * mbd
-
-    def mbdfunc1(fghz, ph0, mbd):
-        # fghz: frequency in GHz
-        # ph0: phase offset in radians
-        # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns 
-        return ph0 + 2. * np.pi * fghz * mbd
-
     t_pha = phacal['timestamp']
     if refcal is None:
         refcal = sql2refcal(t_pha)
     t_ref = refcal['timestamp']
+    src = phacal['src']
     dpha = phacal['pha'] - refcal['pha']
     flag_pha = phacal['flag']
     flag_ref = refcal['flag']
-    f, ax = plt.subplots(2, 13, figsize=(13, 5))
-    f.suptitle('Phase Diff vs. Freq from ' + t_pha.iso + ', relative to ' + t_ref.iso)
+    nants = 15
+
     poff = [[], []]
     pslope = [[], []]
+    prms = [[], []]
     flag = [[], []]
-    for ant in range(15):
+    for ant in range(nants):
         if verbose: print 'ant: ', ant
         for pol in range(2):
             if ant < 13:
@@ -561,9 +568,6 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
                 amp_pha = phacal['amp'][ant, pol, ind]
                 amp_ref = refcal['amp'][ant, pol, ind]
                 sigma = ((sig_pha / amp_pha) ** 2. + (sig_ref / amp_ref) ** 2.) ** 0.5
-                ax[pol, ant].plot(fghz, dpha_unw, '.k')
-                ax[pol, ant].set_ylim([-10, 10])
-                ax[pol, ant].set_xlim([0, 18])
                 # Do a linear fit on the residual phases
                 if len(fghz) > 3:
                     if fitoffsets:
@@ -571,7 +575,7 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
                         poff[pol].append(popt[0])
                         pslope[pol].append(popt[1])
                         flag[pol].append(0)
-                        ax[pol, ant].plot(fghz, mbdfunc1(fghz, *popt), 'r--')
+                        residuals = mbdfunc1(fghz, *popt) - dpha_unw
                         if verbose: print 'Phase offset (deg):', np.degrees(popt[0])
                         if verbose: print 'MBD (ns):', popt[1]
                     else:
@@ -579,27 +583,103 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
                         poff[pol].append(0.0)
                         pslope[pol].append(popt[0])
                         flag[pol].append(0)
-                        ax[pol, ant].plot(fghz, mbdfunc0(fghz, *popt), 'r--')
-                        if verbose: print 'Phase offset (deg): 0.0 (not fit)'
-                        if verbose: print 'MBD (ns):', popt[0]
-                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                        residuals = mbdfunc0(fghz, *popt) - dpha_unw
+                        if verbose:
+                            print 'Phase offset (deg): 0.0 (not fit)'
+                        if verbose:
+                            print 'MBD (ns):', popt[0]
+                    prms[pol].append(np.dot(residuals, residuals) / len(residuals))
                 else:
                     poff[pol].append(0.0)
                     pslope[pol].append(0.0)
                     flag[pol].append(1)
-                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
-                    ax[pol, ant].text(9, 0, 'No Cal', ha='center')
+                    prms[pol].append(0.0)
             else:
                 poff[pol].append(0.0)
                 pslope[pol].append(0.0)
                 flag[pol].append(1)
+                prms[pol].append(0.0)
+
+    antstr = lambda ant: ' Ant ={:6s}                 '.format(ant)
+    titlestr = ' '.join(['{:12s}{:2s}'.format('rms', 'F')] * 2)
+    sepstr = '{0}|{0}'.format('-' * 14)
+    caltbstr = lambda rms, flg: '{:10.5f}  {}  {:10.5f}  {} '.format(rms[0], flg[0], rms[1], flg[1])
+
+    ncols = 4
+    nrows = np.int(np.ceil(nants / 4.0))
+    print(
+        '------------------------------------------------------------------------------------------------------------------------')
+    print('PHASECAL quality assessment (rms in degree) ----- Field = {0:10s}, Time = {1}~{2}'.format(src,
+                                                                                                     phacal['t_bg'].iso[
+                                                                                                     :-4],
+                                                                                                     phacal['t_ed'].iso[
+                                                                                                     :-4]))
+    print(
+        '------------------------------------------------------------------------------------------------------------------------')
+    for row in range(nrows):
+        if row < nrows - 1:
+            ants = range(ncols * row, ncols * (row + 1))
+        else:
+            ants = range(ncols * row, nants)
+        print '|'.join(map(antstr, ['eo{:02d}'.format(ll + 1) for ll in ants])) + '|'
+        print '|'.join([titlestr] * len(ants)) + '|'
+        print '|'.join([sepstr] * ncols) + '|'
+        rms = []
+        flg = []
+        for ant in ants:
+            rms.append([prms[pol][ant] for pol in range(2)])
+            fg=[]
+            for pol in range(2):
+                if flag[pol][ant] == 1:
+                    fg.append(flag[pol][ant])
+                else:
+                    fg.append(' ')
+            flg.append(fg)
+        # rms = [[prms[pol][ant] for pol in range(2)] for ant in ants]
+        print ' '.join(map(caltbstr, rms, flg))
+
+    return {'t_pha': t_pha, 't_ref': t_ref, 'poff': np.transpose(poff), 'pslope': np.transpose(pslope),
+            'prms': np.transpose(prms), 'flag': np.transpose(flag), 'phacal': phacal}
+
+
+def graph_pdiff(p_diff, refcal, verbose=False):
+    '''Produce a figure showing phase difference from phase_diff()'''
+    t_pha = p_diff['t_pha']
+    t_ref = p_diff['t_ref']
+    phacal = p_diff['phacal']
+    poff = p_diff['poff']
+    pslope = p_diff['pslope']
+    dpha = phacal['pha'] - refcal['pha']
+    flag_pha = phacal['flag']
+    flag_ref = refcal['flag']
+    f, ax = plt.subplots(2, 13, figsize=(13, 5))
+    f.suptitle('Phase Diff vs. Freq from ' + t_pha.iso + ', relative to ' + t_ref.iso)
+    for ant in range(15):
+        if verbose: print 'ant: ', ant
+        for pol in range(2):
+            if ant < 13:
+                if verbose: print 'pol: ', pol
+                ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
+                dpha_unw = np.unwrap(dpha[ant, pol, ind])
+                fghz = phacal['fghz'][ind]
+                if len(fghz) > 3:
+                    # Ensure that offset is close to zero, modulo 2*pi
+                    if dpha_unw[0] > np.pi: dpha_unw -= 2 * np.pi
+                    if dpha_unw[0] < -np.pi: dpha_unw += 2 * np.pi
+                if len(fghz) > 3:
+                    ax[pol, ant].plot(fghz, dpha_unw, '.k')
+                    ax[pol, ant].set_ylim([-10, 10])
+                    ax[pol, ant].set_xlim([0, 18])
+                    ax[pol, ant].plot(fghz, mbdfunc1(fghz, poff[ant, pol], pslope[ant, pol]), 'r--')
+                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                else:
+                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                    ax[pol, ant].text(9, 0, 'No Cal', ha='center')
     for j in range(2): ax[j, 0].set_ylabel('Phase Diff [rad]')
     for i in range(13):
         ax[1, i].set_xlabel('f [GHz]')
         if i != 0:
             for j in range(2): ax[j, i].set_yticklabels([])
-    return {'t_pha': t_pha, 't_ref': t_ref, 'poff': np.transpose(poff), 'pslope': np.transpose(pslope),
-            'flag': np.transpose(flag), 'phacal': phacal}
 
 
 def sql2refcal(t):
@@ -640,8 +720,7 @@ def sql2refcalX(trange, *args, **kwargs):
                 amp = np.absolute(ref)
                 refcals.append(
                     {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp,
-                     't_bg': tbg,
-                     't_ed': ted})
+                     't_bg': tbg, 't_ed': ted})
             except:
                 print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']),
                                                                             format='lv').iso)
@@ -682,12 +761,9 @@ def sql2phacalX(trange, *args, **kwargs):
                 poff, pslope = tmp[:, :, 0], tmp[:, :, 1]
                 flag = stf.extract(buf, xml['Flag'])[:, :, 0]
                 t_ref = Time(stf.extract(buf, xml['T_refcal']), format='lv')
-                phacals.append(
-                    {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
-                     'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
-                                'timestamp': timestamp,
-                                't_bg': tbg,
-                                't_ed': ted}})
+                phacals.append({'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
+                                'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
+                                           'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}})
             except:
                 print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']),
                                                                             format='lv').iso)
@@ -707,9 +783,8 @@ def sql2phacalX(trange, *args, **kwargs):
         t_ref = Time(stf.extract(bufs, xml['T_refcal']), format='lv')
         return {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
                 'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
-                           'timestamp': timestamp,
-                           't_bg': tbg,
-                           't_ed': ted}}
+                           'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}}
+
 
 def fit_blerror(out):
     ''' Determines baseline errors on baselines with Ant 14, by fitting the
@@ -732,11 +807,11 @@ def fit_blerror(out):
         # poff: constant phase offset
         # dbx: baseline x error [ns] * cos(dec) * fghz
         # dby: baseline y error [ns] * cos(dec) * fghz
-        return (2.*np.pi) * (dbx * np.cos(ha) - dby * np.sin(ha)) + poff
+        return (2. * np.pi) * (dbx * np.cos(ha) - dby * np.sin(ha)) + poff
 
-    gdbands = np.array([4,5,6,7,8,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25])
+    gdbands = np.array([4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25])
     halist = []  # List used later for Bz
-    declist = [] # List used later for Bz
+    declist = []  # List used later for Bz
     srcs = np.unique(out['srclist'])
     # First fit for Bx and By errors for all sources with longer than 4-hour HA range 
     for src in srcs:
@@ -751,41 +826,43 @@ def fit_blerror(out):
             ph.append(np.angle(out['vis'][i]))
         ha = np.concatenate(ha)
         halist.append(ha)
-        print 'Result for source',src,':'
-        if ha[-1] - ha[0] < np.pi/3.:
+        print 'Result for source', src, ':'
+        if ha[-1] - ha[0] < np.pi / 3.:
             print '***HA range is too short to fit for dBx, dBy'
             print '***Must be at least 4 hours.  Will skip this source.'
         else:
-            ph = np.concatenate(ph,3)
+            ph = np.concatenate(ph, 3)
             nant, npol, nf, nt = ph.shape
-            dbx = np.zeros((13,2,nf),np.float)
-            dby = np.zeros((13,2,nf),np.float)
+            dbx = np.zeros((13, 2, nf), np.float)
+            dby = np.zeros((13, 2, nf), np.float)
             for a in range(13):
                 for pol in range(2):
                     for f in gdbands:
-                        popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a,pol,f]), p0=[0., 0., 0.], sigma=None, absolute_sigma=False)
-                        dbx[a,pol,f] = popt[1]/(np.cos(dec)*fghz[f])  # Convert to ns
-                        dby[a,pol,f] = popt[2]/(np.cos(dec)*fghz[f])  # Convert to ns
-            dBx = np.median(np.mean(dbx[:,:,gdbands],1),1)
-            xstd = np.std(np.mean(dbx[:,:,gdbands],1),1)
-            dBy = np.median(np.mean(dby[:,:,gdbands],1),1)
-            ystd = np.std(np.mean(dby[:,:,gdbands],1),1)
-            
+                        popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a, pol, f]), p0=[0., 0., 0.], sigma=None,
+                                               absolute_sigma=False)
+                        dbx[a, pol, f] = popt[1] / (np.cos(dec) * fghz[f])  # Convert to ns
+                        dby[a, pol, f] = popt[2] / (np.cos(dec) * fghz[f])  # Convert to ns
+            dBx = np.median(np.mean(dbx[:, :, gdbands], 1), 1)
+            xstd = np.std(np.mean(dbx[:, :, gdbands], 1), 1)
+            dBy = np.median(np.mean(dby[:, :, gdbands], 1), 1)
+            ystd = np.std(np.mean(dby[:, :, gdbands], 1), 1)
+
             print '          dBx [m]       dBy [m]'
             for i in range(13):
-                print 'Ant {:2d}'.format(i+1),'{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0] - dBx[i],xstd[i],dBy[0] - dBy[i],ystd[i])
-            print 'Ant 14','{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0],xstd[0],dBy[0],ystd[0])
+                print 'Ant {:2d}'.format(i + 1), '{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0] - dBx[i], xstd[i],
+                                                                                              dBy[0] - dBy[i], ystd[i])
+            print 'Ant 14', '{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0], xstd[0], dBy[0], ystd[0])
         print ' '
-    # Now fit for Bz errors (makes assumption that Bx and By errors are already small
-    # nhamin = len(halist[0])
-    # minsrc = 0
-    # for i,src in enumerate(srcs):
+        # Now fit for Bz errors (makes assumption that Bx and By errors are already small
+        # nhamin = len(halist[0])
+        # minsrc = 0
+        # for i,src in enumerate(srcs):
         # idxlist, = np.where(np.array(out['srclist']) == src)
         # # Find which source has the smalled number of measurements,
         # # and find the indexes in all sources nearest to that source's HAs
         # if nhamin > len(halist[i]):
-            # nhamin = len(halist[i])
-            # minsrc = i
-    # for i,src in enumerate(srcs):
+        # nhamin = len(halist[i])
+        # minsrc = i
+        # for i,src in enumerate(srcs):
         # idxs.append(nearest_val_idx(halist[minsrc],halist[k])
     return dbx, dby
