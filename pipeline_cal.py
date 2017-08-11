@@ -247,7 +247,7 @@ def udb_corr(filename):
     # Apply calibration to convert to solar flux units
     #coutcal = apply_sfu(coutu)
     ufilename = filename.split('/')[-1]
-    if Path(ufilename).exists():
+    while Path(ufilename).exists():
         # Handle case of existing file, by appending _n, where n increments (up to 9)
         if ufilename[-2] == '_':
             ufilename = ufilename[:-1]+str(int(ufilename[-1])+1)
