@@ -26,6 +26,10 @@
 #    partially complete routine fit_blerror(), which will use the data from
 #    an all-night multi-source, multi-frequency calibration to determine
 #    baseline errors.  Currently works for only Bx and By.
+#  2017-09-02  DG
+#    Skip scans with 0 times, in rd_refcal().  Also read and correct for parallactic
+#    angle only for times in a scan, in unrot_refcal().  This improves the time taken 
+#    to process a long timerange with many scans.
 #
 import read_idb as ri
 from util import Time, ant_str2list, lobe, nearest_val_idx
@@ -135,15 +139,18 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
     fghzs = []
     has = []
     decs = []
+    good = []
     for n, scan in enumerate(scanlist):
         print 'Reading scan: ' + scan
         out = ri.read_idb([scan], navg=navg, quackint=quackint)
+        nt = len(out['time'])
+        if nt == 0:
+            # If there are no times in the scan, skip this scan entirely
+            continue
+        good.append(n)
         times.append(out['time'])
         has.append(out['ha'])
         decs.append(out['dec'])
-        nt = len(out['time'])
-        if nt == 0:
-            continue
         bds, sidx = np.unique(out['band'], return_index=True)
         nbd = len(bds)
         eidx = np.append(sidx[1:], len(out['band']))
@@ -158,7 +165,17 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
         vis.append(vs)
         fghzs.append(fghz)
         bandnames.append(bds)
-    return {'scanlist': scanlist, 'srclist': srclist, 'tstlist': sclist['tstlist'], 'tedlist': sclist['tedlist'],
+    # Keep only good scans
+    gscanlist = []
+    gsrclist = []
+    gtstlist = []
+    gtedlist = []
+    for i in good:
+        gscanlist.append(sclist['scanlist'][i])
+        gsrclist.append(sclist['srclist'][i])
+        gtstlist.append(sclist['tstlist'][i])
+        gtedlist.append(sclist['tedlist'][i])
+    return {'scanlist': gscanlist, 'srclist': gsrclist, 'tstlist': gtstlist, 'tedlist': gtedlist, 
             'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs, 'times': times, 'has': has, 'decs': decs}
 
 
@@ -185,33 +202,34 @@ def unrot_refcal(refcal_in):
         fghz[bd - 1] = np.nanmean(blah['fghz'][sidx[b]:eidx[b]])
         for a in range(14):
             dxy[a, bd - 1] = np.angle(np.sum(np.exp(1j * dph[a, sidx[b]:eidx[b]])))
-    # Read parallactic angles for entire time range
-    trange = Time([refcal['tstlist'][0].iso, refcal['tedlist'][-1].iso])
-    times, chi = db.get_chi(trange)
-    tchi = times.jd
     nscans = len(refcal['scanlist'])
     for i in range(nscans):
+        # Read parallactic angles for this scan
+        trange = Time([refcal['tstlist'][i].iso, refcal['tedlist'][i].iso])
+        times, chi = db.get_chi(trange)
+        tchi = times.jd
         t = refcal['times'][i]
-        vis = copy.deepcopy(refcal['vis'][i])
-        idx = nearest_val_idx(t, tchi)
-        pa = chi[idx]  # Parallactic angle for the times of this refcal.
-        pa[:, [8, 9, 10, 12]] = 0.0
-        nt = len(idx)  # Number of times in this refcal
-        # Apply X-Y delay phase correction
-        for a in range(13):
-            a1 = lobe(dxy[a] - dxy[13])
-            a2 = -dxy[13] + np.pi / 2
-            a3 = dxy[a] - np.pi / 2
-            for j in range(nt):
-                vis[a, 1, :, j] *= np.exp(1j * a1)
-                vis[a, 2, :, j] *= np.exp(1j * a2)
-                vis[a, 3, :, j] *= np.exp(1j * a3)
-        for j in range(nt):
+        if len(t) > 0:
+            vis = copy.deepcopy(refcal['vis'][i])
+            idx = nearest_val_idx(t, tchi)
+            pa = chi[idx]  # Parallactic angle for the times of this refcal.
+            pa[:, [8, 9, 10, 12]] = 0.0
+            nt = len(idx)  # Number of times in this refcal
+            # Apply X-Y delay phase correction
             for a in range(13):
-                refcal['vis'][i][a, 0, :, j] = vis[a, 0, :, j] * np.cos(pa[j, a]) + vis[a, 3, :, j] * np.sin(pa[j, a])
-                refcal['vis'][i][a, 2, :, j] = vis[a, 2, :, j] * np.cos(pa[j, a]) + vis[a, 1, :, j] * np.sin(pa[j, a])
-                refcal['vis'][i][a, 3, :, j] = vis[a, 3, :, j] * np.cos(pa[j, a]) - vis[a, 0, :, j] * np.sin(pa[j, a])
-                refcal['vis'][i][a, 1, :, j] = vis[a, 1, :, j] * np.cos(pa[j, a]) - vis[a, 2, :, j] * np.sin(pa[j, a])
+                a1 = lobe(dxy[a] - dxy[13])
+                a2 = -dxy[13] + np.pi / 2
+                a3 = dxy[a] - np.pi / 2
+                for j in range(nt):
+                    vis[a, 1, :, j] *= np.exp(1j * a1)
+                    vis[a, 2, :, j] *= np.exp(1j * a2)
+                    vis[a, 3, :, j] *= np.exp(1j * a3)
+            for j in range(nt):
+                for a in range(13):
+                    refcal['vis'][i][a, 0, :, j] = vis[a, 0, :, j] * np.cos(pa[j, a]) + vis[a, 3, :, j] * np.sin(pa[j, a])
+                    refcal['vis'][i][a, 2, :, j] = vis[a, 2, :, j] * np.cos(pa[j, a]) + vis[a, 1, :, j] * np.sin(pa[j, a])
+                    refcal['vis'][i][a, 3, :, j] = vis[a, 3, :, j] * np.cos(pa[j, a]) - vis[a, 0, :, j] * np.sin(pa[j, a])
+                    refcal['vis'][i][a, 1, :, j] = vis[a, 1, :, j] * np.cos(pa[j, a]) - vis[a, 2, :, j] * np.sin(pa[j, a])
     return refcal
 
 

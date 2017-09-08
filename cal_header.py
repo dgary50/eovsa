@@ -1380,7 +1380,7 @@ def xy_phasecal2sql(xyphase_dict, t=None):
     if t is None:
         t = util.Time(xyphase_dict['timestamp'],format='lv')
     # Write timestamp of data
-    t = util.Time(xyphase_dict['timestamp'],format='lv')
+    # t = util.Time(xyphase_dict['timestamp'],format='lv')
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)

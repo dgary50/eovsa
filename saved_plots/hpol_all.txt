@@ -1,5 +1,5 @@
-Antenna 1 Frontend FEM HPol Voltage, Antenna 2 Frontend FEM HPol Voltage, 
-Antenna 3 Frontend FEM HPol Voltage, Antenna 4 Frontend FEM HPol Voltage, 
-Antenna 5 Frontend FEM HPol Voltage, Antenna 6 Frontend FEM HPol Voltage, 
-Antenna 7 Frontend FEM HPol Voltage, Antenna 8 Frontend FEM HPol Voltage, 
-Antenna 12 Frontend FEM HPol Voltage
+Antenna 1 Frontend FEM HPol Power, Antenna 2 Frontend FEM HPol Power, 
+Antenna 3 Frontend FEM HPol Power, Antenna 4 Frontend FEM HPol Power, 
+Antenna 5 Frontend FEM HPol Power, Antenna 6 Frontend FEM HPol Power, 
+Antenna 7 Frontend FEM HPol Power, Antenna 8 Frontend FEM HPol Power, 
+Antenna 12 Frontend FEM HPol Power

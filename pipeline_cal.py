@@ -9,6 +9,10 @@
 #    Initial start of file
 #  2017-08-07  DG
 #    Further additions and debugging
+#  2017-08-14  DG
+#    Implemented flagging for non-tracking antennas, in unrot().
+#  2017-09-02  DG
+#    Change to allow concatenation of a list of files in udb_corr()
 #
 import dbutil as db
 import numpy as np
@@ -41,7 +45,7 @@ def get_bl_order():
     order2 = [o for o in order2 if o not in order1]
     return tuple([o for o in order1 + order2])
 
-def apply_attn_corr(data, tref=None):
+def apply_attn_corr(data, tref=None, flags=None):
     ''' Applys the attenuator state corrections to the given data dictionary,
         corrected to the gain-state at time given by Time() object tref.
         
@@ -50,6 +54,7 @@ def apply_attn_corr(data, tref=None):
           tref     A Time() object with the reference time, or if None,
                      the gain state of the nearest earlier REFCAL is 
                      used.
+
         Output:
           cdata    A dictionary with the gain-corrected data.  The keys
                      px, py, and x, are updated.
@@ -152,7 +157,8 @@ def get_calfac(t=None):
             
 def unrot(data, azeldict=None):
     ''' Apply the correction to differential feed rotation to data, and return
-        the corrected data.
+        the corrected data.  This also applies flags to data whose antennas are
+        not tracking.
 
         Inputs:
           data     A dictionary returned by udb_util.py's readXdata().
@@ -172,7 +178,10 @@ def unrot(data, azeldict=None):
     chi = azeldict['ParallacticAngle']*np.pi/180.  # (nt, nant)
     # Correct parallactic angle for equatorial mounts, relative to Ant14
     chi[:,[8,9,10,12,13]] = 0  # Currently 0, but can be measured and updated
-        
+    
+    # Which antennas are tracking
+    track = azeldict['TrackFlag']   # True if tracking
+    
     # Ensure that nearest valid parallactic angle is used for times in the data
     good = np.where(azeldict['ActualAzimuth'] != 0)
     tidx = []    # List of arrays of indexes for each antenna
@@ -210,18 +219,24 @@ def unrot(data, azeldict=None):
         for i in range(13):
             for j in range(i+1,14):
                 k = bl2ord[i,j]
-                dchi = chi[tidx[i][n],i] - chi[tidx[j][n],j]
-                cchi = np.cos(dchi)
-                schi = np.sin(dchi)
-                cdata['x'][:,k,0,n] = data['x'][:,k,0,n]*cchi + data['x'][:,k,3,n]*schi
-                cdata['x'][:,k,2,n] = data['x'][:,k,2,n]*cchi + data['x'][:,k,1,n]*schi
-                cdata['x'][:,k,3,n] = data['x'][:,k,3,n]*cchi - data['x'][:,k,0,n]*schi
-                cdata['x'][:,k,1,n] = data['x'][:,k,1,n]*cchi - data['x'][:,k,2,n]*schi
+                ti = tidx[i][n]
+                tj = tidx[j][n]
+                if track[ti,i] and track[tj,j]:
+                    dchi = chi[ti,i] - chi[tj,j]
+                    cchi = np.cos(dchi)
+                    schi = np.sin(dchi)
+                    cdata['x'][:,k,0,n] = data['x'][:,k,0,n]*cchi + data['x'][:,k,3,n]*schi
+                    cdata['x'][:,k,2,n] = data['x'][:,k,2,n]*cchi + data['x'][:,k,1,n]*schi
+                    cdata['x'][:,k,3,n] = data['x'][:,k,3,n]*cchi - data['x'][:,k,0,n]*schi
+                    cdata['x'][:,k,1,n] = data['x'][:,k,1,n]*cchi - data['x'][:,k,2,n]*schi
+                else:
+                    cdata['x'][:,k,:,n] = np.ma.masked
+
     # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
     cdata['x'][missing] = np.ma.masked
     return cdata
     
-def udb_corr(filename):
+def udb_corr(filelist):
     ''' Complete routine to read in an existing idb or udb file and output
         a new file of the same name in the local directory, with all corrections
         applied.
@@ -229,28 +244,38 @@ def udb_corr(filename):
     import udb_util as uu
     import time
     from pathlib2 import Path
-    t1 = time.time()
-    out = uu.readXdata(filename)
-    print 'Reading file took',time.time()-t1,'s'
-    trange = Time(out['time'][[0,-1]],format='jd')
-    t1 = time.time()
-    azeldict = get_sql_info(trange)
-    print 'Reading SQL info took',time.time()-t1,'s'
-    # Correct data for attenuation changes
-    t1 = time.time()
-    cout = apply_attn_corr(out)
-    print 'Applying attn correction took',time.time()-t1,'s'
-    t1 = time.time()
-    # Correct data for differential feed rotation
-    coutu = unrot(cout)
-    print 'Applying feed rotation correction took',time.time()-t1,'s'
-    # Apply calibration to convert to solar flux units
-    #coutcal = apply_sfu(coutu)
-    ufilename = filename.split('/')[-1]
+    if type(filelist) is str:
+        # Convert input filename to list if not already a list
+        filelist = [filelist]
+    filecount = 0
+    for filename in filelist:
+        t1 = time.time()
+        out = uu.readXdata(filename)
+        print 'Reading file took',time.time()-t1,'s'
+        trange = Time(out['time'][[0,-1]],format='jd')
+        t1 = time.time()
+        azeldict = get_sql_info(trange)
+        print 'Reading SQL info took',time.time()-t1,'s'
+        # Correct data for attenuation changes
+        t1 = time.time()
+        cout = apply_attn_corr(out)
+        print 'Applying attn correction took',time.time()-t1,'s'
+        t1 = time.time()
+        # Correct data for differential feed rotation
+        coutu = unrot(cout, azeldict)
+        print 'Applying feed rotation correction took',time.time()-t1,'s'
+        # Apply calibration to convert to solar flux units
+        #coutcal = apply_sfu(coutu)
+        filecount += 1
+        if filecount == 1:
+            x = coutu
+        else:
+            x = uu.concatXdata(x, coutu)
+    ufilename = filelist[0].split('/')[-1]
     while Path(ufilename).exists():
         # Handle case of existing file, by appending _n, where n increments (up to 9)
         if ufilename[-2] == '_':
             ufilename = ufilename[:-1]+str(int(ufilename[-1])+1)
         else:
             ufilename += '_1'
-    ufile_out = uu.udbfile_write(coutu, filename, ufilename)
+    ufile_out = uu.udbfile_write(x, filelist[0], ufilename)
