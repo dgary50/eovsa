@@ -56,6 +56,8 @@
 #   2017-Aug-11  DG
 #      Changes to rationalize the handling of the scan start-stop information in
 #      flare_monitor(), and tweaks to the line plot.
+#   2017-Sep-08  DG
+#      Fixed small bug that caused crash on error return from xdata_display()
 #
 import numpy as np
 from util import Time
@@ -85,7 +87,13 @@ def flare_monitor(t):
     for k,v in data.items():
         data[k].shape = (len(data[k])/15,15)
     hv = []
-    ut = Time(data['Timestamp'][:,0].astype('float'),format='lv').plot_date 
+    try:
+        ut = Time(data['Timestamp'][:,0].astype('float'),format='lv').plot_date 
+    except:
+        print 'Error for time',t.iso
+        print 'Query:',query,' returned msg:',msg
+        print 'Keys:', data.keys()
+        print data['Timestamp'][0,0]
     hfac = np.median(data['Ante_Fron_FEM_HPol_Voltage'].astype('float'),0)
     vfac = np.median(data['Ante_Fron_FEM_VPol_Voltage'].astype('float'),0)
     for i in range(4):
@@ -178,10 +186,11 @@ def xdata_display(t,ax=None):
         scans = scans[good]
     else:
         print 'No NormalObserving scans found.'
-        return None, None, None
+        return None, None, None, None
 
     # Find scanID that starts earlier than, but closest to, the current time
     for i,scan in enumerate(scans):
+        print scan
         dt = t - Time(time.strftime('%Y-%m-%d %H:%M:%S',time.strptime(scan,'%y%m%d%H%M%S')))
         if dt.sec > 0.:
             iout = i
@@ -211,6 +220,7 @@ def xdata_display(t,ax=None):
                 if not os.path.isdir(path+files[0]):
                     print 'No files found for this scan ID',scan
                     scan = None
+                    times = None
                     return scan, tlevel, bflag, times
             filelist = files
             files = []
@@ -236,6 +246,7 @@ def xdata_display(t,ax=None):
         else:
             print 'Time',dt.sec,'is > 1200 s after last file of last NormalObserving scan.  No plot created.'
             scan = None
+            times = None
     else:
         print 'No files found for this scan ID',scan
         scan = None
@@ -346,11 +357,11 @@ if __name__ == "__main__":
         if len(sys.argv) == 3:
             skip = True
     print t.iso[:19],': ',
-    if (t.mjd % 1) < 3./24:
-        # Special case of being run at or before 3 AM (UT), so change to late "yesterday" to finish out
-        # the previous UT day
-        imjd = int(t.mjd)
-        t = Time(float(imjd-0.001),format='mjd')
+    # if (t.mjd % 1) < 3./24:
+        # # Special case of being run at or before 3 AM (UT), so change to late "yesterday" to finish out
+        # # the previous UT day
+        # imjd = int(t.mjd)
+        # t = Time(float(imjd-0.001),format='mjd')
 
     tlevel = None
     if not skip:
@@ -358,10 +369,13 @@ if __name__ == "__main__":
         f, ax = plt.subplots(1,1)
         f.set_size_inches(14,5)
         scanid, tlevel, bflag, times = xdata_display(t,ax)
-        plt.savefig('/common/webplots/flaremon/XSP20'+scanid+'.png',bbox_inches='tight')
-        plt.close(f)
-        print 'Plot written to /common/webplots/flaremon/XSP20'+scanid+'.png'
-        bflag = cleanup(bflag)
+        if times is None:
+            pass
+        else:
+            plt.savefig('/common/webplots/flaremon/XSP20'+scanid+'.png',bbox_inches='tight')
+            plt.close(f)
+            print 'Plot written to /common/webplots/flaremon/XSP20'+scanid+'.png'
+            bflag = cleanup(bflag)
         # See if a file for this date already exists, and if so, read it and 
         # append or replace with the newly determined levels
         #times, tlevel, bflag = get_history(times, tlevel, bflag)

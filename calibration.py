@@ -900,7 +900,7 @@ def solpnt2sql(t):
     tpcal_dict = {'fghz':x1['fghz'],'timestamp':Time(x1['ut_mjd'][0],format='mjd').lv,
                   'tpcalfac':calfac1,'accalfac':calfac2,'tpoffsun':offsun1,'acoffsun':offsun2}
     ok = raw_input('Okay to write result to SQL database? [Y/N]: ')
-    if ok == 'Y':
+    if ok.upper() == 'Y':
         ch.tpcal2sql(tpcal_dict)
         print 'Result was written to the SQL database'
     else:

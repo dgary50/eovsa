@@ -13,6 +13,16 @@
 #    Implemented flagging for non-tracking antennas, in unrot().
 #  2017-09-02  DG
 #    Change to allow concatenation of a list of files in udb_corr()
+#  2017-09-09  DG
+#    Added apply_fem_level() routine, similar to apply_gain_state()
+#    except it takes account of non-uniform attenuation vs. frequency
+#    as measured by GAINCALTEST.  Also added get_calfac() and apply_calfac()
+#    routines, which can optionally be applied to the data, although
+#    this is likely not going to be done to IDB/UDB data, but rather
+#    will be applied as a CASA bandpass calibration table.
+#  2017-09-11 DG
+#    Updated udb_corr() to optionally apply the new scheme of calibration
+#    using the GAINCALTEST results if "new" is True (default).
 #
 import dbutil as db
 import numpy as np
@@ -45,6 +55,85 @@ def get_bl_order():
     order2 = [o for o in order2 if o not in order1]
     return tuple([o for o in order1 + order2])
 
+def apply_fem_level(data,gctime=None):
+    ''' Applys the FEM level corrections to the given data dictionary.
+        
+        Inputs:
+          data     A dictionary such as that returned by read_idb().
+          gctime   A Time() object whose date specifies which GAINCALTEST
+                     measurements to use.  If omitted, the date of the data
+                     is used.
+
+        Output:
+          cdata    A dictionary with the level-corrected data.  The keys
+                     p, x, p2, and a are all updated.
+    '''
+    from util import common_val_idx, nearest_val_idx, bl2ord
+    import attncal as ac
+    from gaincal2 import get_fem_level
+    import copy
+
+    # Get timerange from data
+    trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    if gctime is None:
+        gctime = trange[0]
+    # Get time cadence
+    dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
+    if dt == 1: dt = None
+    # Get the FEM levels of the requested timerange
+    src_lev = get_fem_level(trange,dt)   # solar gain state for timerange of file
+    nf = len(data['fghz'])
+    nt = len(src_lev['times'])
+    attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
+    antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
+    # Find common frequencies of attn with data
+    idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
+    # Currently, GAINCALTEST measures 8 levels of attenuation (16 dB).  I assumed this would be enough,
+    # but the flare of 2017-09-10 actually went to 10 levels (20 dB), so we have no choice but to extend
+    # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
+    # extends to the maximum 14 levels.
+    a = np.zeros((14,13,2,nf),float)  # Extend attenuation to 14 levels
+    a[:8] = attn['attn']  # Use GAINCALTEST results in the first 8 levels
+    for i in range(7,13):
+        # Extend to levels 9-14 by adding 2 dB to each previous level
+        a[i+1] = a[i] + 2.
+    for i in range(13):
+        for k,j in enumerate(idx1):
+            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
+            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,idx2[k]]
+    cdata = copy.deepcopy(data)
+    nblant = 136
+    blgain = np.zeros((nf,nblant,4,nt),float)     # Baseline-based gains vs. frequency
+
+    for i in range(14):
+        for j in range(i,14):
+            k = bl2ord[i,j]
+            blgain[:,k,0] = 10**((antgain[i,0] + antgain[j,0])/20.)
+            blgain[:,k,1] = 10**((antgain[i,1] + antgain[j,1])/20.)
+            blgain[:,k,2] = 10**((antgain[i,0] + antgain[j,1])/20.)
+            blgain[:,k,3] = 10**((antgain[i,1] + antgain[j,0])/20.)
+    # Reorder antgain axes to put frequencies in first slot, to match data
+    antgain = np.swapaxes(np.swapaxes(antgain,1,2),0,1)
+    antgainf = 10**(antgain/10.)
+
+    idx = nearest_val_idx(data['time'],src_lev['times'].jd)
+    nt = len(idx)  # New number of times
+    # Correct the auto- and cross-correlation data
+    cdata['x'] *= blgain[:,:,:,idx]
+    # Reshape px and py arrays
+    cdata['px'].shape = (nf,16,3,nt)
+    cdata['py'].shape = (nf,16,3,nt)
+    # Correct the power
+    cdata['px'][:,:15,0] *= antgainf[:,:,0,idx]
+    cdata['py'][:,:15,0] *= antgainf[:,:,1,idx]
+    # Correct the power-squared
+    cdata['px'][:,:15,1] *= antgainf[:,:,0,idx]**2
+    cdata['py'][:,:15,1] *= antgainf[:,:,1,idx]**2
+    # Reshape px and py arrays back to original
+    cdata['px'].shape = (nf*16*3,nt)
+    cdata['py'].shape = (nf*16*3,nt)
+    return cdata
+    
 def apply_attn_corr(data, tref=None, flags=None):
     ''' Applys the attenuator state corrections to the given data dictionary,
         corrected to the gain-state at time given by Time() object tref.
@@ -155,6 +244,71 @@ def get_calfac(t=None):
     return {'fghz':fghz,'timestamp':stateframe.extract(buf,xml['Timestamp']),
             'tpcalfac':tpcalfac,'accalfac':accalfac,'tpoffsun':tpoffsun,'acoffsun':acoffsun}
             
+def apply_calfac(data, calfac):
+    ''' Applies calibration factors in calfac dictionary returned by get_calfac(),
+        to the data and returns the calibrated data in the same form.  No calibration
+        can be applied for antennas/frequencies in data that are not included in
+        calfac, so for those the data are returned unchanged, except the correlated
+        data for missing frequencies are flagged.
+        
+        Inputs:
+            data    The data to be calibrated
+            calfac  The calfac dictionary returned by a call to get_calfac().
+            
+        Output:
+            cdata   The calibrated data
+            
+        N.B.:  The offsun level needs to be subtracted to calibrate power and 
+               auto-correlation, but this is not done here.  Instead, one must
+               later read the calfac dictionary using get_calfac(), and then
+               subtract tpoffsun*tpcalfac from power, and acoffsun*accalfac from 
+               auto-correlation.
+    '''
+    import copy
+    from util import common_val_idx, bl2ord
+    fghz = data['fghz']
+    nfin = len(fghz)
+    # Find common frequencies
+    idx1, idx2 = common_val_idx(fghz, calfac['fghz'], precision=4)
+    nf = len(idx1)
+    missing = np.setdiff1d(np.arange(len(fghz)),idx1)
+    nant = 16
+    nblant = nant*(nant-1)/2 + nant
+    blfac = np.ones((nf,nblant,4),float)   # Factors for missing antennas/frequencies are set to unity
+    fac = calfac['accalfac'][:,:,idx2]  # Extract only common frequencies
+    for i in range(13):
+        for j in range(i,13):
+            blfac[idx1,bl2ord[i,j],0] = np.sqrt(fac[i,0]*fac[j,0])
+            blfac[idx1,bl2ord[i,j],1] = np.sqrt(fac[i,1]*fac[j,1])
+            blfac[idx1,bl2ord[i,j],2] = np.sqrt(fac[i,0]*fac[j,1])
+            blfac[idx1,bl2ord[i,j],3] = np.sqrt(fac[i,1]*fac[j,0])
+    antfac = np.ones((nf,nant,2),float)   # Factors for missing antennas/frequencies are set to unity
+    for i in range(13):
+        for j in range(2):
+            antfac[idx1,i,j] = calfac['tpcalfac'][i,j,idx2]
+    cdata = copy.deepcopy(data)
+    nt = len(data['time'])
+    # Calibrate the auto- and cross-correlation data
+    for i in range(nt):
+        cdata['x'][idx1,:,:,i] *= blfac
+    # Reshape px and py arrays
+    cdata['px'].shape = (nfin,16,3,nt)
+    cdata['py'].shape = (nfin,16,3,nt)
+    for i in range(nt):
+        # Correct the power
+        cdata['px'][idx1,:,0,i] *= antfac[:,:,0]
+        cdata['py'][idx1,:,0,i] *= antfac[:,:,1]
+        # Correct the power-squared
+        cdata['px'][idx1,:,1,i] *= antfac[:,:,0]**2
+        cdata['py'][idx1,:,1,i] *= antfac[:,:,1]**2
+    # Reshape px and py arrays back to original
+    cdata['px'].shape = (nfin*16*3,nt)
+    cdata['py'].shape = (nfin*16*3,nt)
+    # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
+    cdata['x'][missing] = np.ma.masked
+    return cdata
+       
+
 def unrot(data, azeldict=None):
     ''' Apply the correction to differential feed rotation to data, and return
         the corrected data.  This also applies flags to data whose antennas are
@@ -236,10 +390,26 @@ def unrot(data, azeldict=None):
     cdata['x'][missing] = np.ma.masked
     return cdata
     
-def udb_corr(filelist):
+def udb_corr(filelist, calibrate=False, new=True, gctime=None):
     ''' Complete routine to read in an existing idb or udb file and output
         a new file of the same name in the local directory, with all corrections
         applied.
+        
+        Inputs:
+          filelist  List of files to read.  The output of all files in the list
+                        are concatenated into a single output file based on the first
+                        file in the list.  Use an external loop over files if this is
+                        not wanted.
+          calibrate A boolean flag to indicate whether calibration factors should be
+                        applied to the data.  The default is False, in anticipation that
+                        such calibration will be applied as a CASA bandpass table, but
+                        if set to True, the latest previous SOLPNTCAL analysis is used.
+          new       If True (default), the "new" scheme of attenuation corrections
+                        based on GAINCALTEST results is applied.  Otherwise, only the
+                        nominal attenuation corrections are applied.
+          gctime    A Time() object whose date is used to find the GAINCALTEST data.
+                        If None (default), then the date of the data is used.  Note that
+                        gctime is only used if parameter new is True.          
     '''
     import udb_util as uu
     import time
@@ -258,14 +428,21 @@ def udb_corr(filelist):
         print 'Reading SQL info took',time.time()-t1,'s'
         # Correct data for attenuation changes
         t1 = time.time()
-        cout = apply_attn_corr(out)
+        if new:
+            cout = apply_fem_level(out, gctime)
+        else:
+            cout = apply_attn_corr(out)
         print 'Applying attn correction took',time.time()-t1,'s'
         t1 = time.time()
         # Correct data for differential feed rotation
         coutu = unrot(cout, azeldict)
         print 'Applying feed rotation correction took',time.time()-t1,'s'
-        # Apply calibration to convert to solar flux units
-        #coutcal = apply_sfu(coutu)
+        # Optionally apply calibration to convert to solar flux units
+        if calibrate:
+            t1 = time.time()
+            calfac = get_calfac(trange[0])
+            coutu = apply_calfac(coutu, calfac)
+            print 'Applying calibration took',time.time()-t1,'s'
         filecount += 1
         if filecount == 1:
             x = coutu

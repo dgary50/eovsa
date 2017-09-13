@@ -2,6 +2,9 @@
 # History:
 #  2017-09-07  DG
 #    First written
+#  2017-09-09  DG
+#    Changed the sign of the output, so that it really is attenuation,
+#    for consistency with other gaincal2.py routines.
 #
 from util import Time
 import numpy as np
@@ -46,8 +49,8 @@ def get_attncal(trange, do_plot=False):
             ax[0,i].set_title('Ant '+str(i+1))
             ax[3,i].set_xlabel('Freq [GHz]')
             for j in range(2):
-                ax[j,i].set_ylim(-3,-1)
-                ax[j+2,i].set_ylim(-5,-3)
+                ax[j,i].set_ylim(1,3)
+                ax[j+2,i].set_ylim(3,5)
     outdict = []
     for mjd in range(mjd1,mjd2+1):
         fdb = dt.rd_fdb(Time(mjd,format='mjd'))
@@ -66,14 +69,14 @@ def get_attncal(trange, do_plot=False):
             val6 = np.median(out['p'][:13,:,:,76:82],3) - vx
             val7 = np.median(out['p'][:13,:,:,86:92],3) - vx
             val8 = np.median(out['p'][:13,:,:,96:102],3) - vx
-            attn1 = np.log10(val1/val0)*10.
-            attn2 = np.log10(val2/val0)*10.
-            attn3 = np.log10(val3/val0)*10.
-            attn4 = np.log10(val4/val0)*10.
-            attn5 = np.log10(val5/val0)*10.
-            attn6 = np.log10(val6/val0)*10.
-            attn7 = np.log10(val7/val0)*10.
-            attn8 = np.log10(val8/val0)*10.
+            attn1 = np.log10(val0/val1)*10.
+            attn2 = np.log10(val0/val2)*10.
+            attn3 = np.log10(val0/val3)*10.
+            attn4 = np.log10(val0/val4)*10.
+            attn5 = np.log10(val0/val5)*10.
+            attn6 = np.log10(val0/val6)*10.
+            attn7 = np.log10(val0/val7)*10.
+            attn8 = np.log10(val0/val8)*10.
             if do_plot:
                 for i in range(13):
                     for j in range(2):
@@ -82,3 +85,4 @@ def get_attncal(trange, do_plot=False):
             outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
                             'attn': np.array([attn1, attn2, attn3, attn4, attn5, attn6, attn7, attn8])})
     return outdict
+    
