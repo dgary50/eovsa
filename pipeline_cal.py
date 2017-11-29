@@ -23,6 +23,9 @@
 #  2017-09-11 DG
 #    Updated udb_corr() to optionally apply the new scheme of calibration
 #    using the GAINCALTEST results if "new" is True (default).
+#  2017-10-13  DG
+#    Changed apply_fem_level() to read attn values from SQL rather than
+#    calculating it on the fly.
 #
 import dbutil as db
 import numpy as np
@@ -84,7 +87,8 @@ def apply_fem_level(data,gctime=None):
     src_lev = get_fem_level(trange,dt)   # solar gain state for timerange of file
     nf = len(data['fghz'])
     nt = len(src_lev['times'])
-    attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
+    attn = ac.read_attncal(gctime)[0]   # Reads attn from SQL database (returns a list, but use first, generally only, one)
+    # attn = ac.get_attncal(gctime)[0]   # Analyzes GAINCALTEST (returns a list, but use first, generally only, one)
     antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
     idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
@@ -93,7 +97,7 @@ def apply_fem_level(data,gctime=None):
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
     # extends to the maximum 14 levels.
     a = np.zeros((14,13,2,nf),float)  # Extend attenuation to 14 levels
-    a[:8] = attn['attn']  # Use GAINCALTEST results in the first 8 levels
+    a[:8] = attn['attn'][:,:13]  # Use GAINCALTEST results in the first 8 levels
     for i in range(7,13):
         # Extend to levels 9-14 by adding 2 dB to each previous level
         a[i+1] = a[i] + 2.

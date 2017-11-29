@@ -30,6 +30,9 @@
 #    Skip scans with 0 times, in rd_refcal().  Also read and correct for parallactic
 #    angle only for times in a scan, in unrot_refcal().  This improves the time taken 
 #    to process a long timerange with many scans.
+#  2017-11-10  DG
+#    Add hour to savefig output file names, so that multiple times on a given
+#    date can be saved.
 #
 import read_idb as ri
 from util import Time, ant_str2list, lobe, nearest_val_idx
@@ -502,9 +505,9 @@ def graph_results(refcal, unwrap=True, savefigs=False):
     if savefigs:
         dstr = ref['timestamp'].iso[:10]
         tstr = ref['timestamp'].iso[11:19]
-        file1 = dstr.replace('-', '') + '_refcal_pha.png'
+        file1 = dstr.replace('-', '') + '_' + tstr[:2] + '_refcal_pha.png'
         f1.savefig('/common/webplots/refcal/' + file1)
-        file2 = dstr.replace('-', '') + '_refcal_amp.png'
+        file2 = dstr.replace('-', '') + '_' + tstr[:2] + '_refcal_amp.png'
         f2.savefig('/common/webplots/refcal/' + file2)
         maxlen = 0
         idx, = np.where(ref['flag'][0, 0] == 0)

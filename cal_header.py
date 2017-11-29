@@ -70,6 +70,10 @@
 #      Added new calibration types tpcal (replaces proto_tpcal, adding
 #      auto-correlation information) and xy_phasecal, containing the X-Y delay 
 #      phase vs. frequency for each antenna.
+#   2017-10-05  NK
+#      Modified fem_attn_val2xml() and fem_attn_val2sql(), to write the new XML
+#      definition and binary buffer that are compatible with current
+#      GAINCALTEST measurements into SQL database
 #
 import struct, util
 import stateframe as sf
@@ -569,11 +573,12 @@ def dcm_attn_val2xml():
     return buf
 
 
-def fem_attn2xml():
+def fem_attn_val2xml():
     ''' Writes the XML description of the FEM attenuator values as 
-        measured by FEMATTNTEST, and analyzed by FEM_attn_anal().  The
-        values are complex numbers, in dB, for each of the attenuator 
-        bits (2, 4, 8 and 16).  Returns a binary representation of the 
+        measured by GAINCALTEST, and analyzed by ???.  The
+        values are attenuation values corresponding to the level 1-8
+        (each 2 dB nominal step), for each antenna, frequency, and 
+        polarization. Returns a binary representation of the 
         xml, for putting into the SQL database.  The version number 
         must be incremented each time there is a change to the structure 
         of this header.
@@ -598,23 +603,19 @@ def fem_attn2xml():
     buf += str2bin('<Name>Version</Name>')
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
+    
+    # Fixed size array of frequencies in GHz (500)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FGHz</Name>')
+    buf += str2bin('<Dimsize>500</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
 
-    # List of real part of attenuations (nant x npol x natt x nbits) (5 x 2 x 2 x 16).
-    # The natt = 2 is due to the fact that the FEM has two attenuators.
+    # List of real part of attenuations (nant x npol x nfreq x natt) (8 x 500 x 2 x 15).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>FEM_Attn_Real</Name>')
     buf += str2bin(
-        '<Dimsize>5</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of real part of attenuations (nant x npol x natt x nbits) (5 x 2 x 2 x 16).
-    # The natt = 2 is due to the fact that the FEM has two attenuators.
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>FEM_Attn_Imag</Name>')
-    buf += str2bin(
-        '<Dimsize>5</Dimsize><Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>500</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize><Dimsize>8</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -1681,55 +1682,54 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
 
 def fem_attn_val2sql(attn, ver=1.0, t=None):
     ''' Write measured FEM attenuation values (dB) to SQL server table
-        abin, with the timestamp given by Time() object t (or current
-        time, if none).
-
-        attn   a complex array of attenuator values, in dB, of shape 
-               (16,2,2,5) corresponding to (nant, natt, npol, nbits)
-               where 
-                   nant = 16    is number of antennas, 
-                   npol = 2     is number of polarizations, 
-                   natt = 2     is number of attenuators, and
-                   nbits = 5    is number of attn bits, i.e. 1, 2, 4, 8, and 16.
-               If attn is None, or omitted, a nominal table is created.
+        abin, with the timestamp given by Time() object t (or the time
+        of GAINCALTEST, if none).
+        
+        attn   a dictionary returned by get_attncal() routine, which
+               has the keys:
+               'attn': The attenuation values calculated from GAINCALTEST
+                       (natt, nant, npol, nfrq)
+               'fghz': List of frequencies, in GHz
+               'time': The timestamp of GAINCALTEST scan
 
         This kind of record is type definition 7.
+        
+        An update maybe needed to address the case where attn is None.
     '''
     typedef = 7
     ver = cal_types()[typedef][2]
+    natn, nant, npol, nfrq = attn[0]['attn'].shape
     if t is None:
-        t = util.Time.now()
-
-    if attn is None:
-        # Create a default table, with nominal values
-        attnvals = np.array([1, 2, 4, 8, 16], np.complex)  # The 5 bits of each attenuator
-        attn = np.moveaxis(np.repeat(attnvals, 4 * 16).reshape(5, 16, 2, 2), 0, -1)  # results in shape (16,2,2,5)
+        t = attn[0]['time']
+        
+    if attn is None:  # What should the default timestamp & fghz be??
+        # Create a default attn array, with nominal values
+        attnvals = np.array([2.,4.,6.,8.,10.,12.,14.,16.])  # The 8 attenuation values
+        attn = np.zeros((8,15,2,500))
+        attn[:,:,:,:] = attnvals
     # Write timestamp
-    buf = struct.pack('d', int(t.lv))
+    buf = struct.pack('d', int(attn[0]['time'].lv))
     # Write version number
     buf += struct.pack('d', ver)
-
-    # Write real part of table
-    rattn = np.real(attn)
-    buf += struct.pack('I', 5)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 16)
-    for i in range(16):
-        for j in range(2):
+    # Write frequencies
+    buf += struct.pack('f', 500) # Length of frequency array
+    flist = np.zeros(500,np.float)
+    flist[:nfrq] = attn[0]['fghz']
+    buf += struct.pack('500f', *flist)
+    
+    # Write the attenuation table
+    attn_pad = np.zeros((8,15,2,500))
+    attn_pad[:,:nant,:,:nfrq] = attn[0]['attn']
+    buf += struct.pack('f', 500)
+    buf += struct.pack('f', 2)
+    buf += struct.pack('f', 15)
+    buf += struct.pack('f', 8)
+    for i in range(8):
+        for j in range(15):
             for k in range(2):
-                buf += struct.pack('5f', *rattn[i, j, k])
-    # Write imag part of table
-    iattn = np.imag(attn)
-    buf += struct.pack('I', 5)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 2)
-    buf += struct.pack('I', 16)
-    for i in range(16):
-        for j in range(2):
-            for k in range(2):
-                buf += struct.pack('5f', *iattn[i, j, k])
-    return buf  # write_cal(typedef,buf,t)
+                buf += struct.pack('500f', *attn_pad[i, j, k])
+        
+    return write_cal(typedef,buf,t)
 
 
 def refcal2sql(rfcal, timestamp=None):

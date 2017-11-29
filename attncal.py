@@ -5,6 +5,13 @@
 #  2017-09-09  DG
 #    Changed the sign of the output, so that it really is attenuation,
 #    for consistency with other gaincal2.py routines.
+#  2017-10-13  DG
+#    Added read_attncal() routine, to read attenuation values from SQL.
+#    Also added a __main__ entry point for calling from the command line.
+#  2017-10-23  DG
+#    Added rcvr key to get_attncal() output, representing the power
+#    when 62 dB is inserted in the front end (i.e. is the receiver
+#    contribution to the noise).
 #
 from util import Time
 import numpy as np
@@ -26,6 +33,8 @@ def get_attncal(trange, do_plot=False):
            'fghz':      The list of frequencies [GHz] at which attenuations are measured
            'attn':      The array of attenuations [dB] of size (nattn, nant, npol, nf), 
                            where nattn = 8, nant = 13, npol = 2, and nf is variable
+           'rcvr':      The array of receiver noise level (raw units) of size 
+                           (nant, npol, nf), where nant = 13, npol = 2, and nf is variable
                            
         N.B.: Ignores days with other than one GAINCALTEST measurement, e.g. 0 or 2,
               the first is obvious, while the second is because there is no way to
@@ -82,7 +91,69 @@ def get_attncal(trange, do_plot=False):
                     for j in range(2):
                         ax[j,i].plot(out['fghz'],attn1[i,j],'.')
                         ax[j+2,i].plot(out['fghz'],attn2[i,j],'.')
-            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
+            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 'rcvr':vx,
                             'attn': np.array([attn1, attn2, attn3, attn4, attn5, attn6, attn7, attn8])})
     return outdict
     
+def read_attncal(trange=None):
+    ''' Given a timerange as a Time() object, read FEM attenuation
+        records for each date from the SQL database, and return then
+        as a list of attn dictionaries.  To get values for only a single
+        day, the trange Time() object can have the same time repeated, or can
+        be a single time.
+        
+        Returns a list of dictionaries, each pertaining to one of the days
+        in trange, with keys defined as follows:
+           'time':      The start time of the GAINCALTEST scan, as a Time() object
+           'fghz':      The list of frequencies [GHz] at which attenuations are measured
+           'attn':      The array of attenuations [dB] of size (nattn, nant, npol, nf), 
+                           where nattn = 8, nant = 13, npol = 2, and nf is variable
+
+    '''
+    import cal_header as ch
+    import stateframe as stf
+    if trange is None:
+        trange = Time.now()
+    if type(trange.mjd) == np.float:
+        # Interpret single time as both start and end time
+        mjd1 = int(trange.mjd)
+        mjd2 = mjd1
+    else: 
+        mjd1, mjd2 = trange.mjd.astype(int)
+    attn = []
+    for mjd in range(mjd1,mjd2+1):
+        # Read next earlier SQL entry from end of given UT day (mjd+0.999) 
+        xml, buf = ch.read_cal(7,t=Time(mjd+0.999,format='mjd'))
+        t = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+        fghz = stf.extract(buf,xml['FGHz'])
+        nf = len(np.where(fghz != 0.0)[0])
+        fghz = fghz[:nf]
+        attnvals = stf.extract(buf,xml['FEM_Attn_Real'])[:,:,:,:nf]
+        attn.append({'time':t,'fghz':fghz,'attn':attnvals})
+    return attn
+    
+if __name__ == "__main__":
+    ''' Entry for cron job.  Command line can be a single time string, or two time strings
+        representing a time range.  GAINCALTEST scans for each day in the time range are
+        analyzed and the results are written to the SQL database.
+    '''
+    import sys
+    import cal_header as ch
+    t = Time.now()
+    if len(sys.argv) == 2:
+        try:
+            t = Time(sys.argv[1])
+        except:
+            print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
+            exit()
+    if len(sys.argv) == 3:
+        try:
+            t = Time([sys.argv[1],sys.argv[2]])
+        except:
+            print 'Cannot interpret',sys.argv[1],'and/or',sys.argv[2],'as a valid date/time string.'
+            exit()    
+    print t.iso
+    attn_list = get_attncal(t)
+    for attn in attn_list:
+        ch.fem_attn_val2sql([attn])
+        

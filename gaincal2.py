@@ -146,7 +146,6 @@ def get_fem_level(trange, dt=None):
         if dt:
             # If we want other than full cadence, find mean over dt measurements
             hlev = np.mean(hlev[:new_n/15].reshape(new_shape),1)
-            h2 = np.mean(h2[:new_n/15].reshape(new_shape),1)
             vlev = np.mean(vlev[:new_n/15].reshape(new_shape),1)
         # Put results in canonical order [nant, nt]
         hlev = hlev.T

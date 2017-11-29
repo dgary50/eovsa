@@ -387,7 +387,7 @@ class App():
             if askyesno("Write Delays",question):
                 # All Y-X delays need a sign flip, hence the minus sign
                 ch.dla_update2sql(delays,-xydelays,lorx=True)
-                #ch.dla_update2sql(-delays,xydelays)  # 300 MHz design uses flipped signs!
+                #ch.dla_update2sql(-delays,xydelays,lorx=True)  # 300 MHz design uses flipped signs!
                 ch.dla_censql2table()
                 
 app = App()
