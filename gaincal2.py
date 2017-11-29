@@ -21,6 +21,10 @@
 #  2017-08-06  DG
 #    Changed get_gain_state() to return data for inclusive timerange, i.e. it
 #    includes the begin and end times.
+#  2017-09-09  DG
+#    Added get_fem_level() and apply_fem_level() routines, similar to get_gain_state()
+#    and apply_gain_state(), except these take account of non-uniform attenuation
+#    vs. frequency, based on GAINCALTEST measurements. 
 #
 import dbutil as db
 import read_idb as ri
@@ -79,6 +83,129 @@ def fseqfile2bandlist(fseqfile=None):
     for band in bands:
         bandlist += [band]*int(np.round(dwellist[band-1]/0.02))
     return np.array(bandlist)
+    
+def get_fem_level(trange, dt=None):
+    ''' Get FEM attenuation levels for a given timerange.  Returns a dictionary
+        with keys as follows:
+
+        times:     A Time object containing the array of times, size (nt)
+        hlev:      The FEM attenuation level for HPol, size (nt, 15) 
+        vlev:      The FEM attenuation level for VPol, size (nt, 15)
+        dcmattn:   The base DCM attenuations for 34 bands x 15 antennas x 2 Poln, size (34,30)
+                      The order is Ant1 H, Ant1 V, Ant2 H, Ant2 V, etc.
+        dcmoff:    If DPPoffset-on is 0, this is None (meaning there are no changes to the
+                      above base attenuations).  
+                   If DPPoffset-on is 1, then dcmoff is a table of offsets to the 
+                      base attenuation, size (nt, 50).  The offset applies to all 
+                      antennas/polarizations.
+                      
+        Optional keywords:
+           dt      Seconds between entries to read from SQL stateframe database. 
+                     If omitted, 1 s is assumed.
+        
+    '''
+    if dt is None:
+        tstart,tend = [str(i) for i in trange.lv]
+    else:
+        # Expand time by 1/2 of dt before and after
+        tstart = str(np.round(trange[0].lv - dt/2))
+        tend = str(np.round(trange[1].lv + dt/2))
+    cursor = db.get_cursor()
+    ver = db.find_table_version(cursor,trange[0].lv)
+    # Get front end attenuator states
+    query = 'select Timestamp,Ante_Fron_FEM_Clockms,' \
+            +'Ante_Fron_FEM_HPol_Regi_Level,Ante_Fron_FEM_VPol_Regi_Level from fV' \
+            +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
+    data, msg = db.do_query(cursor, query)
+    if msg == 'Success':
+        if dt:
+            # If we want other than full cadence, get new array shapes and times
+            n = len(data['Timestamp'])  # Original number of times
+            new_n = (n/15/dt)*15*dt     # Truncated number of times equally divisible by dt
+            new_shape = (n/15/dt,dt,15) # New shape of truncated arrays
+            times = Time(data['Timestamp'][:new_n].astype('int')[::15*dt],format='lv')
+        else:
+            times = Time(data['Timestamp'].astype('int')[::15],format='lv')
+        hlev = data['Ante_Fron_FEM_HPol_Regi_Level']
+        vlev = data['Ante_Fron_FEM_VPol_Regi_Level']
+        ms = data['Ante_Fron_FEM_Clockms']
+        nt = len(hlev)/15
+        hlev.shape = (nt,15)
+        vlev.shape = (nt,15)
+        ms.shape = (nt,15)
+        # Find any entries for which Clockms is zero, which indicates where no
+        # gain-state measurement is available.
+        for i in range(15):
+            bad, = np.where(ms[:,i] == 0)
+            if bad.size != 0 and bad.size != nt:
+                # Find nearest adjacent good value
+                good, = np.where(ms[:,i] != 0)
+                idx = nearest_val_idx(bad,good)
+                hlev[bad,i] = hlev[good[idx],i]
+                vlev[bad,i] = vlev[good[idx],i]
+        if dt:
+            # If we want other than full cadence, find mean over dt measurements
+            hlev = np.mean(hlev[:new_n/15].reshape(new_shape),1)
+            vlev = np.mean(vlev[:new_n/15].reshape(new_shape),1)
+        # Put results in canonical order [nant, nt]
+        hlev = hlev.T
+        vlev = vlev.T
+    else:
+        print 'Error reading FEM levels:',msg
+        return {}
+    # Get back end attenuator states
+    xml, buf = ch.read_cal(2, t=trange[0])
+    dcmattn = stf.extract(buf,xml['Attenuation'])
+    dcmattn.shape = (34, 15, 2)
+    # Put into canonical order [nant, npol, nband]
+    dcmattn = np.moveaxis(dcmattn,0,2)
+    # See if DPP offset is enabled
+    query = 'select Timestamp,DPPoffsetattn_on from fV' \
+            +ver+'_vD1 where Timestamp >= '+tstart+' and Timestamp <= '+tend+'order by Timestamp'
+    data, msg = db.do_query(cursor, query)
+    if msg == 'Success':
+        dppon = data['DPPoffsetattn_on']
+        if np.where(dppon > 0)[0].size == 0:
+            dcm_off = None
+        else:
+            query = 'select Timestamp,DCMoffset_attn from fV' \
+                    +ver+'_vD50 where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
+            data, msg = db.do_query(cursor, query)
+            if msg == 'Success':
+                otimes = Time(data['Timestamp'].astype('int')[::15],format='lv')
+                dcmoff = data['DCMoffset_attn']
+                dcmoff.shape = (nt, 50)
+                # We now have a time-history of offsets, at least some of which are non-zero.
+                # Offsets by slot number do us no good, so we need to translate to band number.
+                # Get fseqfile name at mean of timerange, from stateframe SQL database
+                fseqfile = get_fseqfile(Time(int(np.mean(trange.lv)),format='lv')) 
+                if fseqfile is None:
+                    print 'Error: No active fseq file.'
+                    dcm_off = None
+                else:
+                    # Get fseqfile from ACC and return bandlist
+                    bandlist = fseqfile2bandlist(fseqfile)
+                    # Use bandlist to covert nt x 50 array to nt x 34 band array of DCM attn offsets
+                    # Note that this assumes DCM offset is the same for any multiply-sampled bands
+                    # in the sequence.
+                    dcm_off = np.zeros((nt,34),float)
+                    dcm_off[:,bandlist - 1] = dcmoff
+                    # Put into canonical order [nband, nt]
+                    dcm_off = dcm_off.T
+                    if dt:
+                        # If we want other than full cadence, find mean over dt measurements
+                        new_nt = len(times)
+                        dcm_off = dcm_off[:,:new_nt*dt]
+                        dcm_off.shape = (34,dt,new_nt)
+                        dcm_off = np.mean(dcm_off,1)
+            else:
+                print 'Error reading DCM attenuations:',msg
+                dcm_off = None
+    else:
+        print 'Error reading DPPon state:',msg
+        dcm_off = None
+    cursor.close()
+    return {'times':times,'hlev':hlev.astype(int),'vlev':vlev.astype(int),'dcmattn':dcmattn,'dcmoff':dcm_off}
     
 def get_gain_state(trange, dt=None):
     ''' Get all gain-state information for a given timerange.  Returns a dictionary
@@ -221,6 +348,76 @@ def get_gain_state(trange, dt=None):
         dcm_off = None
     cursor.close()
     return {'times':times,'h1':h1,'v1':v1,'h2':h2,'v2':v2,'dcmattn':dcmattn,'dcmoff':dcm_off}
+
+def apply_fem_level(data,gctime=None):
+    ''' Applys the FEM level corrections to the given data dictionary.
+        
+        Inputs:
+          data     A dictionary such as that returned by read_idb().
+          gctime   A Time() object whose date specifies which GAINCALTEST
+                     measurements to use.  If omitted, the date of the data
+                     is used.
+
+        Output:
+          cdata    A dictionary with the level-corrected data.  The keys
+                     p, x, p2, and a are all updated.
+    '''
+    from util import common_val_idx, nearest_val_idx
+    import attncal as ac
+    import copy
+
+    # Get timerange from data
+    trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    if gctime is None:
+        gctime = trange[0]
+    # Get time cadence
+    dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
+    if dt == 1: dt = None
+    # Get the FEM levels of the requested timerange
+    src_lev = get_fem_level(trange,dt)   # solar gain state for timerange of file
+    nf = len(data['fghz'])
+    nt = len(src_lev['times'])
+    attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
+    antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
+    # Find common frequencies of attn with data
+    idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
+    a = attn['attn']
+    for i in range(13):
+        for k,j in enumerate(idx1):
+            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
+            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,idx2[k]]
+    cdata = copy.deepcopy(data)
+    blgain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
+    for i in range(14):
+         for j in range(i+1,15):
+             blgain[ri.bl2ord[i,j],0] = 10**((antgain[i,0] + antgain[j,0])/20.)
+             blgain[ri.bl2ord[i,j],1] = 10**((antgain[i,1] + antgain[j,1])/20.)
+             blgain[ri.bl2ord[i,j],2] = 10**((antgain[i,0] + antgain[j,1])/20.)
+             blgain[ri.bl2ord[i,j],3] = 10**((antgain[i,1] + antgain[j,0])/20.)
+    antgainf = 10**(antgain/10.)
+
+    #idx1, idx2 = common_val_idx(data['time'],src_gs['times'].jd)
+    idx = nearest_val_idx(data['time'],src_lev['times'].jd)
+    # Apply corrections (some times may be eliminated from the data)
+    # Correct the cross-correlation data
+    cdata['x'] *= blgain[:,:,:,idx]
+    # Correct the power
+    cdata['p'][:15] *= antgainf[:,:,:,idx]
+    # Correct the autocorrelation
+    cdata['a'][:15,:2] *= antgainf[:,:,:,idx]
+    cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
+    cdata['a'][:15,2] *= cross_fac[:,:,idx]
+    cdata['a'][:15,3] *= cross_fac[:,:,idx]
+    # Correct the power-squared -- this should preserve SK
+    cdata['p2'][:15] *= antgainf[:,:,:,idx]**2
+    # Remove any uncorrected times before returning
+    #cdata['time'] = cdata['time'][idx1]
+    #cdata['p'] = cdata['p'][:,:,:,idx1]
+    #cdata['a'] = cdata['a'][:,:,:,idx1]
+    #cdata['p2'] = cdata['p2'][:,:,:,idx1]
+    #cdata['ha'] = cdata['ha'][idx1]
+    #cdata['m'] = cdata['m'][:,:,:,idx1]
+    return cdata
 
 def apply_gain_corr(data, tref=None):
     ''' Applys the gain_state() corrections to the given data dictionary,

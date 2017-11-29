@@ -1,4 +1,4 @@
-def get_xy_corr(npzlist=None, doplot=True):
+def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
     ''' Analyze a pair of parallel and cross polarization calibration scans and
         return the X vs. Y delay phase corrections on all antennas 1-14.
         
@@ -20,6 +20,14 @@ def get_xy_corr(npzlist=None, doplot=True):
 
     out0 = ri.read_npz([npzlist[0]])  # Parallel scan
     out1 = ri.read_npz([npzlist[1]])  # Perpendicular scan
+    if npzlist2 is None:
+        pass
+    else:
+        # Interpret second list as a set of additional files to be concatenated to the first
+        for file in npzlist2:
+            outx = ri.read_npz([file])
+            out0['x'] = np.concatenate((out0['x'],outx['x']),3)
+            out1['x'] = np.concatenate((out1['x'],outx['x']),3)
     ph0 = np.angle(np.sum(out0['x'][ri.bl2ord[:13,13]],3))
     ph1 = np.angle(np.sum(out1['x'][ri.bl2ord[:13,13]],3))
     ph0[:,2:] = ph1[:,2:]  # Insert crossed-feed phases from ph1 into ph0

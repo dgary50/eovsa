@@ -31,6 +31,8 @@
 #     amplitude)
 #   2016-May-01  DG
 #     Changed to call read_dbcalfac(), to read calibration data from SQL database.
+#   2017-Aug-16  DG
+#     Fixed a problem in tpfit, when nans or infs were in the data.
 #
 __version__ = '0.2'
 
@@ -451,11 +453,12 @@ def tpfit(X,data,sigma=None):
     from scipy.optimize import curve_fit
     
     # This complains if there are nans or infs in the data, so remove them first 
-    X = X[np.isfinite(data)] 
-    data = data[np.isfinite(data)]
+    good = np.isfinite(data)
+    X = X[good] 
+    data = data[good]
     
     if sigma is not None:
-        sigma = sigma[np.isfinite(data)]
+        sigma = sigma[good]
 
     if len(data) < 4:
         return np.zeros(4),np.array([0,1]),np.array([0,1])
