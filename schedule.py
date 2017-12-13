@@ -265,6 +265,9 @@
 #      swap at that point, if necessary, and then create and FTP the file. This
 #      solves another problem that the ACC file could in principle deviate from
 #      the SQL table.  Now it cannot (if all goes smoothly).
+#    2017-Sep-01  DG
+#      Added update_status() to create a status file with the currently running
+#      schedule.
 #
 
 import os, signal
@@ -1105,6 +1108,8 @@ class App():
             self.filename = filenamelist[len(filenamelist)-1:][0]
         else:
             self.filename = filename
+        # Update the status file in /common/webplots for display on the status web page
+        self.update_status()
         
     #============================
     def New(self):
@@ -1468,6 +1473,8 @@ class App():
                     
     #============================
     def check_27m_sun(self,sf,data):
+        pass
+    def check_27m_sun2(self,sf,data):    # Disable for now by renaming (2017-09-05  DG)
         # For each 27m, check whether it is too close to Sun (min_dist: 10 degrees);
         # if it is, use 'position' command to send to stow position (HA = 0, dec = 29)
         #
@@ -2030,6 +2037,8 @@ class App():
            at a time from the Listbox and execute them.
         '''
         global sf_dict, sh_dict
+        # Update the status file in /common/webplots for display on the status web page
+        self.update_status()
         # Get time range of this Macro command
         mjd1 = mjd(self.L.get(self.curline))
         mjd2 = mjd(self.L.get(self.curline+1))
@@ -2742,6 +2751,17 @@ class App():
                         self.sequence2roach(fsequence[:-1])
                         self.sequence2dcmtable(fsequence[:-1])
 
+    def update_status(self):
+        # Read the current schedule from the list window and write to output file
+        fileout = open('/common/webplots/status.txt','w')
+        for i in range(self.lastline):
+            line = self.L.get(i)
+            if i == self.curline:
+                line = '* '+line
+            else:
+                line = '  '+line
+            fileout.write(line+'\n')
+        fileout.close()
 
 
 app = App()

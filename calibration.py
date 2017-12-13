@@ -80,6 +80,8 @@
 #   2017-Jul-30  DG
 #    Added 'auto' keyword to sp_apply_cal2() and sp_bg_subtract2(), to apply
 #    the calibration to auto-correlation if desired.
+#   2017-Oct-27  DG
+#    Added tsql keyword to solpnt2sql(), for overriding date of SQL record.
 #
 
 if __name__ == "__main__":
@@ -888,7 +890,7 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         send_cmds([cmd1],acc)
         send_cmds([cmd7],acc)
         
-def solpnt2sql(t):
+def solpnt2sql(t,tsql=None):
     ''' Handles the complete processing of a solar calibration, from analysis through
         writing the calibration data to the SQL database
     '''
@@ -900,8 +902,8 @@ def solpnt2sql(t):
     tpcal_dict = {'fghz':x1['fghz'],'timestamp':Time(x1['ut_mjd'][0],format='mjd').lv,
                   'tpcalfac':calfac1,'accalfac':calfac2,'tpoffsun':offsun1,'acoffsun':offsun2}
     ok = raw_input('Okay to write result to SQL database? [Y/N]: ')
-    if ok == 'Y':
-        ch.tpcal2sql(tpcal_dict)
+    if ok.upper() == 'Y':
+        ch.tpcal2sql(tpcal_dict,t=tsql)
         print 'Result was written to the SQL database'
     else:
         print 'Result was NOT written to the SQL database'

@@ -53,6 +53,11 @@
 #      call to flaremeter() [just takes too long!], and skip get_history() call.
 #   2017-Apr-06  DG
 #      Changes to put identifying text on plot for more types of calibration.
+#   2017-Aug-11  DG
+#      Changes to rationalize the handling of the scan start-stop information in
+#      flare_monitor(), and tweaks to the line plot.
+#   2017-Sep-08  DG
+#      Fixed small bug that caused crash on error return from xdata_display()
 #
 import numpy as np
 from util import Time
@@ -65,38 +70,37 @@ def flare_monitor(t):
         Returns ut times in plot_date format and median voltages.
     '''
     import dbutil
-    # timerange is 13 UT to 02 UT on next day, relative to the day in Time() object t
-    trange = Time([int(t.mjd) + 12./24,int(t.mjd) + 26./24],format='mjd')
+    # timerange is 12 UT to 12 UT on next day, relative to the day in Time() object t
+    trange = Time([int(t.mjd) + 12./24,int(t.mjd) + 36./24],format='mjd')
     tstart, tend = trange.lv.astype('str')
     cursor = dbutil.get_cursor()
     mjd = t.mjd
-    try:
-        verstr = dbutil.find_table_version(cursor,tstart)
-        if verstr is None:
-            print 'No stateframe table found for given time.'
-            return tstart, [], {}
-        cursor.execute('select * from fV'+verstr+'_vD15 where I15 < 4 and timestamp between '+tstart+' and '+tend+' order by timestamp')
-    except:
-        print 'Error with query of SQL database.'
+    verstr = dbutil.find_table_version(cursor,tstart)
+    if verstr is None:
+        print 'No stateframe table found for given time.'
         return tstart, [], {}
-    data = np.transpose(np.array(cursor.fetchall(),'object'))
-    if len(data) == 0:
-        # No data found, so return timestamp and empty lists
-        print 'SQL Query was valid, but no data for',t.iso[:10],'were found (yet).'
+    query = 'select Timestamp,Ante_Fron_FEM_HPol_Voltage,Ante_Fron_FEM_VPol_Voltage from fV'+verstr+'_vD15 where timestamp between '+tstart+' and '+tend+' order by timestamp'
+    data, msg = dbutil.do_query(cursor, query)
+    if msg != 'Success':
+        print msg
         return tstart, [], {}
-    ncol,ntot = data.shape
-    data.shape = (ncol,ntot/4,4)
-    names = np.array(cursor.description)[:,0]
-    mydict = dict(zip(names,data))
+    for k,v in data.items():
+        data[k].shape = (len(data[k])/15,15)
     hv = []
-    ut = Time(mydict['Timestamp'][:,0].astype('float'),format='lv').plot_date 
-    hfac = np.median(mydict['Ante_Fron_FEM_HPol_Voltage'].astype('float'),0)
-    vfac = np.median(mydict['Ante_Fron_FEM_VPol_Voltage'].astype('float'),0)
+    try:
+        ut = Time(data['Timestamp'][:,0].astype('float'),format='lv').plot_date 
+    except:
+        print 'Error for time',t.iso
+        print 'Query:',query,' returned msg:',msg
+        print 'Keys:', data.keys()
+        print data['Timestamp'][0,0]
+    hfac = np.median(data['Ante_Fron_FEM_HPol_Voltage'].astype('float'),0)
+    vfac = np.median(data['Ante_Fron_FEM_VPol_Voltage'].astype('float'),0)
     for i in range(4):
         if hfac[i] > 0:
-            hv.append(mydict['Ante_Fron_FEM_HPol_Voltage'][:,i]/hfac[i])
+            hv.append(data['Ante_Fron_FEM_HPol_Voltage'][:,i]/hfac[i])
         if vfac[i] > 0:
-            hv.append(mydict['Ante_Fron_FEM_VPol_Voltage'][:,i]/vfac[i])
+            hv.append(data['Ante_Fron_FEM_VPol_Voltage'][:,i]/vfac[i])
     flm = np.median(np.array(hv),0)
     good = np.where(abs(flm[1:]-flm[:-1])<0.01)[0]
 
@@ -105,40 +109,47 @@ def flare_monitor(t):
     if verstrh is None:
         print 'No scan_header table found for given time.'
         return ut[good], flm[good], {}
-    cursor.execute('select Timestamp,Project from hV'+verstrh+'_vD1 where Timestamp between '+tstart+' and '+tend+' order by Timestamp')
-    data = np.transpose(np.array(cursor.fetchall()))
-    names = np.array(cursor.description)[:,0]
-    if len(data) == 0:
+    query = 'select Timestamp,Project from hV'+verstrh+'_vD1 where Timestamp between '+tstart+' and '+tend+' order by Timestamp'
+    projdict, msg = dbutil.do_query(cursor, query)
+    if msg != 'Success':
+        print msg
+        return ut[good], flm[good], {}
+    elif len(projdict) == 0:
         # No Project ID found, so return data and empty projdict dictionary
         print 'SQL Query was valid, but no Project data were found.'
         return ut[good], flm[good], {}
-    projdict = dict(zip(names,data))
     projdict['Timestamp'] = projdict['Timestamp'].astype('float')  # Convert timestamps from string to float
+    for i in range(len(projdict['Project'])): projdict['Project'][i] = projdict['Project'][i].replace('\x00','')
 
-    # Get the times when scanstate is -1
-    cursor.execute('select Timestamp,Sche_Data_ScanState from fV'+verstr+'_vD1 where Timestamp between '+tstart+' and '+tend+' and Sche_Data_ScanState = -1 order by Timestamp')
-    scan_off_times = np.transpose(np.array(cursor.fetchall()))[0]  #Just list of timestamps
-    if len(scan_off_times) > 2:
-        gaps = scan_off_times[1:] - scan_off_times[:-1] - 1
-        eos = np.where(gaps > 10)[0]
-        if len(eos) > 1:
-            if scan_off_times[eos[1]] < projdict['Timestamp'][0]:
-                # Gaps are not lined up, so drop the first:
-                eos = eos[1:]
-        EOS = scan_off_times[eos]
-        if scan_off_times[eos[0]] <= projdict['Timestamp'][0]:
-            # First EOS is earlier than first Project ID, so make first Project ID None.
-            projdict['Timestamp'] = np.append([scan_off_times[0]],projdict['Timestamp'])
-            projdict['Project'] = np.append(['None'],projdict['Project'])
-        if scan_off_times[eos[-1]+1] >= projdict['Timestamp'][-1]:
-            # Last EOS is later than last Project ID, so make last Project ID None.
-            projdict['Timestamp'] = np.append(projdict['Timestamp'],[scan_off_times[eos[-1]+1]])
-            projdict['Project'] = np.append(projdict['Project'],['None'])
-            EOS = np.append(EOS,[scan_off_times[eos[-1]+1],scan_off_times[-1]])
-        projdict.update({'EOS': EOS})
-    else:
-        # Not enough scan changes to determine EOS (end-of-scan) times
-        projdict.update({'EOS': []})
+    # # Get the times when scanstate is -1
+    # cursor.execute('select Timestamp,Sche_Data_ScanState from fV'+verstr+'_vD1 where Timestamp between '+tstart+' and '+tend+' and Sche_Data_ScanState = -1 order by Timestamp')
+    # scan_off_times = np.transpose(np.array(cursor.fetchall()))[0]  #Just list of timestamps
+    # if len(scan_off_times) > 2:
+        # gaps = scan_off_times[1:] - scan_off_times[:-1] - 1
+        # eos = np.where(gaps > 10)[0]
+        # if len(eos) > 1:
+            # if scan_off_times[eos[1]] < projdict['Timestamp'][0]:
+                # # Gaps are not lined up, so drop the first:
+                # eos = eos[1:]
+        # EOS = scan_off_times[eos]
+        # if scan_off_times[eos[0]] <= projdict['Timestamp'][0]:
+            # # First EOS is earlier than first Project ID, so make first Project ID None.
+            # projdict['Timestamp'] = np.append([scan_off_times[0]],projdict['Timestamp'])
+            # projdict['Project'] = np.append(['None'],projdict['Project'])
+        # if scan_off_times[eos[-1]+1] >= projdict['Timestamp'][-1]:
+            # # Last EOS is later than last Project ID, so make last Project ID None.
+            # projdict['Timestamp'] = np.append(projdict['Timestamp'],[scan_off_times[eos[-1]+1]])
+            # projdict['Project'] = np.append(projdict['Project'],['None'])
+            # EOS = np.append(EOS,[scan_off_times[eos[-1]+1],scan_off_times[-1]])
+        # projdict.update({'EOS': EOS})
+    # else:
+        # # Not enough scan changes to determine EOS (end-of-scan) times
+        # projdict.update({'EOS': []})
+    # This turns out to be a more rational, and "good-enough"" approach to the end of scan problem.
+    # The last scan, though, will be ignored...
+    projdict.update({'EOS':projdict['Timestamp'][1:]})
+    projdict.update({'Timestamp':projdict['Timestamp'][:-1]})
+    projdict.update({'Project':projdict['Project'][:-1]})
     cursor.close()
     return ut[good],flm[good],projdict
 
@@ -175,10 +186,11 @@ def xdata_display(t,ax=None):
         scans = scans[good]
     else:
         print 'No NormalObserving scans found.'
-        return None, None, None
+        return None, None, None, None
 
     # Find scanID that starts earlier than, but closest to, the current time
     for i,scan in enumerate(scans):
+        print scan
         dt = t - Time(time.strftime('%Y-%m-%d %H:%M:%S',time.strptime(scan,'%y%m%d%H%M%S')))
         if dt.sec > 0.:
             iout = i
@@ -208,6 +220,7 @@ def xdata_display(t,ax=None):
                 if not os.path.isdir(path+files[0]):
                     print 'No files found for this scan ID',scan
                     scan = None
+                    times = None
                     return scan, tlevel, bflag, times
             filelist = files
             files = []
@@ -233,6 +246,7 @@ def xdata_display(t,ax=None):
         else:
             print 'Time',dt.sec,'is > 1200 s after last file of last NormalObserving scan.  No plot created.'
             scan = None
+            times = None
     else:
         print 'No files found for this scan ID',scan
         scan = None
@@ -343,11 +357,11 @@ if __name__ == "__main__":
         if len(sys.argv) == 3:
             skip = True
     print t.iso[:19],': ',
-    if (t.mjd % 1) < 3./24:
-        # Special case of being run at or before 3 AM (UT), so change to late "yesterday" to finish out
-        # the previous UT day
-        imjd = int(t.mjd)
-        t = Time(float(imjd-0.001),format='mjd')
+    # if (t.mjd % 1) < 3./24:
+        # # Special case of being run at or before 3 AM (UT), so change to late "yesterday" to finish out
+        # # the previous UT day
+        # imjd = int(t.mjd)
+        # t = Time(float(imjd-0.001),format='mjd')
 
     tlevel = None
     if not skip:
@@ -355,10 +369,13 @@ if __name__ == "__main__":
         f, ax = plt.subplots(1,1)
         f.set_size_inches(14,5)
         scanid, tlevel, bflag, times = xdata_display(t,ax)
-        plt.savefig('/common/webplots/flaremon/XSP20'+scanid+'.png',bbox_inches='tight')
-        plt.close(f)
-        print 'Plot written to /common/webplots/flaremon/XSP20'+scanid+'.png'
-        bflag = cleanup(bflag)
+        if times is None:
+            pass
+        else:
+            plt.savefig('/common/webplots/flaremon/XSP20'+scanid+'.png',bbox_inches='tight')
+            plt.close(f)
+            print 'Plot written to /common/webplots/flaremon/XSP20'+scanid+'.png'
+            bflag = cleanup(bflag)
         # See if a file for this date already exists, and if so, read it and 
         # append or replace with the newly determined levels
         #times, tlevel, bflag = get_history(times, tlevel, bflag)
@@ -393,15 +410,15 @@ if __name__ == "__main__":
             uti = SOS[i]*np.array([1.,1.])
             plt.plot_date(uti,yran,'g',lw=0.5)
             if projdict['Project'][i] == 'NormalObserving' or projdict['Project'][i] == 'Normal Observing':
-                ax.text(uti[0],yran[1]*0.935,'SUN',fontsize=8)
+                ax.text(uti[0],yran[1]*0.935,'SUN',fontsize=8, clip_on=True)
             elif projdict['Project'][i] == 'None':
-                ax.text(uti[0],yran[1]*0.975,'IDLE',fontsize=8)
+                ax.text(uti[0],yran[1]*0.975,'IDLE',fontsize=8, clip_on=True)
             elif projdict['Project'][i][:4] == 'GAIN':
-                ax.text(uti[0],yran[1]*0.955,'GCAL',fontsize=8)
+                ax.text(uti[0],yran[1]*0.955,'GCAL',fontsize=8, clip_on=True)
             elif projdict['Project'][i] == 'SOLPNTCAL':
-                ax.text(uti[0],yran[1]*0.955,'TPCAL',fontsize=8)
+                ax.text(uti[0],yran[1]*0.955,'TPCAL',fontsize=8, clip_on=True)
             elif projdict['Project'][i] == 'PHASECAL':
-                ax.text(uti[0],yran[1]*0.955,'PCAL',fontsize=8)
+                ax.text(uti[0],yran[1]*0.955,'PCAL',fontsize=8, clip_on=True)
             else:
                 ax.text(uti[0],yran[1]*0.975,projdict['Project'][i],fontsize=8)
         if len(projdict['EOS']) == nscans:
