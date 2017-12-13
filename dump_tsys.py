@@ -47,16 +47,18 @@ import subprocess, time, sys, glob
 import numpy as np
 from util import Time
 
-def common_val_idx(array1,array2):
+
+def common_val_idx(array1, array2):
     ''' Find the common values in two sorted arrays, and return the array
         of indexes of those common values in the two arrays.
     '''
-    common = np.intersect1d(array1,array2,True)
-    idx1 = np.searchsorted(array1,common)
-    idx2 = np.searchsorted(array2,common)
+    common = np.intersect1d(array1, array2, True)
+    idx1 = np.searchsorted(array1, common)
+    idx2 = np.searchsorted(array2, common)
     return idx1, idx2
 
-def file_list(trange,udb=False):
+
+def file_list(trange, udb=False):
     ''' Find IDB files between the dates/times provided in trange.
         Input is a 2-element Time() object with start time trange[0] and end time trange[1]
         Returns files as a list, if found, or an empty list ([]) if not found.
@@ -65,8 +67,8 @@ def file_list(trange,udb=False):
     fstr = trange[0].iso
     if udb:
         # Check for existence of /data1/UDB:
-        folder = '/data1/UDB/'+str(int(trange[0].jyear))
-        files = glob.glob(folder+'/UDB'+fstr.replace('-','').split()[0]+'*')
+        folder = '/data1/UDB/' + str(int(trange[0].jyear))
+        files = glob.glob(folder + '/UDB' + fstr.replace('-', '').split()[0] + '*')
         files.sort()
         # Check if second time has different date
         mjd1, mjd2 = trange.mjd.astype('int')
@@ -75,7 +77,7 @@ def file_list(trange,udb=False):
                 usage('Second date must differ from first by at most 1 day')
             else:
                 fstr2 = trange[1].iso
-                files2 = glob.glob(folder+'/UDB'+fstr2.replace('-','').split()[0]+'*')
+                files2 = glob.glob(folder + '/UDB' + fstr2.replace('-', '').split()[0] + '*')
                 files2.sort()
                 files += files2
     else:
@@ -83,12 +85,12 @@ def file_list(trange,udb=False):
         folder = '/data1/IDB'
         if glob.glob(folder) == []:
             folder = '/dppdata1/IDB'
-            files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+            files = glob.glob(folder + '/IDB' + fstr.replace('-', '').split()[0] + '*')
             files.sort()
         if files == [] or glob.glob(folder) == []:
-            datdir = trange[0].iso[:10].replace('-','')
-            folder = '/data1/eovsa/fits/IDB/'+datdir
-            files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+            datdir = trange[0].iso[:10].replace('-', '')
+            folder = '/data1/eovsa/fits/IDB/' + datdir
+            files = glob.glob(folder + '/IDB' + fstr.replace('-', '').split()[0] + '*')
             files.sort()
         # Check if second time has different date
         mjd1, mjd2 = trange.mjd.astype('int')
@@ -97,16 +99,18 @@ def file_list(trange,udb=False):
                 usage('Second date must differ from first by at most 1 day')
             else:
                 if folder[:22] == '/data1/eovsa/fits/IDB/':
-                    datdir = trange[1].iso[:10].replace('-','')
-                    folder = '/data1/eovsa/fits/IDB/'+datdir
+                    datdir = trange[1].iso[:10].replace('-', '')
+                    folder = '/data1/eovsa/fits/IDB/' + datdir
                 fstr2 = trange[1].iso
-                files2 = glob.glob(folder+'/IDB'+fstr2.replace('-','').split()[0]+'*')
+                files2 = glob.glob(folder + '/IDB' + fstr2.replace('-', '').split()[0] + '*')
                 files2.sort()
                 files += files2
 
     def fname2mjd(filename):
         fstem = filename.split('/')[-1]
-        fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
+        fstr = fstem[3:7] + '-' + fstem[7:9] + '-' + fstem[9:11] + ' ' + fstem[11:13] + ':' + fstem[
+                                                                                              13:15] + ':' + fstem[
+                                                                                                             15:17]
         t = Time(fstr)
         return t.mjd
 
@@ -116,7 +120,8 @@ def file_list(trange,udb=False):
         if mjd >= trange[0].mjd and mjd < trange[1].mjd:
             filelist.append(filename)
     return filelist
-            
+
+
 def dump_tsys(trange):
     ''' Routine to dump tsys data for a given timerange using Miriad's varplt.
         Input is a 2-element Time() object with start time trange[0] and end time trange[1]
@@ -125,21 +130,22 @@ def dump_tsys(trange):
     filelist = file_list(trange)
 
     if filelist == []:
-        print 'No files find between',trange[0].iso,'and',trange[1].iso
+        print 'No files find between', trange[0].iso, 'and', trange[1].iso
         return
 
     for filename in filelist:
-        print 'Processing',filename
-        vis = 'vis='+filename
-        log = 'log=/common/tmp/txt/xt'+filename.split('IDB')[-1]+'.txt'
+        print 'Processing', filename
+        vis = 'vis=' + filename
+        log = 'log=/common/tmp/txt/xt' + filename.split('IDB')[-1] + '.txt'
         xaxis = 'xaxis=time'
         yaxis = 'yaxis=xtsys'
-        res = subprocess.Popen(['varplt',vis,xaxis,yaxis,log],stdout=subprocess.PIPE)
-        log = 'log=/common/tmp/txt/yt'+filename.split('IDB')[-1]+'.txt'
+        res = subprocess.Popen(['varplt', vis, xaxis, yaxis, log], stdout=subprocess.PIPE)
+        log = 'log=/common/tmp/txt/yt' + filename.split('IDB')[-1] + '.txt'
         yaxis = 'yaxis=ytsys'
-        res = subprocess.Popen(['varplt',vis,xaxis,yaxis,log],stdout=subprocess.PIPE)
+        res = subprocess.Popen(['varplt', vis, xaxis, yaxis, log], stdout=subprocess.PIPE)
 
-def rd_miriad_tsys(trange,udb=False):
+
+def rd_miriad_tsys(trange, udb=False):
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by d1, d2.
         
@@ -149,31 +155,37 @@ def rd_miriad_tsys(trange,udb=False):
     import aipy
 
     # Find files corresponding to times
-    filelist = file_list(trange,udb=udb)
+    filelist = file_list(trange, udb=udb)
     if filelist == []:
-        print 'No files find between',trange[0].iso,'and',trange[1].iso
+        print 'No files find between', trange[0].iso, 'and', trange[1].iso
         return None
     # Open first file and check that it has correct form
     uv = aipy.miriad.UV(filelist[0])
     uvok = True
     if 'source' in uv.vartable:
         src = uv['source']
-    else: uvok = False
+    else:
+        uvok = False
     if 'sfreq' in uv.vartable:
         fghz = uv['sfreq']
-    else: uvok = False
+    else:
+        uvok = False
     if 'nants' in uv.vartable:
         nants = uv['nants']
-    else: uvok = False
+    else:
+        uvok = False
     if 'ut' in uv.vartable:
         pass
-    else: uvok = False
+    else:
+        uvok = False
     if 'xtsys' in uv.vartable:
         pass
-    else: uvok = False
+    else:
+        uvok = False
     if 'ytsys' in uv.vartable:
         pass
-    else: uvok = False
+    else:
+        uvok = False
     if not uvok:
         print 'Miriad file has bad format'
         return None
@@ -185,10 +197,10 @@ def rd_miriad_tsys(trange,udb=False):
     for filename in filelist:
         uv = aipy.miriad.UV(filename)
         if uv['source'] != src:
-            print 'Source name:',uv['source'],'is different from initial source name:',src
+            print 'Source name:', uv['source'], 'is different from initial source name:', src
             print 'Will stop reading files.'
             break
-        #uv.select('antennae',0,1,include=True)
+        # uv.select('antennae',0,1,include=True)
         # Read first record of data
         preamble, data = uv.read()
         ut = preamble[1]
@@ -205,19 +217,19 @@ def rd_miriad_tsys(trange,udb=False):
                 utd.append(ut - 2400000.5)
     utd = np.array(utd)
     xtsys = np.array(xtsys)
-    xtsys.shape = (len(utd),len(fghz),nants)
+    xtsys.shape = (len(utd), len(fghz), nants)
     ytsys = np.array(ytsys)
-    ytsys.shape = (len(utd),len(fghz),nants)
-    tsys = np.array((xtsys,ytsys))
-    tsys = np.swapaxes(tsys,1,3)  # Order is now npol, nants, nf, nt
-    tsys = np.swapaxes(tsys,0,1)  # Order is now nants, npol, nf, nt, as desired
+    ytsys.shape = (len(utd), len(fghz), nants)
+    tsys = np.array((xtsys, ytsys))
+    tsys = np.swapaxes(tsys, 1, 3)  # Order is now npol, nants, nf, nt
+    tsys = np.swapaxes(tsys, 0, 1)  # Order is now nants, npol, nf, nt, as desired
     good, = np.where(tsys.sum(0).sum(0).sum(1) != 0.0)
-    tsys = tsys[:,:,good,:]
+    tsys = tsys[:, :, good, :]
     fghz = fghz[good]
-    return {'source':src, 'fghz':fghz, 'ut_mjd':utd, 'tsys':tsys}
+    return {'source': src, 'fghz': fghz, 'ut_mjd': utd, 'tsys': tsys}
 
-def rd_miriad_tsys_16(trange,udb=False,auto=False):
 
+def rd_miriad_tsys_16(trange, udb=False, auto=False):
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by trange.  This version works only for 16-ant correlator
         Simply calls read_idb and returns a subset of the data with new dictionary keys.
@@ -231,7 +243,7 @@ def rd_miriad_tsys_16(trange,udb=False,auto=False):
     else:
         return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':cout['p']}
 
-def rd_miriad_tsamp(trange,udb=False):
+def rd_miriad_tsamp(trange, udb=False):
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by d1, d2.
         
@@ -241,31 +253,37 @@ def rd_miriad_tsamp(trange,udb=False):
     import aipy
 
     # Find files corresponding to times
-    filelist = file_list(trange,udb=udb)
+    filelist = file_list(trange, udb=udb)
     if filelist == []:
-        print 'No files find between',trange[0].iso,'and',trange[1].iso
+        print 'No files find between', trange[0].iso, 'and', trange[1].iso
         return None
     # Open first file and check that it has correct form
     uv = aipy.miriad.UV(filelist[0])
     uvok = True
     if 'source' in uv.vartable:
         src = uv['source']
-    else: uvok = False
+    else:
+        uvok = False
     if 'sfreq' in uv.vartable:
         fghz = uv['sfreq']
-    else: uvok = False
+    else:
+        uvok = False
     if 'nants' in uv.vartable:
         nants = uv['nants']
-    else: uvok = False
+    else:
+        uvok = False
     if 'ut' in uv.vartable:
         pass
-    else: uvok = False
+    else:
+        uvok = False
     if 'xsampler' in uv.vartable:
         pass
-    else: uvok = False
+    else:
+        uvok = False
     if 'ysampler' in uv.vartable:
         pass
-    else: uvok = False
+    else:
+        uvok = False
     if not uvok:
         print 'Miriad file has bad format'
         return None
@@ -277,10 +295,10 @@ def rd_miriad_tsamp(trange,udb=False):
     for filename in filelist:
         uv = aipy.miriad.UV(filename)
         if uv['source'] != src:
-            print 'Source name:',uv['source'],'is different from initial source name:',src
+            print 'Source name:', uv['source'], 'is different from initial source name:', src
             print 'Will stop reading files.'
             break
-        #uv.select('antennae',0,1,include=True)
+        # uv.select('antennae',0,1,include=True)
         # Read first record of data
         preamble, data = uv.read()
         ut = preamble[1]
@@ -297,17 +315,18 @@ def rd_miriad_tsamp(trange,udb=False):
                 utd.append(ut - 2400000.5)
     utd = np.array(utd)
     xtsys = np.array(xtsys)
-    xtsys.shape = (len(utd),len(fghz),nants)
+    xtsys.shape = (len(utd), len(fghz), nants)
     ytsys = np.array(ytsys)
-    ytsys.shape = (len(utd),len(fghz),nants)
-    tsys = np.array((xtsys,ytsys))
-    tsys = np.swapaxes(tsys,1,3)  # Order is now npol, nants, nf, nt
-    tsys = np.swapaxes(tsys,0,1)  # Order is now nants, npol, nf, nt, as desired
+    ytsys.shape = (len(utd), len(fghz), nants)
+    tsys = np.array((xtsys, ytsys))
+    tsys = np.swapaxes(tsys, 1, 3)  # Order is now npol, nants, nf, nt
+    tsys = np.swapaxes(tsys, 0, 1)  # Order is now nants, npol, nf, nt, as desired
     good, = np.where(tsys.sum(0).sum(0).sum(1) != 0.0)
-    tsys = tsys[:,:,good,:]
+    tsys = tsys[:, :, good, :]
     fghz = fghz[good]
-    return {'source':src, 'fghz':fghz, 'ut_mjd':utd, 'tsys':tsys}
-    
+    return {'source': src, 'fghz': fghz, 'ut_mjd': utd, 'tsys': tsys}
+
+
 def rd_fdb(t):
     ''' Read the FDB file for the date given in Time() object t, and return in a
         useful dictionary form.
@@ -316,48 +335,50 @@ def rd_fdb(t):
     folder = '/data1/FDB'
     if glob.glob(folder) == []:
         folder = '/dppdata1/FDB'
-    fdbfile = '/FDB'+t.iso[:10].replace('-','')+'.txt'
+    fdbfile = '/FDB' + t.iso[:10].replace('-', '') + '.txt'
     try:
-        f = open(folder+fdbfile,'r')
+        f = open(folder + fdbfile, 'r')
         lines = f.readlines()
         f.close()
     except:
-        print 'Error: Could not open file',folder+fdbfile+'.'
+        print 'Error: Could not open file', folder + fdbfile + '.'
         return {}
-    names = lines[0].replace(':','').split()
-    contents = np.zeros((len(names),len(lines)/2),'S32')
-    for i in range(1,len(lines),2):
+    names = lines[0].replace(':', '').split()
+    contents = np.zeros((len(names), len(lines) / 2), 'S32')
+    for i in range(1, len(lines), 2):
         try:
-            contents[:,(i-1)/2] = np.array(lines[i].split()+lines[i+1].split())
+            contents[:, (i - 1) / 2] = np.array(lines[i].split() + lines[i + 1].split())
         except:
             # If the above assignment does not work, line is malformed, so just
             # leave as empty list
             pass
-    return dict(zip(names,contents))
-            
+    return dict(zip(names, contents))
+
+
 def rd_ufdb(t):
     ''' Read the UFDB file for the date given in Time() object t, and return in a
         useful dictionary form.
     '''
     folder = '/data1/UFDB/'
-    ufdbfile = t.iso[:4]+'/UFDB'+t.iso[:10].replace('-','')+'.txt'
+    ufdbfile = t.iso[:4] + '/UFDB' + t.iso[:10].replace('-', '') + '.txt'
     try:
-        f = open(folder+ufdbfile,'r')
+        f = open(folder + ufdbfile, 'r')
         lines = f.readlines()
         f.close()
     except:
-        print 'Error: Could not open file',folder+ufdbfile+'.'
+        print 'Error: Could not open file', folder + ufdbfile + '.'
         return {}
-    names = lines[0].replace(':','').split()
-    contents = np.zeros((len(names),len(lines)-1),'S32')
-    for i in range(1,len(lines)):
+    names = lines[0].replace(':', '').split()
+    contents = np.zeros((len(names), len(lines) - 1), 'S32')
+    for i in range(1, len(lines)):
         try:
-            contents[:,i-1] = np.array(lines[i].split())
+            contents[:, i - 1] = np.array(lines[i].split())
         except:
             # If the above assignment does not work, line is malformed, so just
             # leave as empty list
             pass
-    return dict(zip(names,contents))
+    return dict(zip(names, contents))
+
 
 if __name__ == "__main__":
     def usage(instr):
@@ -365,6 +386,7 @@ if __name__ == "__main__":
         print 'Usage:  dump_tsys <date1> <date2>'
         print '   e.g. dump_tsys "2014-11-16 16:00:00" "2014-11-16 17:00:00"'
         exit()
+
 
     arglist = str(sys.argv)
     if len(sys.argv) < 3:
@@ -380,4 +402,4 @@ if __name__ == "__main__":
         print sys.argv[2]
         usage('Second argument not recognized as a valid time string')
 
-    dump_tsys(Time([t1.iso,t2.iso]))
+    dump_tsys(Time([t1.iso, t2.iso]))
