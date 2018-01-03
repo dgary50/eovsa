@@ -106,14 +106,14 @@ def apply_fem_level(data,gctime=None):
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
     # extends to the maximum 14 levels.
     a = np.zeros((14,13,2,nf),float)  # Extend attenuation to 14 levels
-    a[:8] = attn['attn'][:,:13]  # Use GAINCALTEST results in the first 8 levels
+    a[:8,:,:,idx1] = attn['attn'][:,:13,:,idx2]  # Use GAINCALTEST results in the first 8 levels
     for i in range(7,13):
         # Extend to levels 9-14 by adding 2 dB to each previous level
         a[i+1] = a[i] + 2.
     for i in range(13):
         for k,j in enumerate(idx1):
-            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
-            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,idx2[k]]
+            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,j]
+            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,j]
     cdata = copy.deepcopy(data)
     nblant = 136
     blgain = np.zeros((nf,nblant,4,nt),float)     # Baseline-based gains vs. frequency
@@ -367,7 +367,7 @@ def unrot(data, azeldict=None):
     fghz = fghz[good]
     dph = stateframe.extract(buf,xml['XYphase'])
     dph = dph[:,good]
-    xi_rot = stateframe.extract(buf,xml['Xi_rot'])
+    xi_rot = stateframe.extract(buf,xml['Xi_Rot'])
     xi_rot = xi_rot[good]
     fidx1, fidx2 = common_val_idx(data['fghz'],fghz,precision=4)
     missing = np.setdiff1d(np.arange(len(data['fghz'])),fidx1)
@@ -380,7 +380,7 @@ def unrot(data, azeldict=None):
             k = bl2ord[i,j]
             a1 = lobe(dph[i,fidx2] - dph[j,fidx2])
             a2 = -dph[j,fidx2] - xi_rot
-            a3 = dph[i,fidx2] - xi_rot + np.pi/2
+            a3 = dph[i,fidx2] - xi_rot + np.pi
             data['x'][fidx1,k,1] *= np.repeat(np.exp(1j*a1),nt).reshape(nf,nt)
             data['x'][fidx1,k,2] *= np.repeat(np.exp(1j*a2),nt).reshape(nf,nt) 
             data['x'][fidx1,k,3] *= np.repeat(np.exp(1j*a3),nt).reshape(nf,nt)
