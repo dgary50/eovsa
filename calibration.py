@@ -82,6 +82,10 @@
 #    the calibration to auto-correlation if desired.
 #   2017-Oct-27  DG
 #    Added tsql keyword to solpnt2sql(), for overriding date of SQL record.
+#   2017-Dec-03  DG
+#    Now tsql is set by default to 20 UT on the date of observation, which is
+#    the new standard.  A second analysis at any time of day will overwrite the
+#    existing one.
 #
 
 if __name__ == "__main__":
@@ -890,9 +894,11 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         send_cmds([cmd1],acc)
         send_cmds([cmd7],acc)
         
-def solpnt2sql(t,tsql=None):
+def solpnt2sql(t,tsql=None,prompt=True):
     ''' Handles the complete processing of a solar calibration, from analysis through
-        writing the calibration data to the SQL database
+        writing the calibration data to the SQL database.  The SQL timestamp at which
+        to write the record can be given as Time() object in tsql, or writes to
+        "standard" location of 20 UT on date of observation, if omitted (preferred!).
     '''
     import cal_header as ch
     x1, y1, qual1 = solpntanal(t)
@@ -901,7 +907,13 @@ def solpnt2sql(t,tsql=None):
     calfac2, offsun2 = sp_get_calfac(x2, y2)
     tpcal_dict = {'fghz':x1['fghz'],'timestamp':Time(x1['ut_mjd'][0],format='mjd').lv,
                   'tpcalfac':calfac1,'accalfac':calfac2,'tpoffsun':offsun1,'acoffsun':offsun2}
-    ok = raw_input('Okay to write result to SQL database? [Y/N]: ')
+    if tsql is None:
+        # Default to writing SQL record at 20 UT on date of observation 
+        tsql = Time(int(x1['ut_mjd'][0]) + 20/24.,format='mjd')
+    if prompt:
+        ok = raw_input('Okay to write result to SQL database? [Y/N]: ')
+    else:
+        ok = 'Y'
     if ok.upper() == 'Y':
         ch.tpcal2sql(tpcal_dict,t=tsql)
         print 'Result was written to the SQL database'
@@ -916,6 +928,10 @@ if __name__ == "__main__":
         The logic is to check whether there is a new SOLPNTCAL available, and
         analyze it if so.  Compares times from solpnt.find_solpnt() with current
         time and analyzes any that are between 5 and 10 minutes old.
+        
+        Normally this is run from the DPP, in which case the results are now
+        written to the SQL database.  The old method of writing to a file is
+        now to be discouraged, and probably will not work on pipeline anyway.
     '''
     arglist = str(sys.argv)
     t = Time.now()
@@ -968,15 +984,20 @@ if __name__ == "__main__":
         print '    ',i+1,' ',status[:,i]
     percent_good = len(np.where(qual)[0])*100/(4*nant)
     if percent_good > 50:
-        calfac, offsun = sp_get_calfac(x,y)
-        # If another file for today's date already exists, this will overwrite it
-        sp_write_calfac(x,y,calfac,offsun)
-        print 'Calibration file successfully written'
-        if t.iso[:10] == Time.now().iso[:10]:
-           # The calibration file is for today, so rewrite as tomorrow's file also
-           x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
-           sp_write_calfac(x,y,calfac,offsun)
-           print "Also wrote tomorrow's file"
+        if socket.gethostname() == 'dpp':
+            # If this is the DPP, write the results to the SQL database automatically.
+            solpnt2sql(t,prompt=False)
+        else:
+            # This is the old way of writing results to a disk file--should be removed...
+            calfac, offsun = sp_get_calfac(x,y)
+            # If another file for today's date already exists, this will overwrite it
+            sp_write_calfac(x,y,calfac,offsun)
+            print 'Calibration file successfully written'
+            if t.iso[:10] == Time.now().iso[:10]:
+               # The calibration file is for today, so rewrite as tomorrow's file also
+               x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
+               sp_write_calfac(x,y,calfac,offsun)
+               print "Also wrote tomorrow's file"
     else:
         print 'Calibration file not written--too many bad values.'
     exit()  
