@@ -40,6 +40,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from glob import glob
 import matplotlib.dates as mdates
+import numpy.ma as ma
 import os
 # import pcapture2 as p
 import pdb
@@ -541,10 +542,11 @@ def mbdfunc1(fghz, ph0, mbd):
     return ph0 + 2. * np.pi * fghz * mbd
 
 
-def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
+def phase_diff(phacal, refcal=None, strictness=0.5, fitoffsets=False, verbose=False):
     '''Fit the phase difference between a phase calibration (or another refcal)
        and the reference calibration.  Returns the phase slopes and, optionally,
        the offsets, along with the relevant times, as a dictionary.
+       strictness from 0 to 1 gives the increasing strictness of quality control over the phase_diff solution.
        
        Returns:
        pfit    A python dictionary with the following keys:
@@ -609,7 +611,14 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
                             print 'Phase offset (deg): 0.0 (not fit)'
                         if verbose:
                             print 'MBD (ns):', popt[0]
-                    prms[pol].append(np.dot(residuals, residuals) / len(residuals))
+                    rms = np.sqrt(np.dot(residuals, residuals) / len(residuals))
+                    prms[pol].append(rms)
+                    if rms > 1.0:
+                        hist, bins = np.histogram(np.abs(residuals), bins=len(residuals))
+                        bins = ma.masked_greater(bins[1:], 1.0)
+                        hist = ma.masked_array(hist, mask=bins.mask)
+                        if np.sum(hist, dtype=np.float) / np.sum(hist.data, dtype=np.float) < strictness:
+                            flag[pol][-1] = 1
                 else:
                     poff[pol].append(0.0)
                     pslope[pol].append(0.0)
@@ -649,7 +658,7 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
         flg = []
         for ant in ants:
             rms.append([prms[pol][ant] for pol in range(2)])
-            fg=[]
+            fg = []
             for pol in range(2):
                 if flag[pol][ant] == 1:
                     fg.append(flag[pol][ant])
@@ -663,8 +672,9 @@ def phase_diff(phacal, refcal=None, fitoffsets=False, verbose=False):
             'prms': np.transpose(prms), 'flag': np.transpose(flag), 'phacal': phacal}
 
 
-def graph_pdiff(p_diff, refcal, verbose=False):
-    '''Produce a figure showing phase difference from phase_diff()'''
+def graph_pdiff(p_diff, refcal, strictness=0.5, verbose=False, plot_rms=False):
+    '''Produce a figure showing phase difference from phase_diff().
+    strictness from 0 to 1 gives the increasing strictness of quality control over the phase_diff solution.'''
     t_pha = p_diff['t_pha']
     t_ref = p_diff['t_ref']
     phacal = p_diff['phacal']
@@ -673,34 +683,80 @@ def graph_pdiff(p_diff, refcal, verbose=False):
     dpha = phacal['pha'] - refcal['pha']
     flag_pha = phacal['flag']
     flag_ref = refcal['flag']
-    f, ax = plt.subplots(2, 13, figsize=(13, 5))
-    f.suptitle('Phase Diff vs. Freq from ' + t_pha.iso + ', relative to ' + t_ref.iso)
-    for ant in range(15):
-        if verbose: print 'ant: ', ant
-        for pol in range(2):
-            if ant < 13:
-                if verbose: print 'pol: ', pol
-                ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
-                dpha_unw = np.unwrap(dpha[ant, pol, ind])
-                fghz = phacal['fghz'][ind]
-                if len(fghz) > 3:
-                    # Ensure that offset is close to zero, modulo 2*pi
-                    if dpha_unw[0] > np.pi: dpha_unw -= 2 * np.pi
-                    if dpha_unw[0] < -np.pi: dpha_unw += 2 * np.pi
-                if len(fghz) > 3:
-                    ax[pol, ant].plot(fghz, dpha_unw, '.k')
-                    ax[pol, ant].set_ylim([-10, 10])
-                    ax[pol, ant].set_xlim([0, 18])
-                    ax[pol, ant].plot(fghz, mbdfunc1(fghz, poff[ant, pol], pslope[ant, pol]), 'r--')
-                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
-                else:
-                    ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
-                    ax[pol, ant].text(9, 0, 'No Cal', ha='center')
-    for j in range(2): ax[j, 0].set_ylabel('Phase Diff [rad]')
-    for i in range(13):
-        ax[1, i].set_xlabel('f [GHz]')
-        if i != 0:
-            for j in range(2): ax[j, i].set_yticklabels([])
+
+    if plot_rms:
+        pflag = p_diff['flag']
+        f, ax = plt.subplots(4, 13, figsize=(13, 5))
+        f.suptitle('Phase Diff residuals vs. Freq from ' + t_pha.iso + ', relative to ' + t_ref.iso)
+        for ant in range(15):
+            if verbose: print 'ant: ', ant
+            for pol in range(2):
+                if ant < 13:
+                    if verbose: print 'pol: ', pol
+                    ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
+                    dpha_unw = np.unwrap(dpha[ant, pol, ind])
+                    fghz = phacal['fghz'][ind]
+                    if len(fghz) > 3:
+                        # Ensure that offset is close to zero, modulo 2*pi
+                        if dpha_unw[0] > np.pi: dpha_unw -= 2 * np.pi
+                        if dpha_unw[0] < -np.pi: dpha_unw += 2 * np.pi
+                    if len(fghz) > 3:
+                        residuals = dpha_unw - mbdfunc1(fghz, poff[ant, pol], pslope[ant, pol])
+                        # rms = np.sqrt(np.dot(residuals, residuals) / len(residuals))
+                        ax[pol, ant].plot(fghz, residuals, '.k')
+                        ax[pol, ant].set_ylim([-10, 10])
+                        ax[pol, ant].set_xlim([0, 18])
+                        ax[pol, ant].axhline(0.0, ls='--', color='r')
+                        ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                        nres = len(residuals)
+                        if pflag[ant, pol] == 1:
+                            ax[pol + 2, ant].hist(np.abs(residuals), bins=nres, cumulative=True, range=[0,5], color='r')
+                        else:
+                            ax[pol + 2, ant].hist(np.abs(residuals), bins=nres, cumulative=True, range=[0,5], color='royalblue')
+                        ax[pol + 2, ant].axvline(1, ls=':', c='orange')
+                        ax[pol + 2, ant].axhline(strictness * nres, ls=':', c='orange')
+                    else:
+                        ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                        ax[pol, ant].text(9, 0, 'No Cal', ha='center')
+                    ax[pol, ant].text(9, -8, 'Flag {}'.format(pflag[ant, pol]), ha='center')
+                    ax[pol + 2, ant].text(0.1, 0.2, 'Flag {}'.format(pflag[ant, pol]), ha='left',
+                                          transform=ax[pol + 2, ant].transAxes)
+                    ax[pol + 2, ant].set_xlim([0,5])
+        ax[0, 0].set_ylabel('Phase Diff residuals [rad]')
+        ax[2, 0].set_ylabel('Cumulative Histogram')
+        for i in range(13):
+            ax[1, i].set_xlabel('f [GHz]')
+            if i != 0:
+                for j in range(2): ax[j, i].set_yticklabels([])
+    else:
+        f, ax = plt.subplots(2, 13, figsize=(13, 5))
+        f.suptitle('Phase Diff vs. Freq from ' + t_pha.iso + ', relative to ' + t_ref.iso)
+        for ant in range(15):
+            if verbose: print 'ant: ', ant
+            for pol in range(2):
+                if ant < 13:
+                    if verbose: print 'pol: ', pol
+                    ind, = np.where((flag_pha[ant, pol] == 0) & (flag_ref[ant, pol] == 0))
+                    dpha_unw = np.unwrap(dpha[ant, pol, ind])
+                    fghz = phacal['fghz'][ind]
+                    if len(fghz) > 3:
+                        # Ensure that offset is close to zero, modulo 2*pi
+                        if dpha_unw[0] > np.pi: dpha_unw -= 2 * np.pi
+                        if dpha_unw[0] < -np.pi: dpha_unw += 2 * np.pi
+                    if len(fghz) > 3:
+                        ax[pol, ant].plot(fghz, dpha_unw, '.k')
+                        ax[pol, ant].set_ylim([-10, 10])
+                        ax[pol, ant].set_xlim([0, 18])
+                        ax[pol, ant].plot(fghz, mbdfunc1(fghz, poff[ant, pol], pslope[ant, pol]), 'r--')
+                        ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                    else:
+                        ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
+                        ax[pol, ant].text(9, 0, 'No Cal', ha='center')
+        for j in range(2): ax[j, 0].set_ylabel('Phase Diff [rad]')
+        for i in range(13):
+            ax[1, i].set_xlabel('f [GHz]')
+            if i != 0:
+                for j in range(2): ax[j, i].set_yticklabels([])
 
 
 def sql2refcal(t):

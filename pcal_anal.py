@@ -7,11 +7,43 @@
 #  2017-Jul-11 DG
 #    Changed time plot frequency to middle frequency of range, and label 
 #    frequency on plot
+#  2018-Jan-02 DG
+#    Added mv_pcal_files().  Also fixed a bug in graph(), to avoid
+#    a crash when a bad/short IDB file is analyzed. 
+#
 
 import numpy as np
 from util import Time
 ten_minutes = 600./86400.
 one_minute = 60./86400.
+
+def mv_pcal_files():
+    ''' Moves (renames) files in the /common/webplots/phasecal folder
+        into new folders according to date.  Leaves the last 20 .npz
+        and associated files in the main folder.
+    '''
+    import glob, os
+    from time import sleep
+    npzfiles = glob.glob('/common/webplots/phasecal/201???????*')
+    npzfiles.sort()
+    #datstr = ''
+    if len(npzfiles) > 20:
+        for file in npzfiles[:-20]:
+            #datstr_prev = datstr
+            datstr = file[26:34]
+            #if datstr != datstr_prev:
+            directory = file[:34]+'/'
+            if not os.path.exists(directory):
+                #print 'mkdir',directory 
+                os.makedirs(directory)
+                sleep(0.1)
+            #print 'mv',file,directory+os.path.basename(file) 
+            os.rename(file,directory+os.path.basename(file))
+            files = glob.glob('/common/webplots/phasecal/pc?'+datstr+'*')
+            files.sort()    
+            for f in files:
+                #print 'mv',f,directory+os.path.basename(f) 
+                os.rename(f,directory+os.path.basename(f))
 
 def findfile(trange):
 
@@ -100,6 +132,9 @@ def graph(f,navg=None,path=None):
         path = ''
 
     out = ri.read_idb(f,navg=navg)
+    if len(out['fghz']) == 0:
+        # This file is no good, so skip it
+        return
     fig, ax = plt.subplots(4,13,sharex=True, sharey=True)
     trange = Time([ri.fname2mjd(f[0]),ri.fname2mjd(f[-1]) + ten_minutes],format='mjd')
     times, wscram, avgwind = db.a14_wscram(trange)

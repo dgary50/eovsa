@@ -60,6 +60,8 @@
 #          (nant/nbl, npol, nfreq, ntimes). 
 #   2015-May-05  DG
 #      Small change to process_tsys() to use only small antennas (max number is 13)
+#   2018-Jan-04  DG
+#      Added find parameter to find_solpnt() call.
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -107,42 +109,51 @@ def find_solpnt(t=None):
     good = np.where(projdict['Project'] == 'SOLPNTCAL')[0]
     if len(good) != 0:
         if len(good) == 1:
-            return [projdict['timestamp'][good]], timestamp
+            return [projdict['timestamp'][good[0]]], timestamp
         else:
             return projdict['timestamp'][good], timestamp
     else:
         return [], timestamp
 
-def get_solpnt(t=None):
+def get_solpnt(t=None, find=True):
     ''' Get the SOLPNT data from the SQL database, occurring after 
         time given in the Time() object t.  If omitted, the first 
-        SOLPNT scan for the current day is used (if it exists). '''
+        SOLPNT scan for the current day is used (if it exists). 
+        
+        Added a find parameter that, if set to False, skips the 
+        find_solpnt() call (hence, the Time() object must be an actual 
+        SOLPNTCAL time).
+    '''
     import dbutil
-    tstamps, timestamp = find_solpnt(t)
-    # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
-    if tstamps != []:
-        print 'SOLPNTCAL scans were found at ',        
-        for tstamp in tstamps:
-            if type(tstamp) is np.ndarray:
-                # Annoyingly necessary when only one time in tstamps
-                tstamp = tstamp[0]
-            t1 = util.Time(tstamp,format='lv')
-            print t1.iso,';',
-        print ' '
-        good, = np.where(tstamps >= timestamp)
-        # This is the timestamp of the first SOLPNTCAL scan after given time
-        if len(good) == 1:
-            stimestamp = np.int(tstamps[good[0]])
+    if find:
+        tstamps, timestamp = find_solpnt(t)
+        # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
+        if tstamps != []:
+            print 'SOLPNTCAL scans were found at ',        
+            for tstamp in tstamps:
+                if type(tstamp) is np.ndarray:
+                    # Annoyingly necessary when only one time in tstamps
+                    tstamp = tstamp[0]
+                t1 = util.Time(tstamp,format='lv')
+                print t1.iso,';',
+            print ' '
+            good, = np.where(tstamps >= timestamp)
+            # This is the timestamp of the first SOLPNTCAL scan after given time
+            if len(good) == 1:
+                stimestamp = np.int(tstamps[good[0]])
+            else:
+                stimestamp = np.int(tstamps[good][0])
         else:
-            stimestamp = np.int(tstamps[good][0])
+            print 'Warning: No SOLPNTCAL scan found, so interpreting given time as SOLPNTCAL time.' 
+            stimestamp = timestamp
     else:
-        print 'Warning: No SOLPNTCAL scan found, so interpreting given time as SOLPNTCAL time.' 
-        stimestamp = timestamp
+        # If find = False, then the provided Time() object must be an actual SOLPNTCAL time.
+        stimestamp = t.lv
 
     # Grab 300 records after the start time
     cursor = dbutil.get_cursor()
     # Now version independent!
-    verstr = dbutil.find_table_version(cursor,timestamp)
+    verstr = dbutil.find_table_version(cursor,stimestamp)
     if verstr is None:
         print 'No stateframe table found for the given time.'
         return {}
@@ -207,6 +218,7 @@ def process_solpnt(soldata,trj=None,antlist=None):
         trjrao.append(int(rao))
         trjdeco.append(int(deco))
     if antlist is None:
+        antidx = range(len(soldata['antlist']))
         antlist = soldata['antlist']
     # Mask array
     mask = np.zeros([300,len(antlist),len(trjlines)],dtype='bool')
@@ -216,21 +228,21 @@ def process_solpnt(soldata,trj=None,antlist=None):
         # desired position
         for j in range(len(trjlines)):
             # True if RAO and DECO matches this line
-            m = np.logical_and(soldata['rao'][i,antlist] == trjrao[j],soldata['deco'][i,antlist] == trjdeco[j])
+            m = np.logical_and(soldata['rao'][i,antidx] == trjrao[j],soldata['deco'][i,antidx] == trjdeco[j])
             # True if above AND is tracking
-            mask[i,:,j] = np.logical_and(m,soldata['trk'][i,antlist])
+            mask[i,:,j] = np.logical_and(m,soldata['trk'][i,antidx])
     # Loop over each RAO,DECO position, and average all good HPOL and VPOL voltage data
     hpol = np.zeros([len(antlist),len(trjlines)],dtype='float')
     vpol = np.zeros([len(antlist),len(trjlines)],dtype='float')
     for j in range(len(trjlines)):
-        hpol[:,j] = (soldata['hpol'][:,antlist]*mask[:,:,j]).sum(0)/mask[:,:,j].sum(0)
-        vpol[:,j] = (soldata['vpol'][:,antlist]*mask[:,:,j]).sum(0)/mask[:,:,j].sum(0)
+        hpol[:,j] = (soldata['hpol'][:,antidx]*mask[:,:,j]).sum(0)/mask[:,:,j].sum(0)
+        vpol[:,j] = (soldata['vpol'][:,antidx]*mask[:,:,j]).sum(0)/mask[:,:,j].sum(0)
     # Convert the trajectory RA offsets to "cross-dec" (use of median assumes most antennas
     # are tracking the correct declination)
     ra0 = np.median(soldata['ra'])
     dec0 = np.median(soldata['dec'])
     return {'Timestamp':soldata['Timestamp'],'tstamps':soldata['tstamps'],'antlist':antlist,
-            'ra':soldata['ra'][:,antlist],'dec':soldata['dec'][:,antlist],'ra0':ra0,'dec0':dec0,
+            'ra':soldata['ra'][:,antidx],'dec':soldata['dec'][:,antidx],'ra0':ra0,'dec0':dec0,
             'rao':  np.array(trjrao[:13])*np.cos(dec0), 'deco':np.array(trjdeco[13:]), 
             'hrao': hpol[:,:13], 'vrao': vpol[:,:13],
             'hdeco':hpol[:,13:], 'vdeco':vpol[:,13:], 'mask':mask}
@@ -550,7 +562,8 @@ def process_tsys(otp, proc, pol=None):
         nant, nf, nt = otp['tsys'].shape
     else:
         nant, npol, nf, nt = otp['tsys'].shape
-    nant = min(nant,13) # Make sure only small dishes are used
+    nant = len(proc['antlist']) # Make sure only small dishes are used
+    antlist = proc['antlist']
     # nf = len(np.where(otp['sfreq'] != 0)[0])  # Override nf with number of non-zero frequencies
     m = np.transpose(proc['mask'],(1,0,2))[0:nant,idx1,:]  # mask now same number of ants and times as tsys
     print m.shape
@@ -572,7 +585,7 @@ def process_tsys(otp, proc, pol=None):
                 hpol[:,ipnt,iant] = np.nan
             else:
                 # Set values to median of good-tracking period
-                hpol[:,ipnt,iant] = np.median(tsys[iant,:,good],0)
+                hpol[:,ipnt,iant] = np.median(tsys[antlist[iant],:,good],0)
     # At this stage, hpol is of size [nf, npnt, nant]
     rao = hpol[:,:13,:]   # First 13 pointings are RAO
     deco = hpol[:,13:,:]  # Second 13 pointings are DECO

@@ -74,6 +74,15 @@
 #      Modified fem_attn_val2xml() and fem_attn_val2sql(), to write the new XML
 #      definition and binary buffer that are compatible with current
 #      GAINCALTEST measurements into SQL database
+#   2017-12-05  DG
+#      Modified what is returned from read_cal(), so that the SQL timestamp is
+#      appended to both the XML and data buffer.  This should be transparent
+#      to previous uses of the routine.  Having the SQL timestamp is useful for
+#      some error checking.
+#   2018-01-01  DG
+#      Changed definition of X-Y Phase Calibration to add new Xi_Rot phase offset, 
+#      so changed the version to 2.0.  Corresponding changes to  xy_phasecal2xml() 
+#      and xy_phasecal2sql()
 #
 import struct, util
 import stateframe as sf
@@ -101,7 +110,7 @@ def cal_types():
             8: ['Reference calibration', 'refcal2xml', 1.0],
             9: ['Daily phase calibration', 'phacal2xml', 1.0],
            10: ['Total power calibration', 'tpcal2xml', 1.0],
-           11: ['X-Y phase calibration', 'xy_phasecal2xml', 1.0]}
+           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0]}  # Changed the definition of this, so version is 2.0 (2018-01-01)
 
 
 def str2bin(string):
@@ -310,13 +319,15 @@ def xy_phasecal2xml():
         data (get_xy_corr results), for antennas 1-14.  
         Returns a binary representation of the text file, for putting into the SQL 
         database.
+        
+        Version 2 adds xi_rot phase offset (2018-01-01)
     '''
     version = cal_types()[11][2]
 
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>XYcal</Name>')
-    buf += str2bin('<NumElts>4</NumElts>')
+    buf += str2bin('<NumElts>5</NumElts>')
 
     # Timestamp (double) [s, in LabVIEW format]
     # Start time of PHASECAL observation on which calibration is based
@@ -335,6 +346,12 @@ def xy_phasecal2xml():
     # Fixed size array of frequencies in GHz (500)
     buf += str2bin('<Array>')
     buf += str2bin('<Name>FGHz</Name>')
+    buf += str2bin('<Dimsize>500</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Fixed size array of frequencies in GHz (500)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Xi_Rot</Name>')
     buf += str2bin('<Dimsize>500</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
@@ -1072,6 +1089,10 @@ def read_cal(type, t=None):
                 print query
                 return {}, None
             buf = sqldict['Bin'][0]  # Binary representation of data
+            # Next two lines extends XML and buffer to add the SQL timestamp of the record read.
+            # This can be useful for error checking.
+            xmldict.update({'SQL_timestamp':['d',len(buf)]})   # Adds new keyword and double definition
+            buf += struct.pack('d',sqldict['Timestamp'][0])    # Appends SQL timestamp to buffer
             return xmldict, str(buf)
         else:
             print 'Unknown error occurred reading', typdict[type][0]
@@ -1212,7 +1233,7 @@ def write_cal(type, buf, t=None):
         a type definition record rather than a data record).  The relevant type 
         definition is read from the database, and its total size is determined and 
         compared with the buffer size, as a sanity check.
-
+        
         Returns True if success, or False if failure.
     '''
     import dbutil, read_xml2, sys
@@ -1229,6 +1250,7 @@ def write_cal(type, buf, t=None):
     # Read type definition XML from abin table and do a sanity check
     query = 'select top 1 * from abin where Version = ' + str(int(type)) + '.0 and Timestamp <=' + str(
         timestamp) + ' order by Timestamp desc, Id desc'
+    #query = 'select top 1 * from abin where Version = ' + str(int(type)) + '.0 order by Timestamp desc, Id desc'
     outdict, msg = dbutil.do_query(cursor, query)
     if msg == 'Success':
         if len(outdict) == 0:
@@ -1328,11 +1350,17 @@ def tpcal2sql(tpcal_dict, t=None):
     npol, nf, nant = tpcal_dict['tpcalfac'].shape
     if t is None:
         t = util.Time(tpcal_dict['timestamp'],format='lv')
+        #t_date = util.Time(tpcal_dict['timestamp'], format='lv').datetime.date()
+        #t_mod = datetime.datetime.combine(t_date, datetime.time(20,00,00))
+        #t = util.Time(util.Time(t_mod, format='datetime'), format='lv')
     # For TP calibration, must explicitly write xml for this nant and nfrq, since
     # the definition changes if nant and nfrq change
     send_xml2sql(typedef, t, nant=nant, nfrq=nf)
     # Write timestamp of data
     tdata = util.Time(tpcal_dict['timestamp'],format='lv')
+    #t_date = util.Time(tpcal_dict['timestamp'], format='lv').datetime.date()
+    #t_mod = datetime.datetime.combine(t_date, datetime.time(20,00,00))
+    #tdata = util.Time(util.Time(t_mod, format='datetime'), format='lv')
     buf = struct.pack('d', int(tdata.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1371,6 +1399,7 @@ def xy_phasecal2sql(xyphase_dict, t=None):
         'fghz': List of frequencies, in GHz (nf)
         'timestamp': The 'lv' format timestamp of the start of the PHASECAL
         'xyphase': The X-Y delay phase returned by get_xy_corr() routine [radians] (nant,nf)
+        'xi_rot': The phase offset that appears when the Ant14 feed is rotated [radians] (nf)
 
         The record is written as 500 frequencies, zero-filled for nf:500
         This kind of record is type definition 11.
@@ -1385,17 +1414,23 @@ def xy_phasecal2sql(xyphase_dict, t=None):
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
+    # Write frequency array
     buf += struct.pack('I', 500)  # Length of frequency array
     flist = np.zeros(500,np.float)
     flist[:nf] = xyphase_dict['fghz']
     buf += struct.pack('500f', *flist)
+    # Write xi_rot array
+    buf += struct.pack('I',500)  # Length of xi_rot array
+    xi_rot = np.zeros(500,np.float)
+    xi_rot[:nf] = xyphase_dict['xi_rot']
+    buf += struct.pack('500f', *xi_rot)
+    # Write xyphase
     buf += struct.pack('I', 14)  # Length of antenna array
     buf += struct.pack('I', 500)  # Length of frequency array
     xyout = np.zeros((14,500),np.float)
     xyout[:,:nf] = xyphase_dict['xyphase']
     for i in range(14):
         buf += struct.pack('500f', *xyout[i])
-
     return write_cal(typedef, buf, t)
 
     

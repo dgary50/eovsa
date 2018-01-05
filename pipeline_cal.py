@@ -26,6 +26,15 @@
 #  2017-10-13  DG
 #    Changed apply_fem_level() to read attn values from SQL rather than
 #    calculating it on the fly.
+#  2017-12-03  DG
+#    Updated the calibrate=True part of udb_corr() to give an error and
+#    do nothing if no record for TP calibration has been entered in SQL.
+#  2017-12-05  DG
+#    The above did not work, because the SQL timestamp was not available
+#    from cal_header's read_cal() routine.  I fixed that, and changed get_calfac()
+#    to add the SQL_timestamp as the key sqltime.
+#  2018-01-03  DG
+#    Updated udb_corr() to work with new xi_rot.
 #
 import dbutil as db
 import numpy as np
@@ -97,14 +106,14 @@ def apply_fem_level(data,gctime=None):
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
     # extends to the maximum 14 levels.
     a = np.zeros((14,13,2,nf),float)  # Extend attenuation to 14 levels
-    a[:8] = attn['attn'][:,:13]  # Use GAINCALTEST results in the first 8 levels
+    a[:8,:,:,idx1] = attn['attn'][:,:13,:,idx2]  # Use GAINCALTEST results in the first 8 levels
     for i in range(7,13):
         # Extend to levels 9-14 by adding 2 dB to each previous level
         a[i+1] = a[i] + 2.
     for i in range(13):
         for k,j in enumerate(idx1):
-            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
-            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,idx2[k]]
+            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,j]
+            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,j]
     cdata = copy.deepcopy(data)
     nblant = 136
     blgain = np.zeros((nf,nblant,4,nt),float)     # Baseline-based gains vs. frequency
@@ -245,7 +254,11 @@ def get_calfac(t=None):
         accalfac[iant] = stateframe.extract(buf,xml['Antenna'][i]['ACCalfac'])
         tpoffsun[iant] = stateframe.extract(buf,xml['Antenna'][i]['TPOffsun'])
         acoffsun[iant] = stateframe.extract(buf,xml['Antenna'][i]['ACOffsun'])
-    return {'fghz':fghz,'timestamp':stateframe.extract(buf,xml['Timestamp']),
+    try:
+        sqltime = stateframe.extract(buf,xml['SQL_timestamp'])
+    except:
+        sqltime = None
+    return {'fghz':fghz,'timestamp':stateframe.extract(buf,xml['Timestamp']),'sqltime':sqltime,
             'tpcalfac':tpcalfac,'accalfac':accalfac,'tpoffsun':tpoffsun,'acoffsun':acoffsun}
             
 def apply_calfac(data, calfac):
@@ -354,6 +367,8 @@ def unrot(data, azeldict=None):
     fghz = fghz[good]
     dph = stateframe.extract(buf,xml['XYphase'])
     dph = dph[:,good]
+    xi_rot = stateframe.extract(buf,xml['Xi_Rot'])
+    xi_rot = xi_rot[good]
     fidx1, fidx2 = common_val_idx(data['fghz'],fghz,precision=4)
     missing = np.setdiff1d(np.arange(len(data['fghz'])),fidx1)
     
@@ -364,8 +379,8 @@ def unrot(data, azeldict=None):
         for j in range(i+1,14):
             k = bl2ord[i,j]
             a1 = lobe(dph[i,fidx2] - dph[j,fidx2])
-            a2 = -dph[j,fidx2] + np.pi/2
-            a3 = dph[i,fidx2] - np.pi/2
+            a2 = -dph[j,fidx2] - xi_rot
+            a3 = dph[i,fidx2] - xi_rot + np.pi
             data['x'][fidx1,k,1] *= np.repeat(np.exp(1j*a1),nt).reshape(nf,nt)
             data['x'][fidx1,k,2] *= np.repeat(np.exp(1j*a2),nt).reshape(nf,nt) 
             data['x'][fidx1,k,3] *= np.repeat(np.exp(1j*a3),nt).reshape(nf,nt)
@@ -407,7 +422,7 @@ def udb_corr(filelist, calibrate=False, new=True, gctime=None):
           calibrate A boolean flag to indicate whether calibration factors should be
                         applied to the data.  The default is False, in anticipation that
                         such calibration will be applied as a CASA bandpass table, but
-                        if set to True, the latest previous SOLPNTCAL analysis is used.
+                        if set to True, the SOLPNTCAL analysis is used.
           new       If True (default), the "new" scheme of attenuation corrections
                         based on GAINCALTEST results is applied.  Otherwise, only the
                         nominal attenuation corrections are applied.
@@ -444,9 +459,19 @@ def udb_corr(filelist, calibrate=False, new=True, gctime=None):
         # Optionally apply calibration to convert to solar flux units
         if calibrate:
             t1 = time.time()
-            calfac = get_calfac(trange[0])
-            coutu = apply_calfac(coutu, calfac)
-            print 'Applying calibration took',time.time()-t1,'s'
+            if trange[0].datetime.hour < 7:
+                # Data time is earlier than 7 UT (i.e. on previous local day) so
+                # use previous date at 20 UT.
+                mjd = int(trange[0].mjd) - 1 + 20./24
+            else:
+                # Use current date at 20 UT
+                mjd = int(trange[0].mjd) + 20./24
+            calfac = get_calfac(Time(mjd,format='mjd'))
+            if Time(calfac['sqltime'],format='lv').mjd == mjd:
+                coutu = apply_calfac(coutu, calfac)
+                print 'Applying calibration took',time.time()-t1,'s'
+            else:
+                print 'Error: no TP calibration for this date.  Skipping calibration.'
         filecount += 1
         if filecount == 1:
             x = coutu
