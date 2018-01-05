@@ -15,6 +15,8 @@
 #     FTP to ACC now requires a username and password
 #   2016-May-20  DG
 #     Added a retry to tranferring files to ACC
+#   2018-Jan-04  DG
+#     Used correct default SK thresholds for 1792 samples, for flagging RFI
 #
 import struct,sys
 from sun_pos import *
@@ -715,8 +717,8 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
 
     # Kurtosis lower and upper limits (two doubles)
     # Min, max acceptable SK thresholds
-    # Default is 0.0, 0.0 -- Must be changed when calculated correctly
-    item = sh_dict.get('sk_lims',[0.0,0.0])
+    # Default is 0.87308624388667777, 1.1564648485565636, which are for M = 1792 
+    item = sh_dict.get('sk_lims',[0.87308624388667777,1.1564648485565636])
     fmt += '2d'
     buf = struct.pack('2d',item[0],item[1])
     f.write(buf)

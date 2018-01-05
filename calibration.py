@@ -86,6 +86,9 @@
 #    Now tsql is set by default to 20 UT on the date of observation, which is
 #    the new standard.  A second analysis at any time of day will overwrite the
 #    existing one.
+#   2018-Jan-04  DG
+#    Added best_solpnt2sql(), to aid in getting past TP calibrations into SQL.
+#    Also added a find parameter to solpntanal() call.
 #
 
 if __name__ == "__main__":
@@ -391,11 +394,14 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
                    'rao':rao_fit,'deco':deco_fit,'time':midtime,'antidx':idx}
     
     
-def solpntanal(t, udb=False, auto=False):
+def solpntanal(t, udb=False, auto=False, find=True):
     ''' Does a complete analysis of SOLPNTCAL, reading information from the SQL
         database, finding and dumping the corresponding Miriad IDB data, and 
         doing gaussian fit to beam to return the beam parameters.  The outputs
         are identical dictionaries for x and y polarizations.
+        
+        Added find parameter, which if False skips the find_solpnt() call, so
+        the Time() object t must be an actual SOLPNTCAL scan time.
     '''
     
     def fname2mjd(filename):
@@ -403,14 +409,14 @@ def solpntanal(t, udb=False, auto=False):
         fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
         return Time(fstr).mjd
 
-    pnt = solpnt.get_solpnt(t)
+    pnt = solpnt.get_solpnt(t, find=find)
     proc = solpnt.process_solpnt(pnt)
     trange = Time([pnt['Timestamp'],pnt['Timestamp']+300.],format='lv')
     if trange[0].mjd < 57450:
         if auto: print "Warning: 'auto' keyword does nothing for older data.  Keyword ignored."
         otp = dump_tsys.rd_miriad_tsys(trange,udb=udb)
     else:
-        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto)
+        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0])
 #    if udb:
 #        fstr = t1.iso
 #        folder = '/data1/UDBTXT/'+fstr[:4]
@@ -920,6 +926,57 @@ def solpnt2sql(t,tsql=None,prompt=True):
     else:
         print 'Result was NOT written to the SQL database'
 
+def check_qual(x, qual):
+    status = np.zeros(qual.shape,'S4')
+    status[np.where(qual)] = 'Good'
+    status[np.where(qual==False)] = '*Bad'
+    nparms,nf,nant = x['raparms'].shape
+    t = Time(x['ut_mjd'][0],format='mjd')
+    print t.iso[:19],': Quality of TP Calibration'
+    print '    Ant      X-Feed        Y-Feed'
+    print '            RA    DEC     RA    DEC'
+    for i in range(nant):
+        print '    ',i+1,' ',status[:,i]
+    percent_good = len(np.where(qual)[0])*100/(4*nant)
+    return percent_good
+
+def best_solpnt2sql(t):
+    ''' For post-date analysis, to examine the (typically) two SOLPNTCAL scans
+        on a date given by Time() object t and send the best one to the SQL database.
+    '''
+    import cal_header as ch
+    ts, timestamp = solpnt.find_solpnt(t)
+    pct_list = []   # List of percent-good quality (best will be used)
+    tp_list = []    # List of results of solpntanal() for total power
+    ac_list = []    # List of results of solpntanal() for autocorrelation
+    t_list = []     # List of time objects
+    for tstamp in ts:
+        tobj = Time(tstamp,format='lv')
+        x1, y1, qual1 = solpntanal(tobj, find=False)
+        pct = check_qual(x1, qual1)
+        if pct > 50:
+           # More than 50% good, so it is worth continuing
+           tp_list.append([x1, y1, qual1])
+           x2, y2, qual2 = solpntanal(tobj, auto=True, find=False)
+           ac_list.append([x2, y2, qual2])
+           pct_list.append(pct)
+           t_list.append(tobj)
+    if pct_list != []:
+        best_pct = max(pct_list)
+        best_idx = pct_list.index(best_pct)
+        x1, y1, qual1 = tp_list[best_idx]
+        calfac1, offsun1 = sp_get_calfac(x1, y1, do_plot=False)
+        x2, y2, qual2 = ac_list[best_idx]
+        calfac2, offsun2 = sp_get_calfac(x2, y2, do_plot=False)
+        tpcal_dict = {'fghz':x1['fghz'],'timestamp':Time(x1['ut_mjd'][0],format='mjd').lv,
+                      'tpcalfac':calfac1,'accalfac':calfac2,'tpoffsun':offsun1,'acoffsun':offsun2}
+        # Default to writing SQL record at 20 UT on date of observation 
+        tsql = Time(int(x1['ut_mjd'][0]) + 20/24.,format='mjd')
+        ch.tpcal2sql(tpcal_dict,t=tsql)
+        print 'Result for',t_list[best_idx].iso[:16],'UT, with',str(best_pct)+'% quality, was written to the SQL database'
+    else:
+        print 'No good scans for',t.iso[:10]+'. Update manually with a result from another date.'
+   
 if __name__ == "__main__":
     ''' Run automatically via cron job, or at command line.
         Usage: python /common/python/current/calibration.py "2014-12-15 18:30"
@@ -973,16 +1030,7 @@ if __name__ == "__main__":
     else:
         print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
         exit()
-    status = np.zeros(qual.shape,'S4')
-    status[np.where(qual)] = 'Good'
-    status[np.where(qual==False)] = '*Bad'
-    nparms,nf,nant = x['raparms'].shape
-    print t.iso[:19],': Quality of TP Calibration'
-    print '    Ant      X-Feed        Y-Feed'
-    print '            RA    DEC     RA    DEC'
-    for i in range(nant):
-        print '    ',i+1,' ',status[:,i]
-    percent_good = len(np.where(qual)[0])*100/(4*nant)
+    percent_good = check_qual(x, qual)
     if percent_good > 50:
         if socket.gethostname() == 'dpp':
             # If this is the DPP, write the results to the SQL database automatically.
