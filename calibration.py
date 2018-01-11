@@ -89,6 +89,10 @@
 #   2018-Jan-04  DG
 #    Added best_solpnt2sql(), to aid in getting past TP calibrations into SQL.
 #    Also added a find parameter to solpntanal() call.
+#   2018-Jan-07  DG
+#    Small bug fixes to reduce crashes for unusual situations.
+#   2018-Jan-11  DG
+#    imported ant_str2list() from util, instead of trying to use pcapture2 version
 #
 
 if __name__ == "__main__":
@@ -100,12 +104,12 @@ if __name__ == "__main__":
 
 import numpy as np
 import solpnt
-from util import Time, nearest_val_idx, lobe
+from util import Time, nearest_val_idx, lobe, ant_str2list
 import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
 
-def calpnt_multi(trange,ant_str='ant1-13',do_plot=True,outfile=None):
+def calpnt_multi(trange,ant_str='ant1-13',calpnt2m=False,do_plot=True,outfile=None):
     ''' Runs calpntanal() for all scans within the given time range.
     
         trange   Time object with start and end time over which scans
@@ -117,19 +121,23 @@ def calpnt_multi(trange,ant_str='ant1-13',do_plot=True,outfile=None):
     import read_idb
 
     fdb = dump_tsys.rd_fdb(trange[0])
-    scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
-    calpnt2m = False   # Flag to indicate whether we are doing CALPNT2M analysis
-    if scanidx.size == 0:
-        # No CALPNTCAL scans, so search for CALPNT2M
+    #calpnt2m = False   # Flag to indicate whether we are doing CALPNT2M analysis
+    if calpnt2m:
+        # Search for CALPNT2M
         scanidx, = np.where(fdb['PROJECTID'] == 'CALPNT2M')
         if scanidx.size == 0:
-            print 'No CALPNTCAL or CALPNT2M project IDs found for date'+t.iso[:10]
+            print 'No CALPNT2M project IDs found for date'+t.iso[:10]
             return {}
-        calpnt2m = True
+    else:
+        # Search for CALPNTCAL
+        scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
+        if scanidx.size == 0:
+            print 'No CALPNTCAL project IDs found for date'+t.iso[:10]
+            return {}
     scans,sidx = np.unique(fdb['SCANID'][scanidx],return_index=True)
     tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
     telist = Time(fdb['EN_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
-    idx = read_idb.p.ant_str2list(ant_str)
+    idx = ant_str2list(ant_str)
     out = []
     if outfile is None:
         outfile = '/common/tmp/Pointing/'+tlist[0].iso[:10].replace('-','')+'_calpnt.txt'
@@ -165,12 +173,12 @@ def calpnt_multi(trange,ant_str='ant1-13',do_plot=True,outfile=None):
                             ax[k-1,j].xaxis.set_ticklabels([])
                             ax[k-1,j].set_xlabel('')
                 try:
-                    out.append(calpntanal(t,ant_str=ant_str,do_plot=do_plot,ax=ax[k]))
+                    out.append(calpntanal(t, ant_str=ant_str, calpnt2m=calpnt2m, do_plot=do_plot, ax=ax[k]))
                 except:
                     out.append({})
             else:
                 try:
-                    out.append(calpntanal(t,ant_str=ant_str))
+                    out.append(calpntanal(t, ant_str=ant_str, calpnt2m=calpnt2m))
                 except:
                     out.append({})
             src = out[-1]
@@ -216,7 +224,7 @@ def calpnt_multi(trange,ant_str='ant1-13',do_plot=True,outfile=None):
                 f.close()
     return out
     
-def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
+def calpntanal(t, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
     ''' Does a complete analysis of CALPNTCAL, reading information from the SQL
         database, finding the corresponding Miriad IDB data, and doing the 
         gaussian fit to the beam, to return the beam and offset parameters.
@@ -238,24 +246,29 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
     tdate = t.iso.replace('-','')[:8]
     fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
     fdb = dump_tsys.rd_fdb(t)
-    scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
     # Set offset coordinates appropriate to the type of PROJECTID found
-    if scanidx.size == 0:
-        # No CALPNTCAL scans, so search for CALPNT2M
+    if calpnt2m:
+        # Search for CALPNT2M
         scanidx, = np.where(fdb['PROJECTID'] == 'CALPNT2M')
         if scanidx.size == 0:
-            print 'No CALPNTCAL or CALPNT2M project IDs found for date'+t.iso[:10]
+            print 'No CALPNT2M project IDs found for date'+t.iso[:10]
             return {}
         else:
             # Found CALPNT2M, so set offset coordinates to match calpnt2m.trj
             rao = np.array([-5.00, -2.0, -1.0, -0.5, 0.00, 0.5, 1.0, 2.0])
             deco = np.array([-2.0, -1.0, -0.5, 0.00, 0.5, 1.0, 2.0, 5.00])
-            pltfac = 10.
+            pltfac = 10.        
     else:
-        # Found CALPNTCAL, so set offset coordinates to match calpnt.trj
-        rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])
-        deco = np.array([-0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 1.00])
-        pltfac = 1.
+        # Search for CALPNTCAL
+        scanidx, = np.where(fdb['PROJECTID'] == 'CALPNTCAL')
+        if scanidx.size == 0:
+            print 'No CALPNTCAL project IDs found for date'+t.iso[:10]
+            return {}
+        else:
+            # Found CALPNTCAL, so set offset coordinates to match calpnt.trj
+            rao = np.array([-1.00, -0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20])
+            deco = np.array([-0.20, -0.10, -0.05, 0.00, 0.05, 0.10, 0.20, 1.00])
+            pltfac = 1.
     scans,sidx = np.unique(fdb['SCANID'][scanidx],return_index=True)
     tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
     idx, = nearest_val_idx([t.jd],tlist.jd)
@@ -263,7 +276,7 @@ def calpntanal(t,ant_str='ant1-13',do_plot=True,ax=None):
     # Read pointing data (timerange t must be accurate)
     out = read_idb.read_idb(filelist, navg=30)
     # Determine wanted baselines with ant 14 from ant_str
-    idx = read_idb.p.ant_str2list(ant_str)
+    idx = ant_str2list(ant_str)
     idx1 = idx[idx>7]  # Ants > 8
     idx2 = idx[idx<8]  # Ants <= 8
     # Determine parallactic angle for azel antennas (they are all the same, so find median).  
@@ -765,9 +778,16 @@ def sp_offsets(x,y,save_plot=False):
             ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
             ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
         if ant in oldant:
+            # clip errors to 0.5 degree
+            if  abs(ramed) > 5000: ramed = np.sign(ramed)*5000
+            if abs(decmed) > 5000: decmed = np.sign(ramed)*5000
             xelx.append(ramed/10000)
             elx.append(decmed/10000)
         else:
+            # clip errors to 0.5 degree
+            halfdeg = 0.5*np.pi/180.
+            if abs(xel) > halfdeg: xel = np.sign(xel)*halfdeg
+            if abs(el) > halfdeg: el = np.sign(el)*halfdeg
             xelx.append(xel*180./np.pi)
             elx.append(el*180./np.pi)
     plt.draw()
@@ -804,11 +824,19 @@ def sp_offsets(x,y,save_plot=False):
             ax[ant/ncol,ant % ncol].text(0.65,0.80,'XEL = {:6.3f}'.format(xel*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
             ax[ant/ncol,ant % ncol].text(0.65,0.65,'EL = {:6.3f}'.format(el*180./np.pi),color='red',transform=ax[ant/2,ant % 2].transAxes)
         if ant in oldant:
+            # clip errors to 0.5 degree
+            if  abs(ramed) > 5000: ramed = np.sign(ramed)*5000
+            if abs(decmed) > 5000: decmed = np.sign(ramed)*5000
             xely.append(ramed/10000)
             ely.append(decmed/10000)
         else:
+            # clip errors to 0.5 degree
+            halfdeg = 0.5*np.pi/180.
+            if abs(xel) > halfdeg: xel = np.sign(xel)*halfdeg
+            if abs(el) > halfdeg: el = np.sign(el)*halfdeg
             xely.append(xel*180./np.pi)
             ely.append(el*180./np.pi)
+            
     plt.draw()
     xout = (np.array(xelx) + np.array(xely))/2.
     yout = (np.array(elx) + np.array(ely))/2.
@@ -1002,13 +1030,13 @@ if __name__ == "__main__":
     timestamp = t.lv  # Current timestamp
     times, tstamp = solpnt.find_solpnt(t)
     # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
-    if times == []:
+    if len(times) == 0:
         # No SOLPNTCAL scans (yet)
         print t.iso[:19]+': No SOLPNTCAL scans for today'
         exit()
-    elif type(times[0]) is np.ndarray:
-        # Annoyingly necessary when only one time in tstamps
-        times = times[0]
+    #elif type(times[0]) is np.ndarray:
+    #    # Annoyingly necessary when only one time in tstamps
+    #    times = times[0]
     igt5 = np.where((timestamp - times) > 300)[0]
     if len(igt5) == 0:
         # SOLPNTCAL scan in progress

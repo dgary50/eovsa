@@ -64,6 +64,9 @@
 #   2017-Aug-09  DG
 #      Fixed a bug in TrackFlag and dAz, in azel_from_stateframe() and 
 #      azel_from_sqldict()
+#   2018-Jan-10  DG
+#      Added control_room_temp() function to return the ambient temperature in
+#      the control room.
 #
 
 import struct, sys
@@ -79,6 +82,25 @@ import xml.etree.ElementTree as ET
 import Queue
 q = Queue.Queue()
 
+#============================
+def control_room_temp():
+    '''Read the 'http://192.168.24.233/state.xml' page and return the
+       ambient temperature, in C.  If reading data fails, returns an
+       impossible number, -99 C.
+    '''
+    try:
+        f = urllib2.urlopen('http://192.168.24.233/state.xml',timeout=0.4)
+    except:
+        # Timeout error
+        print Time.now().iso,'Control room temperature connection timed out'
+        return -99.0
+    lines = f.readlines()
+    f.close()
+    try:
+        return int((float(lines[3][13:17]) - 32)*50/9.)/10.
+    except:
+        return -99.0
+        
 #============================
 def weather(attempt=0):
     '''Read the http://wx.cm.pvt/latestsampledata.xml page and

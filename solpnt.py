@@ -61,7 +61,9 @@
 #   2015-May-05  DG
 #      Small change to process_tsys() to use only small antennas (max number is 13)
 #   2018-Jan-04  DG
-#      Added find parameter to find_solpnt() call.
+#      Added find parameter to get_solpnt() call.
+#   2018-Jan-07  DG
+#      Tried to make find_solpnt() output more uniform by returning array, not list
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -78,7 +80,7 @@ if sys.platform[:5] == 'linux':
 
 def find_solpnt(t=None):
     ''' Makes an SQL query to find the SOLPNTCAL scans for the date given in
-        the Time() object t.  A list of timestamps is returned, along with 
+        the Time() object t.  An array of timestamps is returned, along with 
         the timestamp of the object provided.
     '''
     import dbutil
@@ -94,7 +96,7 @@ def find_solpnt(t=None):
     verstr = dbutil.find_table_version(cursor,timestamp,True)
     if verstr is None:
         print 'No scan_header table found for given time.'
-        return [], timestamp
+        return np.array([]), timestamp
     # First retrieve the Project from all scan headers for the day
     cursor.execute('select timestamp,Project from hV'+verstr+'_vD1 where timestamp between '+str(stimestamp)+' and '+str(etimestamp)+' order by timestamp')
     data = np.transpose(np.array(cursor.fetchall()))
@@ -102,18 +104,18 @@ def find_solpnt(t=None):
     cursor.close()
     if len(data) == 0:
         # No SOLPNTCAL found, so return empty list (and timestamp)
-        return [], timestamp
+        return np.array([]), timestamp
     else:
         projdict = dict(zip(names,data))
         projdict['timestamp'] = projdict['timestamp'].astype('float')  # Convert timestamps from string to float
     good = np.where(projdict['Project'] == 'SOLPNTCAL')[0]
     if len(good) != 0:
         if len(good) == 1:
-            return [projdict['timestamp'][good[0]]], timestamp
+            return np.array([projdict['timestamp'][good[0]]]), timestamp
         else:
             return projdict['timestamp'][good], timestamp
     else:
-        return [], timestamp
+        return np.array([]), timestamp
 
 def get_solpnt(t=None, find=True):
     ''' Get the SOLPNT data from the SQL database, occurring after 
@@ -128,16 +130,19 @@ def get_solpnt(t=None, find=True):
     if find:
         tstamps, timestamp = find_solpnt(t)
         # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
-        if tstamps != []:
+        if len(tstamps) != 0:
             print 'SOLPNTCAL scans were found at ',        
             for tstamp in tstamps:
-                if type(tstamp) is np.ndarray:
-                    # Annoyingly necessary when only one time in tstamps
-                    tstamp = tstamp[0]
+                #if type(tstamp) is np.ndarray:
+                #    # Annoyingly necessary when only one time in tstamps
+                #    tstamp = tstamp[0]
                 t1 = util.Time(tstamp,format='lv')
                 print t1.iso,';',
             print ' '
             good, = np.where(tstamps >= timestamp)
+            if len(good) == 0:
+                print 'Warning: No SOLPNTCAL scan found after provided SOLPNTCAL time.' 
+                return {}
             # This is the timestamp of the first SOLPNTCAL scan after given time
             if len(good) == 1:
                 stimestamp = np.int(tstamps[good[0]])
