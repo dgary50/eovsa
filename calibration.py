@@ -93,6 +93,10 @@
 #    Small bug fixes to reduce crashes for unusual situations.
 #   2018-Jan-11  DG
 #    imported ant_str2list() from util, instead of trying to use pcapture2 version
+#   2018-Jan-15  DG
+#    Changed calpntanal() to require feed-rotation corrected data (it was not
+#    working well otherwise).  As part of this, an alternate directory can be
+#    provided in either calpntanal() or calpnt_multi().
 #
 
 if __name__ == "__main__":
@@ -109,7 +113,7 @@ import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
 
-def calpnt_multi(trange,ant_str='ant1-13',calpnt2m=False,do_plot=True,outfile=None):
+def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, outfile=None):
     ''' Runs calpntanal() for all scans within the given time range.
     
         trange   Time object with start and end time over which scans
@@ -173,12 +177,12 @@ def calpnt_multi(trange,ant_str='ant1-13',calpnt2m=False,do_plot=True,outfile=No
                             ax[k-1,j].xaxis.set_ticklabels([])
                             ax[k-1,j].set_xlabel('')
                 try:
-                    out.append(calpntanal(t, ant_str=ant_str, calpnt2m=calpnt2m, do_plot=do_plot, ax=ax[k]))
+                    out.append(calpntanal(t, fdir=fdir, ant_str=ant_str, calpnt2m=calpnt2m, do_plot=do_plot, ax=ax[k]))
                 except:
                     out.append({})
             else:
                 try:
-                    out.append(calpntanal(t, ant_str=ant_str, calpnt2m=calpnt2m))
+                    out.append(calpntanal(t, fdir=fdir, ant_str=ant_str, calpnt2m=calpnt2m))
                 except:
                     out.append({})
             src = out[-1]
@@ -224,7 +228,7 @@ def calpnt_multi(trange,ant_str='ant1-13',calpnt2m=False,do_plot=True,outfile=No
                 f.close()
     return out
     
-def calpntanal(t, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
+def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
     ''' Does a complete analysis of CALPNTCAL, reading information from the SQL
         database, finding the corresponding Miriad IDB data, and doing the 
         gaussian fit to the beam, to return the beam and offset parameters.
@@ -237,6 +241,10 @@ def calpntanal(t, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
               Otherwise, a new figure is created (if do_plot is True).
         Returns a dictionary containing 
            Source name, Time, HA, Dec, RA offset and Dec offset
+           
+        NB: This routine has been changed to use feed-rotation-corrected data, by
+            commenting out the original code with ##.  Two replacement lines were
+            added, below comments marked with ##--.
     '''
     import matplotlib.pyplot as plt
     from matplotlib.transforms import Bbox
@@ -244,7 +252,11 @@ def calpntanal(t, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
     import dbutil as db
     bl2ord = read_idb.bl2ord
     tdate = t.iso.replace('-','')[:8]
-    fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
+    if fdir is None:
+        fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
+    else:
+        if fdir[-1] != '/': 
+            fdir += '/'
     fdb = dump_tsys.rd_fdb(t)
     # Set offset coordinates appropriate to the type of PROJECTID found
     if calpnt2m:
@@ -277,28 +289,30 @@ def calpntanal(t, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
     out = read_idb.read_idb(filelist, navg=30)
     # Determine wanted baselines with ant 14 from ant_str
     idx = ant_str2list(ant_str)
-    idx1 = idx[idx>7]  # Ants > 8
-    idx2 = idx[idx<8]  # Ants <= 8
+    ##idx1 = idx[idx>7]  # Ants > 8
+    ##idx2 = idx[idx<8]  # Ants <= 8
     # Determine parallactic angle for azel antennas (they are all the same, so find median).  
     #    If 0 < abs(chi) < 30, use channel XX
     #    If 30 < abs(chi) < 60, use sum of channel XX and XY
     #    If 60 < abs(chi) < 90, use channel XY
-    midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
-    times, chi = db.get_chi(Time([midtime.lv+1,midtime.lv + 10],format='lv'))
-    abschi = abs(lobe(np.median(chi[0,0:8])))
+    ##midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
+    ##times, chi = db.get_chi(Time([midtime.lv+1,midtime.lv + 10],format='lv'))
+    ##abschi = abs(lobe(np.median(chi[0,0:8])))
     if pltfac == 1.:
         # Case of 27m antenna pointing
         # Do appropriate sums over frequency, polarization and baseline
-        if abschi >= 0 and abschi < np.pi/6:
-            pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)  # Use only XX
-        elif abschi >= np.pi/6 and abschi < np.pi/3:
-            pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
-            pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2)),0)  # Use sum of XX and XY for ants <= 8
-            pntdata = pntdata1 + np.sum(pntdata2[np.array([0,2])],0)
-        else:
-            pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
-            pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1)),0)  # Use sum of XY for ants <= 8
-            pntdata = pntdata1 + pntdata2
+        ##--This line replaces all of the lines marked with ##
+        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2,:,:48],1),1)),0)
+        ##if abschi >= 0 and abschi < np.pi/6:
+        ##    pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)  # Use only XX
+        ##elif abschi >= np.pi/6 and abschi < np.pi/3:
+        ##    pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
+        ##    pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2)),0)  # Use sum of XX and XY for ants <= 8
+        ##    pntdata = pntdata1 + np.sum(pntdata2[np.array([0,2])],0)
+        ##else:
+        ##    pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
+        ##    pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1)),0)  # Use sum of XY for ants <= 8
+        ##    pntdata = pntdata1 + pntdata2
         # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
         # sum over these
         pntdata.shape = (16,3)
@@ -341,16 +355,18 @@ def calpntanal(t, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
     else:
         # Case of 2m antenna pointing
         # Do appropriate sum over frequency and polarization but not baseline
-        if abschi >= 0 and abschi < np.pi/6:
-            pntdata = np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1))  # Use only XX
-        elif abschi >= np.pi/6 and abschi < np.pi/3:
-            pntdata1 = np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1))  # Use XX only for ants > 8
-            pntdata2 = np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2))  # Use sum of XX and XY for ants <= 8
-            pntdata = np.concatenate((pntdata1,np.sum(pntdata2[:,np.array([0,2])],1)),0)
-        else:
-            pntdata1 = np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1))  # Use XX only for ants > 8
-            pntdata2 = np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1))  # Use sum of XY for ants <= 8
-            pntdata = np.concatenate((pntdata1,pntdata2),0)
+        ##--This line replaces all of the lines marked with ##
+        pntdata = np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2,:,:48],1),1)) # Combines XX and YY
+        ##if abschi >= 0 and abschi < np.pi/6:
+        ##    pntdata = np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1))  # Use only XX
+        ##elif abschi >= np.pi/6 and abschi < np.pi/3:
+        ##    pntdata1 = np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1))  # Use XX only for ants > 8
+        ##    pntdata2 = np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2))  # Use sum of XX and XY for ants <= 8
+        ##    pntdata = np.concatenate((pntdata1,np.sum(pntdata2[:,np.array([0,2])],1)),0)
+        ##else:
+        ##    pntdata1 = np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1))  # Use XX only for ants > 8
+        ##    pntdata2 = np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1))  # Use sum of XY for ants <= 8
+        ##    pntdata = np.concatenate((pntdata1,pntdata2),0)
         # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
         # sum over these
         pntdata.shape = (idx.size,16,3)

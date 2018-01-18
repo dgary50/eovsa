@@ -390,8 +390,8 @@ def unrot(data, azeldict=None):
         for j in range(i + 1, 14):
             k = bl2ord[i, j]
             a1 = lobe(dph[i, fidx2] - dph[j, fidx2])
-            a2 = -dph[j, fidx2] - xi_rot
-            a3 = dph[i, fidx2] - xi_rot + np.pi
+            a2 = -dph[j, fidx2] - xi_rot[fidx2]
+            a3 = dph[i, fidx2] - xi_rot[fidx2] + np.pi
             data['x'][fidx1, k, 1] *= np.repeat(np.exp(1j * a1), nt).reshape(nf, nt)
             data['x'][fidx1, k, 2] *= np.repeat(np.exp(1j * a2), nt).reshape(nf, nt)
             data['x'][fidx1, k, 3] *= np.repeat(np.exp(1j * a3), nt).reshape(nf, nt)

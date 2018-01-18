@@ -455,7 +455,10 @@ def par_angle(alt, az):
 #============================
 def hadec2altaz(ha, dec):
     ''' Given an hour angle and declination, both in radians, return
-        the corresponding altitude and azimuth for OVRO
+        the corresponding altitude and azimuth for OVRO.
+        
+        This gives the same result as radec2azel() in coord_conv.py,
+        but uses HA as input, and the order of the outputs is swapped.
     '''
     lat = 37.233170*np.pi/180.
     salt = np.sin(dec)*np.sin(lat) + np.cos(dec)*np.cos(lat)*np.cos(ha)
