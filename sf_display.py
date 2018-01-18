@@ -61,6 +61,8 @@
 #     Changed antlist to remove ant 15, which is no longer planned to be used.
 #     Also removed ant 15 (index 14) from definition of altantindex in update_display()
 #     Also expanded space for FSeqFile display, to allow for longer FSEQ filenames
+#   2018-Jan-10  DG
+#     Added display of control room temperature, with red background if greater than 85 F
 #
 
 from Tkinter import *
@@ -1042,8 +1044,12 @@ class App():
         new_line += '  Temp: ' + str(stf.extract(data,weather['Temperature']))[:4] + ' F'
         pressure = stf.extract(data,weather['Pressure'])
         new_line += '  Pressure: ' + str(pressure)[:6] + ' mbar'
+        cr_temp = int(stf.extract(data,sf['Schedule']['Data']['Roach'][0]['Temp.ambient'])*90./5)/10. + 32
+        new_line += '     Control Room Temp:'+str(cr_temp)+' F'
         self.L3.insert(END,new_line)
         if pressure == 0.0:
+            self.L3.itemconfig(END,bg=self.colors['na'])
+        if cr_temp > 85.:
             self.L3.itemconfig(END,bg=self.colors['error'])
 
         solpwr12 = sf['Schedule']['Data']['SolarPower'][0]

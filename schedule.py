@@ -1723,6 +1723,8 @@ class App():
                         self.sensors[rnum] = {}
                 else:
                     self.sensors[rnum] = {}
+        self.cr_temp = stateframe.control_room_temp()
+        self.sensors[0]['temp.ambient'] = self.cr_temp
 
         # MASTER SCHEDULE ONLY: Update antenna diagnostics, but only once every 5 minutes (300 s)
         if self.subarray_name == 'Subarray1':

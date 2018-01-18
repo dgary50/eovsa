@@ -42,17 +42,19 @@ from util import Time, nearest_val_idx, common_val_idx, lobe
 import stateframe
 import cal_header as ch
 
+
 def get_sql_info(trange):
-   ''' Get all antenna information from the SQL database for a given 
-       timerange, including TrackFlag and Parallactic Angle
-   '''
-   cursor = db.get_cursor()
-   sqldict = db.get_dbrecs(cursor,dimension=15,timestamp=trange)
-   azeldict = stateframe.azel_from_sqldict(sqldict)
-   time = Time(sqldict['Timestamp'][:,0].astype(int),format='lv')
-   azeldict.update({'Time':time})
-   cursor.close()
-   return azeldict
+    ''' Get all antenna information from the SQL database for a given
+        timerange, including TrackFlag and Parallactic Angle
+    '''
+    cursor = db.get_cursor()
+    sqldict = db.get_dbrecs(cursor, dimension=15, timestamp=trange)
+    azeldict = stateframe.azel_from_sqldict(sqldict)
+    time = Time(sqldict['Timestamp'][:, 0].astype(int), format='lv')
+    azeldict.update({'Time': time})
+    cursor.close()
+    return azeldict
+
 
 def get_bl_order():
     """Return the order of baseline data output by a CASPER correlator
@@ -60,14 +62,17 @@ def get_bl_order():
     n_ants = 16
     order1, order2 = [], []
     for i in range(n_ants):
-        for j in range(int(n_ants/2),-1,-1):
-            k = (i-j) % n_ants
-            if i >= k: order1.append((k, i))
-            else: order2.append((i, k))
+        for j in range(int(n_ants / 2), -1, -1):
+            k = (i - j) % n_ants
+            if i >= k:
+                order1.append((k, i))
+            else:
+                order2.append((i, k))
     order2 = [o for o in order2 if o not in order1]
     return tuple([o for o in order1 + order2])
 
-def apply_fem_level(data,gctime=None):
+
+def apply_fem_level(data, gctime=None):
     ''' Applys the FEM level corrections to the given data dictionary.
         
         Inputs:
@@ -86,67 +91,69 @@ def apply_fem_level(data,gctime=None):
     import copy
 
     # Get timerange from data
-    trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    trange = Time([data['time'][0], data['time'][-1]], format='jd')
     if gctime is None:
         gctime = trange[0]
     # Get time cadence
     dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
     if dt == 1: dt = None
     # Get the FEM levels of the requested timerange
-    src_lev = get_fem_level(trange,dt)   # solar gain state for timerange of file
+    src_lev = get_fem_level(trange, dt)  # solar gain state for timerange of file
     nf = len(data['fghz'])
     nt = len(src_lev['times'])
-    attn = ac.read_attncal(gctime)[0]   # Reads attn from SQL database (returns a list, but use first, generally only, one)
+    attn = ac.read_attncal(gctime)[
+        0]  # Reads attn from SQL database (returns a list, but use first, generally only, one)
     # attn = ac.get_attncal(gctime)[0]   # Analyzes GAINCALTEST (returns a list, but use first, generally only, one)
-    antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
+    antgain = np.zeros((15, 2, nf, nt), np.float32)  # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
-    idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
+    idx1, idx2 = common_val_idx(data['fghz'], attn['fghz'], precision=4)
     # Currently, GAINCALTEST measures 8 levels of attenuation (16 dB).  I assumed this would be enough,
     # but the flare of 2017-09-10 actually went to 10 levels (20 dB), so we have no choice but to extend
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
     # extends to the maximum 14 levels.
-    a = np.zeros((14,13,2,nf),float)  # Extend attenuation to 14 levels
-    a[:8,:,:,idx1] = attn['attn'][:,:13,:,idx2]  # Use GAINCALTEST results in the first 8 levels
-    for i in range(7,13):
+    a = np.zeros((14, 13, 2, nf), float)  # Extend attenuation to 14 levels
+    a[:8, :, :, idx1] = attn['attn'][:, :13, :, idx2]  # Use GAINCALTEST results in the first 8 levels
+    for i in range(7, 13):
         # Extend to levels 9-14 by adding 2 dB to each previous level
-        a[i+1] = a[i] + 2.
+        a[i + 1] = a[i] + 2.
     for i in range(13):
-        for k,j in enumerate(idx1):
-            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,j]
-            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,j]
+        for k, j in enumerate(idx1):
+            antgain[i, 0, j] = a[src_lev['hlev'][i], i, 0, j]
+            antgain[i, 1, j] = a[src_lev['vlev'][i], i, 0, j]
     cdata = copy.deepcopy(data)
     nblant = 136
-    blgain = np.zeros((nf,nblant,4,nt),float)     # Baseline-based gains vs. frequency
+    blgain = np.zeros((nf, nblant, 4, nt), float)  # Baseline-based gains vs. frequency
 
     for i in range(14):
-        for j in range(i,14):
-            k = bl2ord[i,j]
-            blgain[:,k,0] = 10**((antgain[i,0] + antgain[j,0])/20.)
-            blgain[:,k,1] = 10**((antgain[i,1] + antgain[j,1])/20.)
-            blgain[:,k,2] = 10**((antgain[i,0] + antgain[j,1])/20.)
-            blgain[:,k,3] = 10**((antgain[i,1] + antgain[j,0])/20.)
+        for j in range(i, 14):
+            k = bl2ord[i, j]
+            blgain[:, k, 0] = 10 ** ((antgain[i, 0] + antgain[j, 0]) / 20.)
+            blgain[:, k, 1] = 10 ** ((antgain[i, 1] + antgain[j, 1]) / 20.)
+            blgain[:, k, 2] = 10 ** ((antgain[i, 0] + antgain[j, 1]) / 20.)
+            blgain[:, k, 3] = 10 ** ((antgain[i, 1] + antgain[j, 0]) / 20.)
     # Reorder antgain axes to put frequencies in first slot, to match data
-    antgain = np.swapaxes(np.swapaxes(antgain,1,2),0,1)
-    antgainf = 10**(antgain/10.)
+    antgain = np.swapaxes(np.swapaxes(antgain, 1, 2), 0, 1)
+    antgainf = 10 ** (antgain / 10.)
 
-    idx = nearest_val_idx(data['time'],src_lev['times'].jd)
+    idx = nearest_val_idx(data['time'], src_lev['times'].jd)
     nt = len(idx)  # New number of times
     # Correct the auto- and cross-correlation data
-    cdata['x'] *= blgain[:,:,:,idx]
+    cdata['x'] *= blgain[:, :, :, idx]
     # Reshape px and py arrays
-    cdata['px'].shape = (nf,16,3,nt)
-    cdata['py'].shape = (nf,16,3,nt)
+    cdata['px'].shape = (nf, 16, 3, nt)
+    cdata['py'].shape = (nf, 16, 3, nt)
     # Correct the power
-    cdata['px'][:,:15,0] *= antgainf[:,:,0,idx]
-    cdata['py'][:,:15,0] *= antgainf[:,:,1,idx]
+    cdata['px'][:, :15, 0] *= antgainf[:, :, 0, idx]
+    cdata['py'][:, :15, 0] *= antgainf[:, :, 1, idx]
     # Correct the power-squared
-    cdata['px'][:,:15,1] *= antgainf[:,:,0,idx]**2
-    cdata['py'][:,:15,1] *= antgainf[:,:,1,idx]**2
+    cdata['px'][:, :15, 1] *= antgainf[:, :, 0, idx] ** 2
+    cdata['py'][:, :15, 1] *= antgainf[:, :, 1, idx] ** 2
     # Reshape px and py arrays back to original
-    cdata['px'].shape = (nf*16*3,nt)
-    cdata['py'].shape = (nf*16*3,nt)
+    cdata['px'].shape = (nf * 16 * 3, nt)
+    cdata['py'].shape = (nf * 16 * 3, nt)
     return cdata
-    
+
+
 def apply_attn_corr(data, tref=None, flags=None):
     ''' Applys the attenuator state corrections to the given data dictionary,
         corrected to the gain-state at time given by Time() object tref.
@@ -170,68 +177,71 @@ def apply_attn_corr(data, tref=None, flags=None):
     import copy
     if tref is None:
         # No reference time specified, so get nearest earlier REFCAL
-        trange = Time(data['time'][[0,-1]],format='jd')
-        xml, buf = ch.read_cal(8,t=trange[0])
-        tref = Time(stateframe.extract(buf,xml['Timestamp']),format='lv')
+        trange = Time(data['time'][[0, -1]], format='jd')
+        xml, buf = ch.read_cal(8, t=trange[0])
+        tref = Time(stateframe.extract(buf, xml['Timestamp']), format='lv')
     # Get the gain state at the reference time (actually median over 1 minute)
-    trefrange = Time([tref.iso,Time(tref.lv+60,format='lv').iso])
-    ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
+    trefrange = Time([tref.iso, Time(tref.lv + 60, format='lv').iso])
+    ref_gs = get_gain_state(trefrange)  # refcal gain state for 60 s
     # Get median of refcal gain state (which should be constant anyway)
-    ref_gs['h1'] = np.median(ref_gs['h1'],1)
-    ref_gs['h2'] = np.median(ref_gs['h2'],1)
-    ref_gs['v1'] = np.median(ref_gs['v1'],1)
-    ref_gs['v2'] = np.median(ref_gs['v2'],1)
+    ref_gs['h1'] = np.median(ref_gs['h1'], 1)
+    ref_gs['h2'] = np.median(ref_gs['h2'], 1)
+    ref_gs['v1'] = np.median(ref_gs['v1'], 1)
+    ref_gs['v2'] = np.median(ref_gs['v2'], 1)
 
     # Get timerange from data
-    trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    trange = Time([data['time'][0], data['time'][-1]], format='jd')
     # Get time cadence
     dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
     if dt == 1: dt = None
     # Get the gain state of the requested timerange
-    src_gs = get_gain_state(trange,dt)   # solar gain state for timerange of file
+    src_gs = get_gain_state(trange, dt)  # solar gain state for timerange of file
     nt = len(src_gs['times'])
-    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    antgain = np.zeros((15, 2, 34, nt), np.float32)  # Antenna-based gains vs. band
     for i in range(15):
         for j in range(34):
-            antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
-            antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
+            antgain[i, 0, j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + \
+                               src_gs['dcmattn'][i, 0, j] - ref_gs['dcmattn'][i, 0, j]
+            antgain[i, 1, j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + \
+                               src_gs['dcmattn'][i, 1, j] - ref_gs['dcmattn'][i, 1, j]
 
     cdata = copy.deepcopy(data)
     # Create giant array of baseline-based gains, translated to baselines and frequencies
     fghz = data['fghz']
     nf = len(fghz)
-    blist = (fghz*2 - 1).astype(int) - 1       # Band list corresponding to frequencies in data
+    blist = (fghz * 2 - 1).astype(int) - 1  # Band list corresponding to frequencies in data
     nblant = 136
-    blgain = np.zeros((nf,nblant,4,nt),float)     # Baseline-based gains vs. frequency
+    blgain = np.zeros((nf, nblant, 4, nt), float)  # Baseline-based gains vs. frequency
     for i in range(14):
-        for j in range(i,14):
-            k = bl2ord[i,j]
-            blgain[:,k,0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
-            blgain[:,k,1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
-            blgain[:,k,2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
-            blgain[:,k,3] = 10**((antgain[i,1,blist] + antgain[j,0,blist])/20.)
+        for j in range(i, 14):
+            k = bl2ord[i, j]
+            blgain[:, k, 0] = 10 ** ((antgain[i, 0, blist] + antgain[j, 0, blist]) / 20.)
+            blgain[:, k, 1] = 10 ** ((antgain[i, 1, blist] + antgain[j, 1, blist]) / 20.)
+            blgain[:, k, 2] = 10 ** ((antgain[i, 0, blist] + antgain[j, 1, blist]) / 20.)
+            blgain[:, k, 3] = 10 ** ((antgain[i, 1, blist] + antgain[j, 0, blist]) / 20.)
     # Reorder antgain axes to put frequencies in first slot, to match data
-    antgain = np.swapaxes(np.swapaxes(antgain,1,2),0,1)
-    antgainf = 10**(antgain[blist]/10.)
+    antgain = np.swapaxes(np.swapaxes(antgain, 1, 2), 0, 1)
+    antgainf = 10 ** (antgain[blist] / 10.)
 
-    idx = nearest_val_idx(data['time'],src_gs['times'].jd)
+    idx = nearest_val_idx(data['time'], src_gs['times'].jd)
     nt = len(idx)  # New number of times
     # Correct the auto- and cross-correlation data
-    cdata['x'] *= blgain[:,:,:,idx]
+    cdata['x'] *= blgain[:, :, :, idx]
     # Reshape px and py arrays
-    cdata['px'].shape = (nf,16,3,nt)
-    cdata['py'].shape = (nf,16,3,nt)
+    cdata['px'].shape = (nf, 16, 3, nt)
+    cdata['py'].shape = (nf, 16, 3, nt)
     # Correct the power
-    cdata['px'][:,:15,0] *= antgainf[:,:,0,idx]
-    cdata['py'][:,:15,0] *= antgainf[:,:,1,idx]
+    cdata['px'][:, :15, 0] *= antgainf[:, :, 0, idx]
+    cdata['py'][:, :15, 0] *= antgainf[:, :, 1, idx]
     # Correct the power-squared
-    cdata['px'][:,:15,1] *= antgainf[:,:,0,idx]**2
-    cdata['py'][:,:15,1] *= antgainf[:,:,1,idx]**2
+    cdata['px'][:, :15, 1] *= antgainf[:, :, 0, idx] ** 2
+    cdata['py'][:, :15, 1] *= antgainf[:, :, 1, idx] ** 2
     # Reshape px and py arrays back to original
-    cdata['px'].shape = (nf*16*3,nt)
-    cdata['py'].shape = (nf*16*3,nt)
+    cdata['px'].shape = (nf * 16 * 3, nt)
+    cdata['py'].shape = (nf * 16 * 3, nt)
     return cdata
-    
+
+
 def get_calfac(t=None):
     ''' Read total power and auto-correlation calibration factors from the SQL
         database, for the time specified by Time() object t, or if None, at the
@@ -240,27 +250,28 @@ def get_calfac(t=None):
     tpcal_type = 10  # Calibration type specified in cal_header.py
     if t is None:
         t = Time.now()
-    xml, buf = ch.read_cal(tpcal_type,t=t)
-    fghz = stateframe.extract(buf,xml['FGHz'])
+    xml, buf = ch.read_cal(tpcal_type, t=t)
+    fghz = stateframe.extract(buf, xml['FGHz'])
     nf = len(fghz)
-    tpcalfac = np.zeros((13,2,nf),np.float)
-    tpoffsun = np.zeros((13,2,nf),np.float)
-    accalfac = np.zeros((13,2,nf),np.float)
-    acoffsun = np.zeros((13,2,nf),np.float)
+    tpcalfac = np.zeros((13, 2, nf), np.float)
+    tpoffsun = np.zeros((13, 2, nf), np.float)
+    accalfac = np.zeros((13, 2, nf), np.float)
+    acoffsun = np.zeros((13, 2, nf), np.float)
     nant = len(xml['Antenna'])
     for i in range(nant):
-        iant = stateframe.extract(buf,xml['Antenna'][i]['Antnum'])-1
-        tpcalfac[iant] = stateframe.extract(buf,xml['Antenna'][i]['TPCalfac'])
-        accalfac[iant] = stateframe.extract(buf,xml['Antenna'][i]['ACCalfac'])
-        tpoffsun[iant] = stateframe.extract(buf,xml['Antenna'][i]['TPOffsun'])
-        acoffsun[iant] = stateframe.extract(buf,xml['Antenna'][i]['ACOffsun'])
+        iant = stateframe.extract(buf, xml['Antenna'][i]['Antnum']) - 1
+        tpcalfac[iant] = stateframe.extract(buf, xml['Antenna'][i]['TPCalfac'])
+        accalfac[iant] = stateframe.extract(buf, xml['Antenna'][i]['ACCalfac'])
+        tpoffsun[iant] = stateframe.extract(buf, xml['Antenna'][i]['TPOffsun'])
+        acoffsun[iant] = stateframe.extract(buf, xml['Antenna'][i]['ACOffsun'])
     try:
-        sqltime = stateframe.extract(buf,xml['SQL_timestamp'])
+        sqltime = stateframe.extract(buf, xml['SQL_timestamp'])
     except:
         sqltime = None
-    return {'fghz':fghz,'timestamp':stateframe.extract(buf,xml['Timestamp']),'sqltime':sqltime,
-            'tpcalfac':tpcalfac,'accalfac':accalfac,'tpoffsun':tpoffsun,'acoffsun':acoffsun}
-            
+    return {'fghz': fghz, 'timestamp': stateframe.extract(buf, xml['Timestamp']), 'sqltime': sqltime,
+            'tpcalfac': tpcalfac, 'accalfac': accalfac, 'tpoffsun': tpoffsun, 'acoffsun': acoffsun}
+
+
 def apply_calfac(data, calfac):
     ''' Applies calibration factors in calfac dictionary returned by get_calfac(),
         to the data and returns the calibrated data in the same form.  No calibration
@@ -288,43 +299,43 @@ def apply_calfac(data, calfac):
     # Find common frequencies
     idx1, idx2 = common_val_idx(fghz, calfac['fghz'], precision=4)
     nf = len(idx1)
-    missing = np.setdiff1d(np.arange(len(fghz)),idx1)
+    missing = np.setdiff1d(np.arange(len(fghz)), idx1)
     nant = 16
-    nblant = nant*(nant-1)/2 + nant
-    blfac = np.ones((nf,nblant,4),float)   # Factors for missing antennas/frequencies are set to unity
-    fac = calfac['accalfac'][:,:,idx2]  # Extract only common frequencies
+    nblant = nant * (nant - 1) / 2 + nant
+    blfac = np.ones((nf, nblant, 4), float)  # Factors for missing antennas/frequencies are set to unity
+    fac = calfac['accalfac'][:, :, idx2]  # Extract only common frequencies
     for i in range(13):
-        for j in range(i,13):
-            blfac[idx1,bl2ord[i,j],0] = np.sqrt(fac[i,0]*fac[j,0])
-            blfac[idx1,bl2ord[i,j],1] = np.sqrt(fac[i,1]*fac[j,1])
-            blfac[idx1,bl2ord[i,j],2] = np.sqrt(fac[i,0]*fac[j,1])
-            blfac[idx1,bl2ord[i,j],3] = np.sqrt(fac[i,1]*fac[j,0])
-    antfac = np.ones((nf,nant,2),float)   # Factors for missing antennas/frequencies are set to unity
+        for j in range(i, 13):
+            blfac[idx1, bl2ord[i, j], 0] = np.sqrt(fac[i, 0] * fac[j, 0])
+            blfac[idx1, bl2ord[i, j], 1] = np.sqrt(fac[i, 1] * fac[j, 1])
+            blfac[idx1, bl2ord[i, j], 2] = np.sqrt(fac[i, 0] * fac[j, 1])
+            blfac[idx1, bl2ord[i, j], 3] = np.sqrt(fac[i, 1] * fac[j, 0])
+    antfac = np.ones((nf, nant, 2), float)  # Factors for missing antennas/frequencies are set to unity
     for i in range(13):
         for j in range(2):
-            antfac[idx1,i,j] = calfac['tpcalfac'][i,j,idx2]
+            antfac[idx1, i, j] = calfac['tpcalfac'][i, j, idx2]
     cdata = copy.deepcopy(data)
     nt = len(data['time'])
     # Calibrate the auto- and cross-correlation data
     for i in range(nt):
-        cdata['x'][idx1,:,:,i] *= blfac
+        cdata['x'][idx1, :, :, i] *= blfac
     # Reshape px and py arrays
-    cdata['px'].shape = (nfin,16,3,nt)
-    cdata['py'].shape = (nfin,16,3,nt)
+    cdata['px'].shape = (nfin, 16, 3, nt)
+    cdata['py'].shape = (nfin, 16, 3, nt)
     for i in range(nt):
         # Correct the power
-        cdata['px'][idx1,:,0,i] *= antfac[:,:,0]
-        cdata['py'][idx1,:,0,i] *= antfac[:,:,1]
+        cdata['px'][idx1, :, 0, i] *= antfac[:, :, 0]
+        cdata['py'][idx1, :, 0, i] *= antfac[:, :, 1]
         # Correct the power-squared
-        cdata['px'][idx1,:,1,i] *= antfac[:,:,0]**2
-        cdata['py'][idx1,:,1,i] *= antfac[:,:,1]**2
+        cdata['px'][idx1, :, 1, i] *= antfac[:, :, 0] ** 2
+        cdata['py'][idx1, :, 1, i] *= antfac[:, :, 1] ** 2
     # Reshape px and py arrays back to original
-    cdata['px'].shape = (nfin*16*3,nt)
-    cdata['py'].shape = (nfin*16*3,nt)
+    cdata['px'].shape = (nfin * 16 * 3, nt)
+    cdata['py'].shape = (nfin * 16 * 3, nt)
     # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
     cdata['x'][missing] = np.ma.masked
     return cdata
-       
+
 
 def unrot(data, azeldict=None):
     ''' Apply the correction to differential feed rotation to data, and return
@@ -342,74 +353,74 @@ def unrot(data, azeldict=None):
     '''
     import copy
     from util import lobe, bl2ord
-    trange = Time(data['time'][[0,-1]],format='jd')
+    trange = Time(data['time'][[0, -1]], format='jd')
 
     if azeldict is None:
         azeldict = get_sql_info(trange)
-    chi = azeldict['ParallacticAngle']*np.pi/180.  # (nt, nant)
+    chi = azeldict['ParallacticAngle'] * np.pi / 180.  # (nt, nant)
     # Correct parallactic angle for equatorial mounts, relative to Ant14
-    chi[:,[8,9,10,12,13]] = 0  # Currently 0, but can be measured and updated
-    
+    chi[:, [8, 9, 10, 12, 13]] = 0  # Currently 0, but can be measured and updated
+
     # Which antennas are tracking
-    track = azeldict['TrackFlag']   # True if tracking
-    
+    track = azeldict['TrackFlag']  # True if tracking
+
     # Ensure that nearest valid parallactic angle is used for times in the data
     good = np.where(azeldict['ActualAzimuth'] != 0)
-    tidx = []    # List of arrays of indexes for each antenna
+    tidx = []  # List of arrays of indexes for each antenna
     for i in range(14):
         gd = good[0][np.where(good[1] == i)]
-        tidx.append(nearest_val_idx(data['time'],azeldict['Time'][gd].jd))
+        tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd].jd))
 
     # Read X-Y Delay phase from SQL database and get common frequencies
-    xml, buf = ch.read_cal(11,t=trange[0])
-    fghz = stateframe.extract(buf,xml['FGHz'])
+    xml, buf = ch.read_cal(11, t=trange[0])
+    fghz = stateframe.extract(buf, xml['FGHz'])
     good, = np.where(fghz != 0.)
     fghz = fghz[good]
-    dph = stateframe.extract(buf,xml['XYphase'])
-    dph = dph[:,good]
-    xi_rot = stateframe.extract(buf,xml['Xi_Rot'])
+    dph = stateframe.extract(buf, xml['XYphase'])
+    dph = dph[:, good]
+    xi_rot = stateframe.extract(buf, xml['Xi_Rot'])
     xi_rot = xi_rot[good]
-    fidx1, fidx2 = common_val_idx(data['fghz'],fghz,precision=4)
-    missing = np.setdiff1d(np.arange(len(data['fghz'])),fidx1)
-    
+    fidx1, fidx2 = common_val_idx(data['fghz'], fghz, precision=4)
+    missing = np.setdiff1d(np.arange(len(data['fghz'])), fidx1)
+
     nf, nbl, npol, nt = data['x'].shape
     nf = len(fidx1)
     # Correct data for X-Y delay phase
     for i in range(13):
-        for j in range(i+1,14):
-            k = bl2ord[i,j]
-            a1 = lobe(dph[i,fidx2] - dph[j,fidx2])
-            a2 = -dph[j,fidx2] - xi_rot
-            a3 = dph[i,fidx2] - xi_rot + np.pi
-            data['x'][fidx1,k,1] *= np.repeat(np.exp(1j*a1),nt).reshape(nf,nt)
-            data['x'][fidx1,k,2] *= np.repeat(np.exp(1j*a2),nt).reshape(nf,nt) 
-            data['x'][fidx1,k,3] *= np.repeat(np.exp(1j*a3),nt).reshape(nf,nt)
+        for j in range(i + 1, 14):
+            k = bl2ord[i, j]
+            a1 = lobe(dph[i, fidx2] - dph[j, fidx2])
+            a2 = -dph[j, fidx2] - xi_rot[fidx2]
+            a3 = dph[i, fidx2] - xi_rot[fidx2] + np.pi
+            data['x'][fidx1, k, 1] *= np.repeat(np.exp(1j * a1), nt).reshape(nf, nt)
+            data['x'][fidx1, k, 2] *= np.repeat(np.exp(1j * a2), nt).reshape(nf, nt)
+            data['x'][fidx1, k, 3] *= np.repeat(np.exp(1j * a3), nt).reshape(nf, nt)
 
-    
     # Correct data for differential feed rotation
     cdata = copy.deepcopy(data)
     for n in range(nt):
         for i in range(13):
-            for j in range(i+1,14):
-                k = bl2ord[i,j]
+            for j in range(i + 1, 14):
+                k = bl2ord[i, j]
                 ti = tidx[i][n]
                 tj = tidx[j][n]
-                if track[ti,i] and track[tj,j]:
-                    dchi = chi[ti,i] - chi[tj,j]
+                if track[ti, i] and track[tj, j]:
+                    dchi = chi[ti, i] - chi[tj, j]
                     cchi = np.cos(dchi)
                     schi = np.sin(dchi)
-                    cdata['x'][:,k,0,n] = data['x'][:,k,0,n]*cchi + data['x'][:,k,3,n]*schi
-                    cdata['x'][:,k,2,n] = data['x'][:,k,2,n]*cchi + data['x'][:,k,1,n]*schi
-                    cdata['x'][:,k,3,n] = data['x'][:,k,3,n]*cchi - data['x'][:,k,0,n]*schi
-                    cdata['x'][:,k,1,n] = data['x'][:,k,1,n]*cchi - data['x'][:,k,2,n]*schi
+                    cdata['x'][:, k, 0, n] = data['x'][:, k, 0, n] * cchi + data['x'][:, k, 3, n] * schi
+                    cdata['x'][:, k, 2, n] = data['x'][:, k, 2, n] * cchi + data['x'][:, k, 1, n] * schi
+                    cdata['x'][:, k, 3, n] = data['x'][:, k, 3, n] * cchi - data['x'][:, k, 0, n] * schi
+                    cdata['x'][:, k, 1, n] = data['x'][:, k, 1, n] * cchi - data['x'][:, k, 2, n] * schi
                 else:
-                    cdata['x'][:,k,:,n] = np.ma.masked
+                    cdata['x'][:, k, :, n] = np.ma.masked
 
     # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
     cdata['x'][missing] = np.ma.masked
     return cdata
-    
-def udb_corr(filelist, calibrate=False, new=True, gctime=None):
+
+
+def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
     ''' Complete routine to read in an existing idb or udb file and output
         a new file of the same name in the local directory, with all corrections
         applied.
@@ -436,40 +447,45 @@ def udb_corr(filelist, calibrate=False, new=True, gctime=None):
     if type(filelist) is str:
         # Convert input filename to list if not already a list
         filelist = [filelist]
+
+    for idx, file in enumerate(filelist):
+        if file[-1] == '/':
+            filelist[idx] = file[:-1]
+
     filecount = 0
     for filename in filelist:
         t1 = time.time()
         out = uu.readXdata(filename)
-        print 'Reading file took',time.time()-t1,'s'
-        trange = Time(out['time'][[0,-1]],format='jd')
+        print 'Reading file took', time.time() - t1, 's'
+        trange = Time(out['time'][[0, -1]], format='jd')
         t1 = time.time()
         azeldict = get_sql_info(trange)
-        print 'Reading SQL info took',time.time()-t1,'s'
+        print 'Reading SQL info took', time.time() - t1, 's'
         # Correct data for attenuation changes
         t1 = time.time()
         if new:
             cout = apply_fem_level(out, gctime)
         else:
             cout = apply_attn_corr(out)
-        print 'Applying attn correction took',time.time()-t1,'s'
+        print 'Applying attn correction took', time.time() - t1, 's'
         t1 = time.time()
         # Correct data for differential feed rotation
         coutu = unrot(cout, azeldict)
-        print 'Applying feed rotation correction took',time.time()-t1,'s'
+        print 'Applying feed rotation correction took', time.time() - t1, 's'
         # Optionally apply calibration to convert to solar flux units
         if calibrate:
             t1 = time.time()
             if trange[0].datetime.hour < 7:
                 # Data time is earlier than 7 UT (i.e. on previous local day) so
                 # use previous date at 20 UT.
-                mjd = int(trange[0].mjd) - 1 + 20./24
+                mjd = int(trange[0].mjd) - 1 + 20. / 24
             else:
                 # Use current date at 20 UT
-                mjd = int(trange[0].mjd) + 20./24
-            calfac = get_calfac(Time(mjd,format='mjd'))
-            if Time(calfac['sqltime'],format='lv').mjd == mjd:
+                mjd = int(trange[0].mjd) + 20. / 24
+            calfac = get_calfac(Time(mjd, format='mjd'))
+            if Time(calfac['sqltime'], format='lv').mjd == mjd:
                 coutu = apply_calfac(coutu, calfac)
-                print 'Applying calibration took',time.time()-t1,'s'
+                print 'Applying calibration took', time.time() - t1, 's'
             else:
                 print 'Error: no TP calibration for this date.  Skipping calibration.'
         filecount += 1
@@ -477,11 +493,13 @@ def udb_corr(filelist, calibrate=False, new=True, gctime=None):
             x = coutu
         else:
             x = uu.concatXdata(x, coutu)
-    ufilename = filelist[0].split('/')[-1]
+    ufilename = outpath + filelist[0].split('/')[-1]
     while Path(ufilename).exists():
         # Handle case of existing file, by appending _n, where n increments (up to 9)
         if ufilename[-2] == '_':
-            ufilename = ufilename[:-1]+str(int(ufilename[-1])+1)
+            ufilename = ufilename[:-1] + str(int(ufilename[-1]) + 1)
         else:
             ufilename += '_1'
     ufile_out = uu.udbfile_write(x, filelist[0], ufilename)
+    return ufilename
+

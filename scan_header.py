@@ -17,6 +17,8 @@
 #     Added a retry to tranferring files to ACC
 #   2018-Jan-04  DG
 #     Used correct default SK thresholds for 1792 samples, for flagging RFI
+#   2018-Jan-14  DG
+#     Set SK_MODE to 1, to enable automatic RFI flagging by dppxmp
 #
 import struct,sys
 from sun_pos import *
@@ -706,7 +708,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
 
     # Spectral kurtosis strategy (4-byte int) (Details TBD.)
     # Default 0 => Standard strategy
-    item = sh_dict.get('sk_mode',0)
+    item = sh_dict.get('sk_mode',1)
     fmt += 'I'
     buf = struct.pack('I',item)
     f.write(buf)
