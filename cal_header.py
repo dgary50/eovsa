@@ -645,7 +645,7 @@ def fem_attn_val2xml():
     return buf
 
 
-def refcal_sp2xml():
+def refcal2xml():
     ''' Writes the XML description of the reference calibration table.
         The values are complex numbers.
         Returns a binary representation of the xml text file, for 
