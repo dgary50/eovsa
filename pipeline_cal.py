@@ -36,11 +36,14 @@
 #  2018-01-03  DG
 #    Updated udb_corr() to work with new xi_rot.
 #
+import matplotlib
+matplotlib.use('Agg')
 import dbutil as db
 import numpy as np
 from util import Time, nearest_val_idx, common_val_idx, lobe
 import stateframe
 import cal_header as ch
+
 
 
 def get_sql_info(trange):
@@ -390,8 +393,8 @@ def unrot(data, azeldict=None):
         for j in range(i + 1, 14):
             k = bl2ord[i, j]
             a1 = lobe(dph[i, fidx2] - dph[j, fidx2])
-            a2 = -dph[j, fidx2] - xi_rot
-            a3 = dph[i, fidx2] - xi_rot + np.pi
+            a2 = -dph[j, fidx2] - xi_rot[fidx2]
+            a3 = dph[i, fidx2] - xi_rot[fidx2] + np.pi
             data['x'][fidx1, k, 1] *= np.repeat(np.exp(1j * a1), nt).reshape(nf, nt)
             data['x'][fidx1, k, 2] *= np.repeat(np.exp(1j * a2), nt).reshape(nf, nt)
             data['x'][fidx1, k, 3] *= np.repeat(np.exp(1j * a3), nt).reshape(nf, nt)
@@ -441,6 +444,8 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
                         If None (default), then the date of the data is used.  Note that
                         gctime is only used if parameter new is True.          
     '''
+    import sys
+    import os
     import udb_util as uu
     import time
     from pathlib2 import Path
@@ -457,10 +462,12 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
         t1 = time.time()
         out = uu.readXdata(filename)
         print 'Reading file took', time.time() - t1, 's'
+        sys.stdout.flush()
         trange = Time(out['time'][[0, -1]], format='jd')
         t1 = time.time()
         azeldict = get_sql_info(trange)
         print 'Reading SQL info took', time.time() - t1, 's'
+        sys.stdout.flush()
         # Correct data for attenuation changes
         t1 = time.time()
         if new:
@@ -468,10 +475,12 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
         else:
             cout = apply_attn_corr(out)
         print 'Applying attn correction took', time.time() - t1, 's'
+        sys.stdout.flush()
         t1 = time.time()
         # Correct data for differential feed rotation
         coutu = unrot(cout, azeldict)
         print 'Applying feed rotation correction took', time.time() - t1, 's'
+        sys.stdout.flush()
         # Optionally apply calibration to convert to solar flux units
         if calibrate:
             t1 = time.time()
@@ -488,6 +497,7 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
                 print 'Applying calibration took', time.time() - t1, 's'
             else:
                 print 'Error: no TP calibration for this date.  Skipping calibration.'
+        sys.stdout.flush()
         filecount += 1
         if filecount == 1:
             x = coutu

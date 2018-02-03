@@ -33,6 +33,8 @@
 #  2017-11-10  DG
 #    Add hour to savefig output file names, so that multiple times on a given
 #    date can be saved.
+#  2018-01-08  DG
+#    Update unrot_refcal() to read from SQL and apply new xi_rot term.
 #
 import read_idb as ri
 from util import Time, ant_str2list, lobe, nearest_val_idx
@@ -190,20 +192,27 @@ def unrot_refcal(refcal_in):
     import dbutil as db
     import copy
     import chan_util_bc as cu
+    import cal_header as ch
+    from stateframe import extract
     refcal = copy.deepcopy(refcal_in)
-    blah = np.load('/common/tmp/Feed_rotation/20170702121949_delay_phase.npz')
-    dph = blah['dph']
+    xml, buf = ch.read_cal(11, Time(refcal['times'][0][0],format='jd'))
+    dph = extract(buf,xml['XYphase'])
+    xi_rot = extract(buf,xml['Xi_Rot'])
+    freq = extract(buf,xml['FGHz'])
+    freq = freq[np.where(freq != 0)]
     band = []
-    for f in blah['fghz']:
+    for f in freq:
         band.append(cu.freq2bdname(f))
     bds, sidx = np.unique(band, return_index=True)
     nbd = len(bds)
     eidx = np.append(sidx[1:], len(band))
     dxy = np.zeros((14, 34), dtype=np.float)
+    xi = np.zeros(34, dtype=np.float)
     fghz = np.zeros(34)
-    # average dph frequencies within each band, to convert to 34-band representation
+    # average dph and xi_rot frequencies within each band, to convert to 34-band representation
     for b, bd in enumerate(bds):
-        fghz[bd - 1] = np.nanmean(blah['fghz'][sidx[b]:eidx[b]])
+        fghz[bd - 1] = np.nanmean(freq[sidx[b]:eidx[b]])
+        xi[bd - 1] = np.nanmean(xi_rot[sidx[b]:eidx[b]])
         for a in range(14):
             dxy[a, bd - 1] = np.angle(np.sum(np.exp(1j * dph[a, sidx[b]:eidx[b]])))
     nscans = len(refcal['scanlist'])
@@ -222,8 +231,8 @@ def unrot_refcal(refcal_in):
             # Apply X-Y delay phase correction
             for a in range(13):
                 a1 = lobe(dxy[a] - dxy[13])
-                a2 = -dxy[13] + np.pi / 2
-                a3 = dxy[a] - np.pi / 2
+                a2 = -dxy[13] - xi
+                a3 = dxy[a] - xi + np.pi
                 for j in range(nt):
                     vis[a, 1, :, j] *= np.exp(1j * a1)
                     vis[a, 2, :, j] *= np.exp(1j * a2)

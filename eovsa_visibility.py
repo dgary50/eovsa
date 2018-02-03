@@ -14,11 +14,28 @@ Created on Wed Jun 18 18:14:41 2014
 #     check_27m_visible().
 #   2017-Jul-13  DG
 #     27-m cable tension was fixed, so now we can go back to the 55-degree limit.
+#   2018-Jan-11  DG
+#     Added shift_time() function.
 
-from eovsa_lst import eovsa_ha
+from eovsa_lst import eovsa_ha, eovsa_lst
 from numpy import rad2deg
 import util
 
+def shift_time(told,target):
+    ''' This is for calculating a time shift for a given schedule, to 
+        bring it to the current date.  When editing a .scd file with
+        calibrators, enter the first time as a Time() object told,
+        and enter the current date/time as a Time() object target.
+        
+        Returns a new Time() object with the date/time that the schedule
+        should be adjusted to.  There is a potential for the time to 
+        be off by four minutes (one day's sidereal lag).
+    '''
+    from astropy.time import TimeDelta
+    dt = TimeDelta((util.lobe(eovsa_lst(target) - eovsa_lst(told))*0.158720),format='jd')
+    print dt
+    return target - dt
+    
 def get_27m_HAlim(dec):
     # dec should be in degrees and must be between 90 and -90
     # HA limit is returned in degrees
