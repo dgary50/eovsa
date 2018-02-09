@@ -83,6 +83,9 @@
 #      Changed definition of X-Y Phase Calibration to add new Xi_Rot phase offset, 
 #      so changed the version to 2.0.  Corresponding changes to  xy_phasecal2xml() 
 #      and xy_phasecal2sql()
+#   2018-02-03  SJ
+#      Added an twelfth cal type for super reference calibration (with band 4), and updated routines
+#      refcal_sp2xml()
 #
 import struct, util
 import stateframe as sf
@@ -110,7 +113,8 @@ def cal_types():
             8: ['Reference calibration', 'refcal2xml', 1.0],
             9: ['Daily phase calibration', 'phacal2xml', 1.0],
            10: ['Total power calibration', 'tpcal2xml', 1.0],
-           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0]}  # Changed the definition of this, so version is 2.0 (2018-01-01)
+           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0],  # Changed the definition of this, so version is 2.0 (2018-01-01)
+           12: ['Super Reference calibration', 'refcal_sp2xml', 1.0]}
 
 
 def str2bin(string):
@@ -208,7 +212,7 @@ def proto_tpcal2xml(nant, nfrq):
 
     return buf
 
-    
+
 def tpcal2xml(nant, nfrq):
     ''' Writes the XML description of the total power calibration binary
         data (SOLPNTCAL result), for both power and auto-correlation.  
@@ -363,8 +367,8 @@ def xy_phasecal2xml():
     buf += str2bin('</Cluster>')  # End XYcal cluster
 
     return buf
-    
-    
+
+
 def dcm_master_table2xml():
     ''' Writes the XML description of the DCM master base attenuation 
         table (created by pcapture.py).  Returns a binary representation 
@@ -620,7 +624,7 @@ def fem_attn_val2xml():
     buf += str2bin('<Name>Version</Name>')
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
-    
+
     # Fixed size array of frequencies in GHz (500)
     buf += str2bin('<Array>')
     buf += str2bin('<Name>FGHz</Name>')
@@ -650,6 +654,101 @@ def refcal2xml():
         of this header.
     '''
     version = cal_types()[8][2]
+
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>REFCAL</Name>')
+    buf += str2bin('<NumElts>10</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>' + str(version) + '</Val>')
+    buf += str2bin('</DBL>')
+
+    # Timestamp of the gaincal (double) of [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>T_gcal</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Timestamp of the begin time of refcal (double) of [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>T_beg</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Timestamp of the end time of refcal (double) of [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>T_end</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # List of averaged band frequencies in GHz.
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Fghz</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Real</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Imag</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Sigma</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # Note inverted order of dimensions
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Refcal_Flag</Name>')
+    buf += str2bin(
+        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # End cluster
+    buf += str2bin('</Cluster>')  # End Refcal cluster
+
+    return buf
+
+def refcal_sp2xml():
+    ''' Writes the XML description of the super reference calibration table.
+        The different with ordinary refcal is this table contains correction for band 4.
+        The values are complex numbers.
+        Returns a binary representation of the xml text file, for
+        putting into the SQL database.  The version number
+        must be incremented each time there is a change to the structure
+        of this header.
+    '''
+    version = cal_types()[12][2]
 
     buf = ''
     buf += str2bin('<Cluster>')
@@ -1390,7 +1489,7 @@ def tpcal2sql(tpcal_dict, t=None):
         buf += struct.pack(str(nf * 2) + 'f', *(tpcal_dict['acoffsun'][:, :, i].reshape(nf * 2)))
     return write_cal(typedef, buf, t)
 
-    
+
 def xy_phasecal2sql(xyphase_dict, t=None):
     ''' Writes X-Y calibration data from the input dictionary, as a record into 
         the SQL server table abin
@@ -1433,7 +1532,7 @@ def xy_phasecal2sql(xyphase_dict, t=None):
         buf += struct.pack('500f', *xyout[i])
     return write_cal(typedef, buf, t)
 
-    
+
 def dcm_master_table2sql(filename, tbl=None, t=None):
     ''' Writes a DCM master base attenuation calibration table as a record into 
         SQL server table abin. filename can either be a txt file (DCM_master_table.txt) 
@@ -1736,7 +1835,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     natn, nant, npol, nfrq = attn[0]['attn'].shape
     if t is None:
         t = attn[0]['time']
-        
+
     if attn is None:  # What should the default timestamp & fghz be??
         # Create a default attn array, with nominal values
         attnvals = np.array([2.,4.,6.,8.,10.,12.,14.,16.])  # The 8 attenuation values
@@ -1751,7 +1850,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     flist = np.zeros(500,np.float)
     flist[:nfrq] = attn[0]['fghz']
     buf += struct.pack('500f', *flist)
-    
+
     # Write the attenuation table
     attn_pad = np.zeros((8,15,2,500))
     attn_pad[:,:nant,:,:nfrq] = attn[0]['attn']
@@ -1763,11 +1862,11 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
         for j in range(15):
             for k in range(2):
                 buf += struct.pack('500f', *attn_pad[i, j, k])
-        
+
     return write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, timestamp=None):
+def refcal2sql(rfcal, timestamp=None, super = False):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1775,7 +1874,11 @@ def refcal2sql(rfcal, timestamp=None):
 
         This kind of record is type definition 8.
     '''
-    typedef = 8
+    if super:
+        typedef = 12
+    else:
+        typedef = 8
+
     if not 'vis' in rfcal.keys():
         raise KeyError('Key "vis" not exist')
     ver = cal_types()[typedef][2]
