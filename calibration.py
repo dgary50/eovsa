@@ -874,6 +874,26 @@ def sp_offsets(x,y,save_plot=False):
         plt.savefig('/common/webplots/PTG/PTG'+tstr+'.png',bbox_inches='tight')
     return xout,yout,dxout,dyout
 
+def send_cmds(cmds,acc):
+    ''' Sends a series of commands to ACC.  The sequence of commands
+        is not checked for validity!
+        
+        cmds   a list of strings, each of which must be a valid command
+    '''
+    import socket
+
+    for cmd in cmds:
+        #print 'Command:',cmd
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.connect((acc['host'],acc['scdport']))
+            s.send(cmd)
+            time.sleep(0.01)
+            s.close()
+        except:
+            print 'Error: Could not send command',cmd,' to ACC.'
+    return
+    
 def offsets2ants(t,xoff,yoff,ant_str=None):
     ''' Given a start time (Time object) and a list of offsets output by sp_offsets()
         for 13 antennas, convert to pointing coefficients (multiply by 10000),
@@ -881,25 +901,6 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         antennas.  The antennas to update are specified with ant_str 
         (defaults to no antennas, for safety).        
     '''
-    def send_cmds(cmds,acc):
-        ''' Sends a series of commands to ACC.  The sequence of commands
-            is not checked for validity!
-            
-            cmds   a list of strings, each of which must be a valid command
-        '''
-        import socket
-
-        for cmd in cmds:
-            #print 'Command:',cmd
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                s.connect((acc['host'],acc['scdport']))
-                s.send(cmd)
-                time.sleep(0.01)
-                s.close()
-            except:
-                print 'Error: Could not send command',cmd,' to ACC.'
-        return
 
     oldant = [8,9,10,12]
     if ant_str is None:

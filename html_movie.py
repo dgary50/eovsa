@@ -1,4 +1,4 @@
-def html_movie(t):
+def html_movie(t,flare=False):
     ''' After the quick-look images are created for a given date, this routine will
         write the movie.html file that allows them to be viewed as a movie.  Just
         call this with a Time() object containing the desired date.
@@ -6,7 +6,11 @@ def html_movie(t):
     import glob
     from util import Time
     datstr = t.iso[:10]
-    dir = '/common/webplots/qlookimg_10m/'+datstr.replace('-','/')+'/'
+    tstr = t.iso[11:16]
+    if flare:
+        dir = '/common/webplots/qlook_flares/'+datstr.replace('-','/')+'/'+tstr+'/png/'
+    else:
+        dir = '/common/webplots/qlookimg_10m/'+datstr.replace('-','/')+'/'
     files = glob.glob(dir+'/*.png')
     files.sort()
     nfiles = len(files)
@@ -27,7 +31,10 @@ def html_movie(t):
     for i in range(skiplines[1]-1):
         f.write(lines[i])
     for i in range(nfiles):
-        f.write('urls[{:d}]=url_path+"'.format(i)+files[i][40:]+'";\n')
+        if flare:
+            f.write('urls[{:d}]=url_path+"'.format(i)+files[i][50:]+'";\n')
+        else:
+            f.write('urls[{:d}]=url_path+"'.format(i)+files[i][40:]+'";\n')
     for i in range(skiplines[-1]+1,nlines):
         f.write(lines[i])
     f.close()

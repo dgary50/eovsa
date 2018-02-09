@@ -1,11 +1,32 @@
+#
+# EOVSA_MOUNTCAL
+#  Routine to convert pointing measurements analyzed with calibration.py 
+#  routines calpntanal() and calpnt_multi(), to the appropriate pointing
+#  parameters used in the antennas.
+#   
+# History
+#  2018-01-20  DG
+#    Finally wrote a purely EOVSA version of mountcal that can handle all
+#    of the 2.1-m antennas.  Needs work to add 27-m, due to broken nature
+#    of 27-m pointing model.  I have been through this pretty carefully, and
+#    it should be correct.
+#  2018-01-30  DG
+#    Added params2ants() function to send the new pointing parameters
+#
 from util import Time
 import numpy as np
 from eovsa_lst import eovsa_lst
+dtor = np.pi/180.  # Converts degrees to radians
+lat = 37.233170*np.pi/180
+lng = -118.286953*np.pi/180
 
 def rd_calpnt(filename):
     ''' Read and return contents of output of CALPNT or CALPNT2M observation
-    
+        Note that the "x" offsets are dRA and dAZ.  To apply these in subsequent
+        routines, dRA is converted to dHA by inverting the sign, while dAZ is 
+        converted to dXEL (angle on the sky) by multiplying by cos(EL).
     '''
+    import dbutil
     f = open(filename,'r')
     lines = f.readlines()
     f.close()
@@ -54,12 +75,23 @@ def rd_calpnt(filename):
     ra = np.zeros_like(ha)
     for i in range(len(ha)):
         ra[i] = eovsa_lst(times[i]) - ha[i]
-    return {'filename':filename, 'source':source, 'time':times, 'ra':ra, 
+
+    # Read pointing parameters from SQL database at time of first observation
+    params_old = np.zeros((9,15),int)
+    cursor = dbutil.get_cursor()
+    timestamp = times[0].lv
+    # Read stateframe data at time of first observation
+    D15data = dbutil.get_dbrecs(cursor, dimension=15, timestamp=timestamp, nrecs=1)
+    for p in range(9):
+        params_old[p], = D15data['Ante_Cont_PointingCoefficient'+str(p+1)]
+    params_old = params_old[:,np.array(antlist)-1]  # Pare down to only antennas in antlist
+
+    return {'filename':filename, 'source':source, 'time':times, 'params_old':params_old, 'ra':ra, 
             'dec':dec, 'ha':ha, 'antlist':antlist, 'dra':dra, 'ddec':ddec}
             
 def mntcal(indict):
-    ''' Given an input dictionary of pointing coordinates for a single AZEL antenna
-        calculate pointing parameters.
+    ''' Given an input dictionary of pointing coordinates for a single antenna,
+        calculate pointing parameters according to antenna type.
         
         Input:
           indict   A dictionary with the following keys:
@@ -79,49 +111,50 @@ def mntcal(indict):
           For each point, calculates refraction-corrected elevation el', where
               el' = el+(1/60.)*(0.0019279 + 1.02/tan((el + 10.3/(el+5.1))*dtor))   ## Skip refraction correction!
           then for an AZEL mount, does
-              x = [1, cos(el'), sin(el'), cos(az)*sin(el'), sin(az)*sin(el'), 0, 0, 0]
+              x = [1, cos(el'), sin(el'), cos(az)*sin(el'), sin(az)*sin(el'),  # Xel coordinates (angle on sky!)
+                   0, 0, 0]
               a += asmatrix(x).T * asmatrix(x)
               b += dxel * x
-              x = [0, 0, 0, -sin(az), cos(az), 1, cos(el'), cot(el')]
+              x = [0, 0, 0, -sin(az), cos(az), 1, cos(el'), cot(el')]          # El coordinates
               a += asmatrix(x).T * asmatrix(x)
               b += dxel * x
           while for an EQ mount, does
-              x = [1, -cos(lat)*sin(ha)/cos(dec), tan(dec), -1./cos(dec), sin(ha)*tan(dec), -cos(ha)*tan(dec), 0, 0]
+              x = [1, -cos(lat)*sin(ha)/cos(dec), tan(dec), -1./cos(dec),      # HA coordinates (not angle on sky!)
+                   sin(ha)*tan(dec), -cos(ha)*tan(dec), 0, 0]
               a += asmatrix(x).T * asmatrix(x)
               b += dxel * x
-              x = [0, 0, 0, 0, cos(ha), sin(ha), 1, -cos(lat)*cos(ha)*sin(dec) + sin(lat)*cos(dec)]
+              x = [0, 0, 0, 0, cos(ha), sin(ha), 1,                            # Declination coordinates
+                   -cos(lat)*cos(ha)*sin(dec) + sin(lat)*cos(dec)]
               a += asmatrix(x).T * asmatrix(x)
               b += dxel * x
               
           Then
               p = np.linalg.solve(a,b)
               
-          where p is the array of pointing parameters
-              P1 = Azimuth collimation error
-              P2 = Azimuth encoder offset
-              P3 = Elevation axis skew angle
-              P4 = -phi*sin(Ka), where phi = azimuth axis tilt angle and Ka = angle defining direction of tilt
-              P5 =  phi*cos(Ka)
-              P6 (not used)
-              P7 = Elevation encoder offset + collimation error
-              P8 = Gravitational deflection coefficient
-              P9 = Residual refraction coefficient        
+          where p is the array of pointing parameters with different meanings according to mount type
+              AZEL:                                          EQ:
+              -------------------------------------------    -----------------------------------------
+              P1 = Azimuth collimation error                 = Hour angle encoder offset
+              P2 = Azimuth encoder offset                    = Hour angle sag
+              P3 = Elevation axis skew angle                 = Axis skew
+              P4 = -phi*sin(Ka), where phi = azimuth axis    = Collimation error
+                   tilt angle and Ka = angle defining 
+                   direction of tilt
+              P5 = phi*cos(Ka)                               = Tilt out
+              P6 = Not used                                  = Tilt over
+              P7 = Elevation encoder offset and              = Declination encoder offset
+                   collimation error                           and collimation error
+              P8 = Gravitational deflection coefficient      = Declination sag
+              P9 = Residual refraction coefficient           = Not used
     '''
     from numpy import cos, sin, tan  # Avoids all the np. etc.
-    dtor = np.pi/180.
+    mount = indict['mount']
     npt = len(indict['az'])
     nparm = 8
     a = np.asmatrix(np.zeros((nparm,nparm))) # Matrix to create from coordinates   A#B = P
     b = np.zeros(nparm)                      # Vector to create from measurements
-    el_r = []    # List of refraction-corrected elevations
-    # Do accumulations
+    # Do accumulation over sources
     for i in range(npt):
-        
-        # Apply refraction correction (assumes elevation in degrees)
-        #el /= dtor  # Convert to degrees
-        #elp = el+(1/60.)*(0.0019279 + 1.02/tan((el + 10.3/(el+5.1))*dtor))
-        #elp *= dtor # Convert to radians
-        #el_r.append(elp)
         if mount == 'AZEL':
             el = indict['el'][i]
             az = indict['az'][i]
@@ -129,10 +162,10 @@ def mntcal(indict):
             d_el = indict['d_el'][i]
             elp = el   # Skip refraction correction
             # Add these pointing results to A and B
-            x = np.array([1., np.cos(elp), sin(elp), cos(az)*sin(elp), sin(az)*sin(elp), 0., 0., 0.])
+            x = np.array([1., np.cos(el), sin(el), cos(az)*sin(el), sin(az)*sin(el), 0., 0., 0.])
             a += np.asmatrix(x).T * np.asmatrix(x)
             b += dxel * x
-            x = np.array([0., 0., 0., -sin(az), cos(az), 1., cos(elp), 1./tan(elp)])
+            x = np.array([0., 0., 0., -sin(az), cos(az), 1., cos(el), 1./tan(el)])
             a += np.asmatrix(x).T * np.asmatrix(x)
             b += d_el * x
         elif mount == 'EQ':
@@ -141,10 +174,10 @@ def mntcal(indict):
             dha = -indict['dra'][i]   # Change sign for RA -> HA
             ddec = indict['ddec'][i]
             x = np.array([1, -cos(lat)*sin(ha)/cos(dec), tan(dec), -1./cos(dec), sin(ha)*tan(dec), -cos(ha)*tan(dec), 0., 0.])
-            a += asmatrix(x).T * asmatrix(x)
+            a += np.asmatrix(x).T * np.asmatrix(x)
             b += dha * x
             x = np.array([0., 0., 0., 0., cos(ha), sin(ha), 1., -cos(lat)*cos(ha)*sin(dec) + sin(lat)*cos(dec)])
-            a += asmatrix(x).T * asmatrix(x)
+            a += np.asmatrix(x).T * np.asmatrix(x)
             b += ddec * x
             
     # Calculate the solution (p are best-fit parameters, P1-P9)
@@ -159,35 +192,41 @@ def checkfit(indict):
         Pointing model depends on mount type.
         AZEL mount type:  Predicted pointing offsets are
 
-          AZO = P1 + P2 cos(EL') + P3 sin(EL') + P4 cos(AZ)sin(EL') + P5 sin(AZ)sin(EL')
+          XELO = P1 + P2 cos(EL') + P3 sin(EL') + P4 cos(AZ)sin(EL') + P5 sin(AZ)sin(EL')
           ELO = P7 + P8 cos(EL') + P9 cot(EL') - P4 sin(AZ)         + P5 cos(AZ)
 
-        where AZO, ELO are small, measured pointing offsets in "azimuth" and elevation
-        angles on the sky, at azimuth, AZ, and elevation EL.
+        where XELO, ELO are small, measured pointing offsets in "azimuth" (i.e. cross-elevation) 
+        and elevation angles on the sky, at azimuth, AZ, and elevation EL.
 
         EQ mount type: Predicted pointing offsets are
-          HAO  = P1 - P2 cos(LAT)*sin(HA)*sec(DEC) + P3 tan(DEC) - P4 sec(DEC) + P5 sin(HA)*tan(DEC) - P6 cos(HA)*tan(DEC)
+          HAO  = P1 - P2 cos(LAT)*sin(HA)*sec(DEC) + P3 tan(DEC) - P4 sec(DEC) 
+               + P5 sin(HA)*tan(DEC) - P6 cos(HA)*tan(DEC)
           DECO = P5 cos(HA) + P6 sin(HA) + P7 - P8 [cos(LAT)*cos(HA)*sin(DEC) - sin(LAT)*cos(DEC)]
 
         where HAO, DECO are small, measured pointing offsets in hour-angle and elevation
-        angles on the sky, at hour-angle, HA, and declination EL.
+        (HA not angle on the sky), at hour-angle, HA, and declination EL.
 
     '''
     import matplotlib
     import matplotlib.pylab as plt
+    import os
     from numpy import cos, sin, tan  # Avoids all the np. etc.
-    dtor = np.pi/180.
+    mount = indict['mount']
     npt = len(indict['az'])
     nparm = 8
     p = indict['params']
+    old_p = indict['params_old']
     fit_x = []   # Fit of horizontal offset (HA or AZ)
     fit_y = []   # Fit of vertical offset (DEC or EL)
     # Do fit to all of the measurements using the solution for P
     if mount == 'AZEL':
         # AZO = P1 + P2 cos(EL') + P3 sin(EL') + P4 cos(AZ)sin(EL') + P5 sin(AZ)sin(EL')
         # ELO = P7 + P8 cos(EL') + P9 cot(EL') - P4 sin(AZ)         + P5 cos(AZ)
+        # Note: since P6 is not used, and indexes below are 0-based, these become
+        # ELO = P[5] + P[6] cos(EL') + P[7] cot(EL') - P[3] sin(AZ) + P[4] cos(AZ)
         for i in range(npt):
-            elp  = indict['el_r'][i]
+            #elp  = indict['el_r'][i]
+            elp  = indict['el'][i]
             az   = indict['az'][i]
 
             xel = p[0] + p[1]*cos(elp) + p[2]*sin(elp) + p[3]*cos(az)*sin(elp) + p[4]*sin(az)*sin(elp)
@@ -209,10 +248,10 @@ def checkfit(indict):
             dec  = indict['dec'][i]
             ha   = indict['ha'][i]
             
-            dh = p[0] - p[1]*cos(lat)*sin(ha[i])/cos(dec[i]) + p[2]*tan(dec[i]) - p[3]/cos(dec[i]) \
-                      + p[4]*sin(ha[i])*tan(dec[i]) - p[5]*cos(ha[i])*tan(dec[i])
+            dh = p[0] - p[1]*cos(lat)*sin(ha)/cos(dec) + p[2]*tan(dec) - p[3]/cos(dec) \
+                      + p[4]*sin(ha)*tan(dec) - p[5]*cos(ha)*tan(dec)
             fit_x.append(dh)
-            dd = p[4]*cos(ha[i]) + p[5]*sin(ha[i]) + p[6] - p[7]*(cos(lat)*cos(ha[i])*sin(dec[i]) - sin(lat)*cos(dec[i]))
+            dd = p[4]*cos(ha) + p[5]*sin(ha) + p[6] - p[7]*(cos(lat)*cos(ha)*sin(dec) - sin(lat)*cos(dec))
             fit_y.append(dd)
 
         # Calculate the difference between the measured offsets and the fitted ones
@@ -222,7 +261,7 @@ def checkfit(indict):
         y_diff = indict['ddec'] - fit_y
 
     # Print results
-    print ' Solution for antenna',indict['ant'],'mount type:',indict['mount']
+    print 'Solution for antenna',indict['ant'],'mount type:',indict['mount']
     print '                  Times \     AZ    EL     HA    DEC       MEASURED   FITTED  DIFFERENCE (deg)'
     print ' '
     if mount == 'AZEL':
@@ -234,8 +273,8 @@ def checkfit(indict):
             dxel = indict['dxel'][i]
             d_el = indict['d_el'][i]
             times = indict['times'][i]
-            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dXEL = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,dxel,fit_x[i],xel_diff[i])
-            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dEL  = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,d_el,fit_y[i],el_diff[i])
+            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dXEL = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,dxel,fit_x[i],x_diff[i])
+            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dEL  = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,d_el,fit_y[i],y_diff[i])
 
         # Calculate an appropriate residual
         rmsum = np.concatenate((x_diff, y_diff)).std()
@@ -253,99 +292,134 @@ def checkfit(indict):
             az   = indict['az'][i] / dtor
             ha  = indict['ha'][i] / dtor
             dec   = indict['dec'][i] / dtor
-            dra = indict['dra'][i]
+            dha = -indict['dra'][i]
             ddec = indict['ddec'][i]
             times = indict['times'][i]
-            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dHA = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,dha,fit_x[i],x_diff[i])
-            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dDec  = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,ddec,fit_y[i],y_diff[i])
+            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dHA  = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,dha,fit_x[i],x_diff[i])
+            print times, "\ {:6.1f}{:6.1f} {:6.1f}{:6.1f}   dDec = {:7.3f}  {:7.3f}  {:7.3f}".format(az,el,ha,dec,ddec,fit_y[i],y_diff[i])
 
         # Calculate an appropriate residual
         rmsum = np.concatenate((x_diff, y_diff)).std()
-        origsum = np.sqrt((np.concatenate((indict['dha'],indict['ddec']))**2).sum()/(npt*2 - nparm))
+        origsum = np.sqrt((np.concatenate((-indict['dra'],indict['ddec']))**2).sum()/(npt*2 - nparm))
 
-        # Add in zero for 6th parameter
-        p = np.insert(p,5,0.0)
+        # Add in zero for 9th parameter
+        p = np.insert(p,8,0.0)
         # Print residual and solution
         print ' '
         print '\ RMS Residual={:5.3f}   RMS Original={:5.3f}'.format(rmsum,origsum)
         print '\\',''.join('{:8.4f}'.format(k) for k in p), '<- UPDATE'
 
-    '''    
-    print ''.join('{:7d}'.format(int(int(aligntab[k])+v*10000)) for k,v in enumerate(p)),' ALIGNPARM \ Updated pointing parameters'
-
-#    paz = Azimuth list for plotting
-#    pel = Elevation list for plotting
-#    azpo = Az pointing offset for plotting
-#    elpo = El pointing offset for plotting
-#    azfit = Fit for Azimuth for plotting
-#    elfit = Fit for Elevation for plotting
-    # Azimuth -- get index for sort by ascending order
-    print 'start of plot'
+    # Add update to existing pointing parameters and provide new parameters
+    print '{:7d}{:7d}{:7d}{:7d}{:7d}{:7d}{:7d}{:7d}{:7d}'.format(*(old_p + (p*10000).astype(int)))+' \ Updated pointing parameters'
+    print ''
+    indict.update({'params_new':old_p + (p*10000).astype(int)})
     '''
-    # paz = indict['az'] / dtor
-    # pel = indict['el'] / dtor
-    # ind = paz.argsort()
-    # azpo = indict['dxel']
-    # elpo = indict['d_el']
-    # print 'setting drange'
-    # drange = np.sqrt((azpo.max() - azpo.min())**2 + (elpo.max() - elpo.min())**2)
-    # matplotlib.rcParams.update({'font.size':12})
-    # plt.figure()
-    # plt.subplot(221)
-    # if drange > 0.25:
-        # plt.axis([30,330,-1.5,1.5])
-    # else:
-        # plt.axis([30,330,-0.25,0.25])
-    # plt.xlabel('Azimuth [deg]')
-    # plt.ylabel('Azimuth Offset [deg]')
-    # plt.title('Azimuth Offsets and Fit')
-    # plt.plot(paz[ind],azpo[ind],'o')
-    # plt.plot(paz[ind],fit_x[ind])
+    #    paz = Azimuth list for plotting
+    #    pel = Elevation list for plotting
+    #    azpo = Az pointing offset for plotting
+    #    elpo = El pointing offset for plotting
+    #    azfit = Fit for Azimuth for plotting
+    #    elfit = Fit for Elevation for plotting
+        # Azimuth -- get index for sort by ascending order
+        print 'start of plot'
+    '''
+    paz = indict['az'] / dtor
+    pel = indict['el'] / dtor
+    ind = paz.argsort()
+    if mount == 'AZEL':
+        azpo = indict['dxel']
+        elpo = indict['d_el']
+    elif mount == 'EQ':
+        azpo = -indict['dra']
+        elpo = indict['ddec']
+    drange = np.sqrt((azpo.max() - azpo.min())**2 + (elpo.max() - elpo.min())**2)
+    matplotlib.rcParams.update({'font.size':12})
+    f = plt.figure()
+    f.suptitle(indict['times'][0].iso[:16]+'-'+indict['times'][-1].iso[11:16]+'    Ant '+str(indict['ant']))
+    plt.subplot(221)
+    if drange > 0.25:
+        plt.axis([30,330,-1.5,1.5])
+    else:
+        plt.axis([30,330,-0.25,0.25])
+    plt.xlabel('Azimuth [deg]')
+    if mount == 'AZEL':
+        plt.ylabel('Azimuth Offset [deg]')
+        plt.title('Azimuth Offsets and Fit')
+    elif mount == 'EQ':
+        plt.ylabel('HA Offset [deg]')
+        plt.title('HA Offsets and Fit')
+    plt.plot(paz[ind],azpo[ind],'o')
+    plt.plot(paz[ind],fit_x[ind])
 
-    # plt.subplot(222)
-    # if drange > 0.25:
-        # plt.axis([30,330,-1.5,1.5])
-    # else:
-        # plt.axis([30,330,-0.25,0.25])
-    # plt.xlabel('Azimuth [deg]')
-    # plt.ylabel('Elevation Offset [deg]')
-    # plt.title('Elevation Offsets and Fit')
-    # plt.plot(paz[ind],elpo[ind],'o')
-    # plt.plot(paz[ind],fit_y[ind])
+    plt.subplot(222)
+    if drange > 0.25:
+        plt.axis([30,330,-1.5,1.5])
+    else:
+        plt.axis([30,330,-0.25,0.25])
+    plt.xlabel('Azimuth [deg]')
+    if mount == 'AZEL':
+        plt.ylabel('Elevation Offset [deg]')
+        plt.title('Elevation Offsets and Fit')
+    elif mount == 'EQ':
+        plt.ylabel('Declination Offset [deg]')
+        plt.title('Declination Offsets and Fit')
+    plt.plot(paz[ind],elpo[ind],'o')
+    plt.plot(paz[ind],fit_y[ind])
 
-    # plt.subplot(223)
-    # plt.axis('equal')
-    # plt.axis('scaled')
-    # plt.axis([30,300,10,88])
-    # plt.xlabel('Azimuth [deg]')
-    # plt.ylabel('Elevation [deg]')
-    # plt.title('Sky Coverage')
-    # plt.plot(paz[ind],pel[ind],'+')
+    plt.subplot(223)
+    plt.axis('equal')
+    plt.axis('scaled')
+    plt.axis([30,300,10,88])
+    plt.xlabel('Azimuth [deg]')
+    plt.ylabel('Elevation [deg]')
+    plt.title('Sky Coverage')
+    plt.plot(paz[ind],pel[ind],'+')
 
-    # plt.subplot(224)
-    # plt.axis('equal')
-    # plt.axis('scaled')
-    # plt.axis([-0.5,0.5,-0.5,0.5])
-    # plt.xlabel('Azimuth Offset [deg]')
-    # plt.ylabel('Elevation Offset [deg]')
-    # plt.title('Pointing Relative to Solar Disk')
-    # th = np.linspace(0,2*np.pi,100)
-    # plt.plot(0.25*np.cos(th),0.25*np.sin(th),azpo,elpo,'+')
-    # # Set plot size
-    # #fig = plt.gcf()
-    # #fig.set_size_inches(10.0,8.0)
-    # #tok = filename.split('/')
-    # #stem = tok[len(tok)-1].split('.')[0]
-    # #plt.savefig(stem+'.pdf')
-    # #plt.close()
+    plt.subplot(224)
+    plt.axis('equal')
+    plt.axis('scaled')
+    plt.axis([-0.5,0.5,-0.5,0.5])
+    if mount == 'AZEL':
+        plt.xlabel('Azimuth Offset [deg]')
+        plt.ylabel('Elevation Offset [deg]')
+    elif mount == 'EQ':
+        plt.xlabel('HA Offset [deg]')
+        plt.ylabel('Declination Offset [deg]')
+    plt.text(0.0,0.4,'Pointing vs. Solar Disk',ha='center')
+    plt.text(-0.45,-0.38,'$RMS_{orig}$',color='C1',ha='left')
+    plt.text(0.45,-0.38,'$RMS_{corr}$',color='C3',ha='right')
+    plt.text(-0.45,-0.45,'{:5.3f}'.format(origsum)+'$^o$',color='C1',ha='left')
+    plt.text(0.45,-0.45,'{:5.3f}'.format(rmsum)+'$^o$',color='C3',ha='right')
+    th = np.linspace(0,2*np.pi,100)
+    plt.plot(0.25*np.cos(th),0.25*np.sin(th),azpo,elpo,'+')
+    plt.plot(0.25*np.cos(th),0.25*np.sin(th),x_diff,y_diff,'.')
 
-def multi_mountcal(filename):
+    # Set plot size
+    fig = plt.gcf()
+    fig.set_size_inches(10.0,8.0)
+    # Save figure
+    filename = indict['filename']
+    path = os.path.dirname(filename)
+    fname = os.path.basename(filename)[:8]+'-ant'+str(indict['ant'])+'-pnt.png'
+    plt.savefig(path+os.sep+fname)
+    plt.close()
+    return indict
+
+def multi_mountcal(filename, ant_str='None'):
     ''' Process an entire set of calpnt data
     '''
     import coord_conv as cc
+    from util import ant_str2list
+    
     outdict = rd_calpnt(filename)
     indict_list = []
-    for i, ant in enumerate(outdict['antlist']):
+    if ant_str:
+        antlist = ant_str2list(ant_str)+1
+    else:
+        antlist = outdict['antlist']
+    for ant in antlist:
+        #i = ant - 1
+        i, = np.where(outdict['antlist'] == ant)[0]  # Index in outdict for specified ant
         if ant in [9, 10, 11, 13, 14]:
             # This is an equatorial mount
             mount = 'EQ'
@@ -365,19 +439,49 @@ def multi_mountcal(filename):
         dec = outdict['dec'][good]
         ha = outdict['ha'][good]
         times = outdict['time'][good]
+        params_old = outdict['params_old'][:,i]
+        # el_r = []
         for k in range(npt):
             # Convert RA, Dec to Az, El, and dRA, dDec to dxel and d_el
             azk, elk = cc.radec2azel(ra[k], dec[k], times[k])
-            # Adjust coordinates 
-            dxelk, d_elk = cc.dradec2dazel(ra[k],dec[k],times[k],dra[k],ddec[k])
+            # Apply refraction correction (assumes elevation in degrees)
+            # This is commented out, pending determination of whether refraction is already
+            # accounted for in the measurements (I think it is...)
+            #elk /= dtor  # Convert to degrees
+            #elp = elk+(1/60.)*(0.0019279 + 1.02/tan((elk + 10.3/(el+5.1))*dtor))
+            #elp *= dtor # Convert back to radians
+            #el_r.append(elp)
+            # Adjust coordinates (only needed for AZEL, but do for EQ, too for consistency)
+            dxelk, d_elk = cc.dradec2dazel(ra[k],dec[k],times[k],dra[k]*dtor,ddec[k]*dtor)
             az[k] = azk
             el[k] = elk
-            dxel[k] = dxelk
-            d_el[k] = d_elk
-        indict = {'ant':ant, 'dra':dra, 'ddec':ddec, 'dxel': dxel, 'd_el':d_el, 'ra':ra, 'dec':dec, 'ha':ha, 'az':az, 'el':el, 'mount':mount, 'times':times}
+            dxel[k] = dxelk / dtor
+            d_el[k] = d_elk / dtor
+        indict = {'filename':outdict['filename'],'ant':ant, 'dra':dra, 'ddec':ddec, 'dxel': dxel, 'd_el':d_el, 'ra':ra, 
+                  'dec':dec, 'ha':ha, 'az':az, 'el':el, 'mount':mount, 'times':times, 
+                  'params_old':params_old}
+        # indict.update({'el_r':el_r})    # Refraction-corrected elevation
         indict = mntcal(indict)
+        indict = checkfit(indict)
         indict_list.append(indict.copy())
-        print 'Results for Antenna',ant
-        checkfit(indict)
     return indict_list   # Temporary
-                
+    
+def params2ants(indict_list):
+    ''' Send params_new values from indict_list (output of multi_mountcal) to antennas
+    
+        indict_list[i]['ant']           gives the antenna to send information to
+        indict_list[i]['params_new']    contains the parameters to send
+        
+    '''
+    import calibration as cal
+    import stateframe as stf
+    accini = stf.rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
+    for indict in indict_list:
+        ant = str(indict['ant'])
+        for i in range(9):
+            cmd = 'pointingcoefficient'+str(i+1)+' '+str(indict['params_new'][i])+' ant'+ant
+            cal.send_cmds([cmd],acc)
+        print 'Coefficients for ant',ant,'sent.'
+        if int(ant) in [1,2,3,4,5,6,7,8,12]:
+            print 'Antenna',ant,'controller must be rebooted before parameters take effect.'

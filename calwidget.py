@@ -10,6 +10,9 @@
 #    Finally got a mostly complete and functional version running.
 #  2018-Jan-16  DG
 #    Fixed a couple of small bugs, esp. so we can analyze today's data
+#  2018-Jan-23  DG
+#    Change saving refcal to SQL, to ALWAYS ask about changing the reference time.
+#    Also, another attempt to allow analyzing a date when a following date is missing.
 #
 
 import matplotlib
@@ -239,19 +242,18 @@ class App():
                 rfcal = {'timestamp':t_ref, 't_bg':t_ref, 't_ed':t_ed, 'flag':data['flags'][:,:2],
                         'vis':data['x'][:,:2], 'sigma':data['sigma'][:,:2], 'fghz':data['fghz']}
                 timestamp = t_ref
-                if (t_ref.jd % 1) > 0.33:
-                    question = 'This Reference Calibration is rather late in the day. Override SQL time?'
-                    if askyesno("Override SQL Time",question):
-                        self.root.t_ref = t_ref
-                        d = MyDialog(self.root, title='Enter New SQL Time')
-                        try:
-                            if d.tout is None:
-                                showerror("Error",'Unknown time format.  Please try Save to SQL button again.')
-                                return
-                            timestamp = Time(d.tout)
-                        except:
-                            self.status.config(text = 'Status: User canceled the dialog.')
+                question = 'Do you want to override SQL time '+t_ref.iso+'?'
+                if askyesno("Override SQL Time",question):
+                    self.root.t_ref = t_ref
+                    d = MyDialog(self.root, title='Enter New SQL Time')
+                    try:
+                        if d.tout is None:
+                            showerror("Error",'Unknown time format.  Please try Save to SQL button again.')
                             return
+                        timestamp = Time(d.tout)
+                    except:
+                        self.status.config(text = 'Status: User canceled the dialog.')
+                        return
                 ch.refcal2sql(rfcal,timestamp)
                 self.status.config(text = 'Status: Reference Calibration saved to SQL Database at '+timestamp.iso)
                 self.saved[k] = True
@@ -415,39 +417,51 @@ class App():
             st_time = Time(sd['Timestamp'][i],format='lv')
             en_time = Time(sd['Timestamp'][i]+sd['duration'][i]*60.,format='lv')
             line = st_time.iso[11:19] + ' ' + sd['SourceID'][i] + '{:6.1f} m '.format(sd['duration'][i]) 
+            # This scan is not a REFCAL unless proven otherwise
+            not_a_refcal = True
+            # This scan is not a PHACAL unless proven otherwise
+            not_a_phacal = True
             # See if results exist in SQL database
-            xml, buf = ch.read_cal(refcal_type, t=en_time)
-            refcal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
-            dtr1 = st_time - refcal_time   # negative if in scan
-            dtr2 = en_time - refcal_time   # positive if in scan
-            if dtr1.jd < 0 and dtr2.jd > 0:
-                line += ' R'
-                x = extract(buf,xml['Refcal_Real']) + 1j*extract(buf,xml['Refcal_Imag'])
-                sigma = extract(buf,xml['Refcal_Sigma'])
-                flags = extract(buf,xml['Refcal_Flag'])
-                fghz = extract(buf,xml['Fghz'])
-                self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
-                self.saved.append(True)
-            else:
-                xml, buf = ch.read_cal(phacal_type, t=en_time)
-                phacal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
-                dtp1 = st_time - phacal_time
-                dtp2 = en_time - phacal_time
-                if dtp1.jd < 0 and dtp2.jd > 0:
-                    line += ' P'
-                    x = extract(buf,xml['Phacal_Amp'])*np.exp(1j*extract(buf,xml['Phacal_Pha']))
-                    sigma = extract(buf,xml['Phacal_Sigma'])
-                    flags = extract(buf,xml['Phacal_Flag'])
+            try:
+                xml, buf = ch.read_cal(refcal_type, t=en_time)
+                refcal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
+                dtr1 = st_time - refcal_time   # negative if in scan
+                dtr2 = en_time - refcal_time   # positive if in scan
+                if dtr1.jd < 0 and dtr2.jd > 0:
+                    line += ' R'
+                    x = extract(buf,xml['Refcal_Real']) + 1j*extract(buf,xml['Refcal_Imag'])
+                    sigma = extract(buf,xml['Refcal_Sigma'])
+                    flags = extract(buf,xml['Refcal_Flag'])
                     fghz = extract(buf,xml['Fghz'])
-                    mbd = extract(buf,xml['MBD'])
-                    mbd_flag = extract(buf,xml['Flag'])
-                    self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 
-                                             'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag})
+                    self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
                     self.saved.append(True)
-                else:
-                    # Neither refcal nor phacal exists for this time, so set empty dictionary
-                    self.pc_dictlist.append({})
-                    self.saved.append(False)
+                    not_a_refcal = False
+            except:
+                pass
+            if not_a_refcal:
+                try:
+                    xml, buf = ch.read_cal(phacal_type, t=en_time)
+                    phacal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
+                    dtp1 = st_time - phacal_time
+                    dtp2 = en_time - phacal_time
+                    if dtp1.jd < 0 and dtp2.jd > 0:
+                        line += ' P'
+                        x = extract(buf,xml['Phacal_Amp'])*np.exp(1j*extract(buf,xml['Phacal_Pha']))
+                        sigma = extract(buf,xml['Phacal_Sigma'])
+                        flags = extract(buf,xml['Phacal_Flag'])
+                        fghz = extract(buf,xml['Fghz'])
+                        mbd = extract(buf,xml['MBD'])
+                        mbd_flag = extract(buf,xml['Flag'])
+                        self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 
+                                             'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag})
+                        self.saved.append(True)
+                        not_a_phacal = False
+                except:
+                    pass
+            if not_a_refcal and not_a_phacal:
+                # Neither refcal nor phacal exists for this time, so set empty dictionary
+                self.pc_dictlist.append({})
+                self.saved.append(False)
 
             nscans = len(self.pc_dictlist)
             self.pc_scanbox.insert(Tk.END, line)
@@ -798,9 +812,13 @@ def findscans(trange):
     if mjd0 < mjdnow:
         # The date is a previous day, so read a second ufdb file 
         # to ensure we have the whole local day
-        ufdb2 = dump_tsys.rd_ufdb(Time(int(tstart)+86400.,format='lv'))
-        for key in ufdb.keys():
-            ufdb.update({key: np.append(ufdb[key], ufdb2[key])})
+        try:
+            ufdb2 = dump_tsys.rd_ufdb(Time(int(tstart)+86400.,format='lv'))
+            for key in ufdb.keys():
+                ufdb.update({key: np.append(ufdb[key], ufdb2[key])})
+        except:
+            # No previous day, so just skip it.
+            pass
     ufdb_times = ufdb['ST_TS'].astype(float).astype(int)
     idx = nearest_val_idx(tsint,ufdb_times)
     fpath = '/data1/eovsa/fits/UDB/' + trange[0].iso[:4] + '/'

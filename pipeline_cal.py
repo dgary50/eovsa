@@ -36,8 +36,7 @@
 #  2018-01-03  DG
 #    Updated udb_corr() to work with new xi_rot.
 #
-import matplotlib
-matplotlib.use('Agg')
+
 import dbutil as db
 import numpy as np
 from util import Time, nearest_val_idx, common_val_idx, lobe
@@ -104,8 +103,7 @@ def apply_fem_level(data, gctime=None):
     src_lev = get_fem_level(trange, dt)  # solar gain state for timerange of file
     nf = len(data['fghz'])
     nt = len(src_lev['times'])
-    attn = ac.read_attncal(gctime)[
-        0]  # Reads attn from SQL database (returns a list, but use first, generally only, one)
+    attn = ac.read_attncal(gctime)[0]  # Reads attn from SQL database (returns a list, but use first, generally only, one)
     # attn = ac.get_attncal(gctime)[0]   # Analyzes GAINCALTEST (returns a list, but use first, generally only, one)
     antgain = np.zeros((15, 2, nf, nt), np.float32)  # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
@@ -449,7 +447,7 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
     import udb_util as uu
     import time
     from pathlib2 import Path
-    if type(filelist) is str:
+    if type(filelist) is str or type(filelist) is np.string_:
         # Convert input filename to list if not already a list
         filelist = [filelist]
 
