@@ -181,8 +181,8 @@ def rd_refcal(trange, projid='PHASECAL', srcid=None, quackint=180., navg=3):
         gsrclist.append(sclist['srclist'][i])
         gtstlist.append(sclist['tstlist'][i])
         gtedlist.append(sclist['tedlist'][i])
-    return {'scanlist': gscanlist, 'srclist': gsrclist, 'tstlist': gtstlist, 'tedlist': gtedlist, 
-            'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs, 'times': times, 'has': has, 'decs': decs}
+    return {'scanlist': gscanlist, 'srclist': gsrclist, 'tstlist': gtstlist, 'tedlist': gtedlist, 'vis': vis, 'bandnames': bandnames, 'fghzs': fghzs,
+            'times': times, 'has': has, 'decs': decs}
 
 
 def unrot_refcal(refcal_in):
@@ -195,10 +195,10 @@ def unrot_refcal(refcal_in):
     import cal_header as ch
     from stateframe import extract
     refcal = copy.deepcopy(refcal_in)
-    xml, buf = ch.read_cal(11, Time(refcal['times'][0][0],format='jd'))
-    dph = extract(buf,xml['XYphase'])
-    xi_rot = extract(buf,xml['Xi_Rot'])
-    freq = extract(buf,xml['FGHz'])
+    xml, buf = ch.read_cal(11, Time(refcal['times'][0][0], format='jd'))
+    dph = extract(buf, xml['XYphase'])
+    xi_rot = extract(buf, xml['Xi_Rot'])
+    freq = extract(buf, xml['FGHz'])
     freq = freq[np.where(freq != 0)]
     band = []
     for f in freq:
@@ -293,10 +293,8 @@ def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=
                         ax1[ant, b].set_title('Band ' + str(bd))
                         ax2[ant, b].set_title('Band ' + str(bd))
                     if b == 0:
-                        ax1[ant, b].text(-0.4, 0.5, 'Ant ' + str(ant + 1), ha='center', va='center',
-                                         transform=ax1[ant, b].transAxes, fontsize=10)
-                        ax2[ant, b].text(-0.4, 0.5, 'Ant ' + str(ant + 1), ha='center', va='center',
-                                         transform=ax2[ant, b].transAxes, fontsize=10)
+                        ax1[ant, b].text(-0.4, 0.5, 'Ant ' + str(ant + 1), ha='center', va='center', transform=ax1[ant, b].transAxes, fontsize=10)
+                        ax2[ant, b].text(-0.4, 0.5, 'Ant ' + str(ant + 1), ha='center', va='center', transform=ax2[ant, b].transAxes, fontsize=10)
                     else:
                         ax1[ant, b].set_yticks([])
                         ax2[ant, b].set_yticks([])
@@ -428,8 +426,7 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
     timestamp = Time(np.mean(timeavg), format='jd')
     timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd) / 2., format='jd')
     if doplot:
-        visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp, 't_bg': timeavg[0],
-                  't_ed': timeavg[-1], 'flag': flag}
+        visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp, 't_bg': timeavg[0], 't_ed': timeavg[-1], 'flag': flag}
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt)
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt, pol=1)
         f2, ax2 = plt.subplots(2, 13, figsize=(12, 5))
@@ -460,9 +457,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                     ax2[pol, ant].set_xticks([])
                     ax3[pol, ant].set_title('Ant ' + str(ant + 1))
                     ax3[pol, ant].set_xticks([])
-    return {'src': src, 'vis': vis_, 'pha': np.angle(vis_), 'amp': np.abs(vis_), 'fghz': fghz, 'flag': flag,
-            'sigma': sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal, 't_bg': Time(timeavg[0], format='jd'),
-            't_ed': Time(timeavg[-1], format='jd')}
+    return {'src': src, 'vis': vis_, 'pha': np.angle(vis_), 'amp': np.abs(vis_), 'fghz': fghz, 'flag': flag, 'sigma': sigma, 'timestamp': timestamp,
+            't_gcal': timestamp_gcal, 't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
 
 
 def graph_results(refcal, unwrap=True, savefigs=False):
@@ -646,15 +642,10 @@ def phase_diff(phacal, refcal=None, strictness=0.5, fitoffsets=False, verbose=Fa
 
     ncols = 4
     nrows = np.int(np.ceil(nants / 4.0))
-    print(
-        '------------------------------------------------------------------------------------------------------------------------')
-    print('PHASECAL quality assessment (rms in degree) ----- Field = {0:10s}, Time = {1}~{2}'.format(src,
-                                                                                                     phacal['t_bg'].iso[
-                                                                                                     :-4],
-                                                                                                     phacal['t_ed'].iso[
-                                                                                                     :-4]))
-    print(
-        '------------------------------------------------------------------------------------------------------------------------')
+    print('------------------------------------------------------------------------------------------------------------------------')
+    print('PHASECAL quality assessment (rms in degree) ----- Field = {0:10s}, Time = {1}~{2}'.format(src, phacal['t_bg'].iso[:-4],
+                                                                                                     phacal['t_ed'].iso[:-4]))
+    print('------------------------------------------------------------------------------------------------------------------------')
     for row in range(nrows):
         if row < nrows - 1:
             ants = range(ncols * row, ncols * (row + 1))
@@ -677,8 +668,8 @@ def phase_diff(phacal, refcal=None, strictness=0.5, fitoffsets=False, verbose=Fa
         # rms = [[prms[pol][ant] for pol in range(2)] for ant in ants]
         print ' '.join(map(caltbstr, rms, flg))
 
-    return {'t_pha': t_pha, 't_ref': t_ref, 'poff': np.transpose(poff), 'pslope': np.transpose(pslope),
-            'prms': np.transpose(prms), 'flag': np.transpose(flag), 'phacal': phacal}
+    return {'t_pha': t_pha, 't_ref': t_ref, 'poff': np.transpose(poff), 'pslope': np.transpose(pslope), 'prms': np.transpose(prms),
+            'flag': np.transpose(flag), 'phacal': phacal}
 
 
 def graph_pdiff(p_diff, refcal, strictness=0.5, verbose=False, plot_rms=False):
@@ -719,18 +710,17 @@ def graph_pdiff(p_diff, refcal, strictness=0.5, verbose=False, plot_rms=False):
                         ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
                         nres = len(residuals)
                         if pflag[ant, pol] == 1:
-                            ax[pol + 2, ant].hist(np.abs(residuals), bins=nres, cumulative=True, range=[0,5], color='r')
+                            ax[pol + 2, ant].hist(np.abs(residuals), bins=nres, cumulative=True, range=[0, 5], color='r')
                         else:
-                            ax[pol + 2, ant].hist(np.abs(residuals), bins=nres, cumulative=True, range=[0,5], color='royalblue')
+                            ax[pol + 2, ant].hist(np.abs(residuals), bins=nres, cumulative=True, range=[0, 5], color='royalblue')
                         ax[pol + 2, ant].axvline(1, ls=':', c='orange')
                         ax[pol + 2, ant].axhline(strictness * nres, ls=':', c='orange')
                     else:
                         ax[pol, ant].text(9, 8, 'Ant ' + str(ant + 1), ha='center')
                         ax[pol, ant].text(9, 0, 'No Cal', ha='center')
                     ax[pol, ant].text(9, -8, 'Flag {}'.format(pflag[ant, pol]), ha='center')
-                    ax[pol + 2, ant].text(0.1, 0.2, 'Flag {}'.format(pflag[ant, pol]), ha='left',
-                                          transform=ax[pol + 2, ant].transAxes)
-                    ax[pol + 2, ant].set_xlim([0,5])
+                    ax[pol + 2, ant].text(0.1, 0.2, 'Flag {}'.format(pflag[ant, pol]), ha='left', transform=ax[pol + 2, ant].transAxes)
+                    ax[pol + 2, ant].set_xlim([0, 5])
         ax[0, 0].set_ylabel('Phase Diff residuals [rad]')
         ax[2, 0].set_ylabel('Cumulative Histogram')
         for i in range(13):
@@ -768,11 +758,15 @@ def graph_pdiff(p_diff, refcal, strictness=0.5, verbose=False, plot_rms=False):
                 for j in range(2): ax[j, i].set_yticklabels([])
 
 
-def sql2refcal(t):
+def sql2refcal(t, super=False):
     '''Supply a timestamp in Time format, return the closest refcal data'''
     import cal_header as ch
     import stateframe as stf
-    xml, buf = ch.read_cal(8, t=t)
+    if super:
+        caltype = 12
+    else:
+        caltype = 8
+    xml, buf = ch.read_cal(caltype, t=t)
     refcal = stf.extract(buf, xml['Refcal_Real']) + stf.extract(buf, xml['Refcal_Imag']) * 1j
     flag = stf.extract(buf, xml['Refcal_Flag'])
     fghz = stf.extract(buf, xml['Fghz'])
@@ -782,15 +776,18 @@ def sql2refcal(t):
     ted = Time(stf.extract(buf, xml['T_end']), format='lv')
     pha = np.angle(refcal)
     amp = np.absolute(refcal)
-    return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg,
-            't_ed': ted}
+    return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}
 
 
-def sql2refcalX(trange, *args, **kwargs):
+def sql2refcalX(trange, super=False, *args, **kwargs):
     '''same as sql2refcal. trange can be either a timestamp or a timerange.'''
     import cal_header as ch
     import stateframe as stf
-    xml, bufs = ch.read_calX(8, t=trange, *args, **kwargs)
+    if super:
+        caltype = 12
+    else:
+        caltype = 8
+    xml, bufs = ch.read_calX(caltype, t=trange, *args, **kwargs)
     if isinstance(bufs, list):
         refcals = []
         for i, buf in enumerate(bufs):
@@ -804,12 +801,9 @@ def sql2refcalX(trange, *args, **kwargs):
                 ted = Time(stf.extract(buf, xml['T_end']), format='lv')
                 pha = np.angle(ref)
                 amp = np.absolute(ref)
-                refcals.append(
-                    {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp,
-                     't_bg': tbg, 't_ed': ted})
+                refcals.append({'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg, 't_ed': ted})
             except:
-                print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']),
-                                                                            format='lv').iso)
+                print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']), format='lv').iso)
         return refcals
     elif isinstance(bufs, str):
         refcal = stf.extract(bufs, xml['Refcal_Real']) + stf.extract(bufs, xml['Refcal_Imag']) * 1j
@@ -821,8 +815,7 @@ def sql2refcalX(trange, *args, **kwargs):
         ted = Time(stf.extract(bufs, xml['T_end']), format='lv')
         pha = np.angle(refcal)
         amp = np.absolute(refcal)
-        return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg,
-                't_ed': ted}
+        return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}
 
 
 def sql2phacalX(trange, *args, **kwargs):
@@ -848,11 +841,10 @@ def sql2phacalX(trange, *args, **kwargs):
                 flag = stf.extract(buf, xml['Flag'])[:, :, 0]
                 t_ref = Time(stf.extract(buf, xml['T_refcal']), format='lv')
                 phacals.append({'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
-                                'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
-                                           'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}})
+                                'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp,
+                                           't_bg': tbg, 't_ed': ted}})
             except:
-                print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']),
-                                                                            format='lv').iso)
+                print 'failed to load record {} ---> {}'.format(i + 1, Time(stf.extract(buf, xml['Timestamp']), format='lv').iso)
         return phacals
     elif isinstance(bufs, str):
         phacal_flag = stf.extract(bufs, xml['Phacal_Flag'])
@@ -868,8 +860,8 @@ def sql2phacalX(trange, *args, **kwargs):
         flag = stf.extract(bufs, xml['Flag'])[:, :, 0]
         t_ref = Time(stf.extract(bufs, xml['T_refcal']), format='lv')
         return {'pslope': pslope, 't_pha': timestamp, 'flag': flag, 'poff': poff, 't_ref': t_ref,
-                'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma,
-                           'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}}
+                'phacal': {'pha': pha, 'amp': amp, 'flag': phacal_flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg,
+                           't_ed': ted}}
 
 
 def fit_blerror(out):
@@ -924,8 +916,7 @@ def fit_blerror(out):
             for a in range(13):
                 for pol in range(2):
                     for f in gdbands:
-                        popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a, pol, f]), p0=[0., 0., 0.], sigma=None,
-                                               absolute_sigma=False)
+                        popt, pcov = curve_fit(bxyfunc, ha, np.unwrap(ph[a, pol, f]), p0=[0., 0., 0.], sigma=None, absolute_sigma=False)
                         dbx[a, pol, f] = popt[1] / (np.cos(dec) * fghz[f])  # Convert to ns
                         dby[a, pol, f] = popt[2] / (np.cos(dec) * fghz[f])  # Convert to ns
             dBx = np.median(np.mean(dbx[:, :, gdbands], 1), 1)
@@ -935,8 +926,7 @@ def fit_blerror(out):
 
             print '          dBx [m]       dBy [m]'
             for i in range(13):
-                print 'Ant {:2d}'.format(i + 1), '{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0] - dBx[i], xstd[i],
-                                                                                              dBy[0] - dBy[i], ystd[i])
+                print 'Ant {:2d}'.format(i + 1), '{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0] - dBx[i], xstd[i], dBy[0] - dBy[i], ystd[i])
             print 'Ant 14', '{:6.3f}+/-{:6.4f} {:6.3f}+/-{:6.4f}'.format(dBx[0], xstd[0], dBy[0], ystd[0])
         print ' '
         # Now fit for Bz errors (makes assumption that Bx and By errors are already small
