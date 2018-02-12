@@ -1866,7 +1866,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, timestamp=None, super = False):
+def refcal2sql(rfcal, timestamp=None, lohi = False):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1874,7 +1874,7 @@ def refcal2sql(rfcal, timestamp=None, super = False):
 
         This kind of record is type definition 8.
     '''
-    if super:
+    if lohi:
         typedef = 12
     else:
         typedef = 8
