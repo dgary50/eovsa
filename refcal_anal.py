@@ -758,11 +758,11 @@ def graph_pdiff(p_diff, refcal, strictness=0.5, verbose=False, plot_rms=False):
                 for j in range(2): ax[j, i].set_yticklabels([])
 
 
-def sql2refcal(t, super=False):
+def sql2refcal(t, lohi=False):
     '''Supply a timestamp in Time format, return the closest refcal data'''
     import cal_header as ch
     import stateframe as stf
-    if super:
+    if lohi:
         caltype = 12
     else:
         caltype = 8
@@ -779,11 +779,11 @@ def sql2refcal(t, super=False):
     return {'pha': pha, 'amp': amp, 'flag': flag, 'fghz': fghz, 'sigma': sigma, 'timestamp': timestamp, 't_bg': tbg, 't_ed': ted}
 
 
-def sql2refcalX(trange, super=False, *args, **kwargs):
+def sql2refcalX(trange, lohi=False, *args, **kwargs):
     '''same as sql2refcal. trange can be either a timestamp or a timerange.'''
     import cal_header as ch
     import stateframe as stf
-    if super:
+    if lohi:
         caltype = 12
     else:
         caltype = 8
