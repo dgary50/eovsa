@@ -13,6 +13,9 @@
 #  2018-Jan-23  DG
 #    Change saving refcal to SQL, to ALWAYS ask about changing the reference time.
 #    Also, another attempt to allow analyzing a date when a following date is missing.
+#  2018-02-14  DG 
+#    Added brute-force coarse delay calculation, and fixed phasecal to plot against band
+#    instead of frequency.  Also write SQL time on each refcal line if found in SQL.
 #
 
 import matplotlib
@@ -101,7 +104,7 @@ class App():
         #   Scan list widget
         pc_scanframe = Tk.Frame(self.pc_tlframe)
         pc_scanframe.pack(expand=False, fill=Tk.BOTH, side=Tk.TOP)
-        self.pc_scanbox = Tk.Listbox(pc_scanframe, selectmode=Tk.SINGLE, width=35, height=10, font="Courier 10 bold")
+        self.pc_scanbox = Tk.Listbox(pc_scanframe, selectmode=Tk.SINGLE, width=39, height=10, font="Courier 10 bold")
         self.pc_scanscrl = Tk.Scrollbar(pc_scanframe,orient=Tk.VERTICAL)
         self.pc_scanscrl.pack(side=Tk.RIGHT, fill=Tk.Y)
         self.pc_scanbox.pack(side=Tk.LEFT, expand=True, fill=Tk.BOTH)
@@ -257,6 +260,13 @@ class App():
                 ch.refcal2sql(rfcal,timestamp)
                 self.status.config(text = 'Status: Reference Calibration saved to SQL Database at '+timestamp.iso)
                 self.saved[k] = True
+                # Update the line with SQL time
+                lines = self.pc_scanbox.get(0,Tk.END)
+                self.pc_scanbox.delete(0,Tk.END)
+                for i,line in enumerate(lines):
+                    if k == i:
+                        line = line[:8] + timestamp.iso[10:19] + line[17:]
+                    self.pc_scanbox.insert(Tk.END, line)
         
     def ant_tab_event(self, event):
         '''When user selects an antenna tab, this callback allows the newly
@@ -409,14 +419,14 @@ class App():
         if sd['msg'] != 'Success':
             self.pc_scanbox.insert(Tk.END, sd['msg'])
             return
-        self.pc_scanbox.insert(Tk.END, 'Time     Source   Duration [*]')
-        self.pc_scanbox.insert(Tk.END, '-------- -------- -------- ---')
+        self.pc_scanbox.insert(Tk.END, 'Time     SQL Time Source   Duration [*]')
+        self.pc_scanbox.insert(Tk.END, '-------- -------- -------- -------- ---')
         self.pc_dictlist = []
         self.saved = []
         for i in range(len(sd['Timestamp'])):
             st_time = Time(sd['Timestamp'][i],format='lv')
             en_time = Time(sd['Timestamp'][i]+sd['duration'][i]*60.,format='lv')
-            line = st_time.iso[11:19] + ' ' + sd['SourceID'][i] + '{:6.1f} m '.format(sd['duration'][i]) 
+            line = st_time.iso[11:19] + '          ' + sd['SourceID'][i] + '{:6.1f} m '.format(sd['duration'][i]) 
             # This scan is not a REFCAL unless proven otherwise
             not_a_refcal = True
             # This scan is not a PHACAL unless proven otherwise
@@ -424,16 +434,19 @@ class App():
             # See if results exist in SQL database
             try:
                 xml, buf = ch.read_cal(refcal_type, t=en_time)
-                refcal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
+                #refcal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
+                refcal_time = Time((extract(buf,xml['T_beg'])+extract(buf,xml['T_end']))/2,format='lv')  # Mid-time of data
                 dtr1 = st_time - refcal_time   # negative if in scan
                 dtr2 = en_time - refcal_time   # positive if in scan
                 if dtr1.jd < 0 and dtr2.jd > 0:
                     line += ' R'
+                    SQL_time = Time(extract(buf,xml['SQL_timestamp']),format='lv').iso[10:19]
+                    line = line.replace('          ',SQL_time+' ')
                     x = extract(buf,xml['Refcal_Real']) + 1j*extract(buf,xml['Refcal_Imag'])
                     sigma = extract(buf,xml['Refcal_Sigma'])
                     flags = extract(buf,xml['Refcal_Flag'])
                     fghz = extract(buf,xml['Fghz'])
-                    self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
+                    self.pc_dictlist.append({'refcal_time':refcal_time, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
                     self.saved.append(True)
                     not_a_refcal = False
             except:
@@ -446,6 +459,8 @@ class App():
                     dtp2 = en_time - phacal_time
                     if dtp1.jd < 0 and dtp2.jd > 0:
                         line += ' P'
+                        SQL_time = Time(extract(buf,xml['SQL_timestamp']),format='lv').iso[10:19]
+                        line = line.replace('          ',SQL_time+' ')
                         x = extract(buf,xml['Phacal_Amp'])*np.exp(1j*extract(buf,xml['Phacal_Pha']))
                         sigma = extract(buf,xml['Phacal_Sigma'])
                         flags = extract(buf,xml['Phacal_Flag'])
@@ -545,15 +560,18 @@ class App():
                         ax2[j,i].cla()
                         good, = np.where(data['flags'][i,j] == 0)
                         if len(good) > 3:
-                            ax1[j,i].plot(bands,np.abs(data['x'][i,j]),'.')
+                            ax1[j,i].plot(bands[good],np.abs(data['x'][i,j,good]),'.')
                             try:
                                 phz = np.unwrap(data['pdiff'][i,j,good])
+                                # unwrap starts with phz[0], so make sure it is in the lobe nearest to 0.
                                 if phz[0] < -np.pi:
                                     phz += 2*np.pi
-                                ax2[j,i].plot(data['fghz'][good],phz,'.')
+                                if phz[0] >= np.pi:
+                                    phz -= 2*np.pi
+                                ax2[j,i].plot(bands[good],phz,'.')
                             except:
                                 pass
-                            ax2[j,i].plot(data['fghz'],data['mbd'][i,j]*2*np.pi*data['fghz'])
+                            ax2[j,i].plot(bands,data['mbd'][i,j]*2*np.pi*data['fghz'])
                             ax1[j,i].set_ylim(0,0.5)
                             ax2[j,i].set_ylim(-8,8)
                 for i in range(13):
@@ -755,12 +773,24 @@ def phase_diff(phacal, refcal):
         the future.  The sflags keyword is different from flags, because sflags
         can be set for either missing phase calibrations or missing reference
         calibrations.  The slope values are zero for entries flagged in sflags.
+        
+        2018-02-14  DG 
+          Added brute-force coarse delay calculation
     '''
     def mbdfunc0(fghz, mbd):
         # fghz: frequency in GHz
         # ph0 = 0: phase offset identically set to zero (not fitted)
         # mbd: multi-band delay associated with the phase_phacal - phase_refcal in ns
         return 2. * np.pi * fghz * mbd
+        
+    def coarse_delay(fghz,phz):
+        # Do a coarse search of delays corresponding to phase errors ranging from -0.1 to 0.1
+        # Returns the delay value with the minimum sigma
+        tvals = np.arange(-0.1,0.1,0.01)
+        sigma = []
+        for t in tvals:
+            sigma.append(np.std(lobe(phz - 2*np.pi*t*fghz)))
+        return tvals[np.argmin(np.array(sigma))]
         
     from scipy.optimize import curve_fit
     
@@ -781,9 +811,10 @@ def phase_diff(phacal, refcal):
             good, = np.where(flags[ant,pol] == 0)
             if len(good) > 3:
                 x = fghz[good]
-                y = np.unwrap(lobe(dpha[ant,pol,good]))
+                t = coarse_delay(x,dpha[ant,pol,good])   # Get coarse delay 
+                y = np.unwrap(lobe(dpha[ant,pol,good] - 2*np.pi*t*x))  # Correct for coarse delay
                 p, pcov = curve_fit(mbdfunc0, x, y, p0=[0.], sigma=sigma[ant,pol,good], absolute_sigma=False)
-                slopes[ant,pol] = p
+                slopes[ant,pol] = p + t  # Add back coarse delay
                 flag[ant,pol] = 0
             else:
                 flag[ant,pol] = 1
@@ -791,7 +822,7 @@ def phase_diff(phacal, refcal):
     return phacal
     
 def findscans(trange):
-    '''Identify phasecal scans
+    '''Identify phasecal scans from UFDB files
     '''
     import dbutil
     import dump_tsys
