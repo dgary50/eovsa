@@ -131,8 +131,8 @@ def tp_writefits(out, med):
     mn = t01[5:7]
     dy = t01[8:10]
     hr = t01[11:13]
-    mn = t01[14:15]
-    file_out = 'EOVSA'+yr+mn+dy+hr+mn+'.fts'
+    mins = t01[14:16]
+    file_out = 'EOVSA'+yr+mn+dy+hr+mins+'.fts'
 #flare fits files
     flarefitsdir = '/data1/eovsa/fits/flares/'
     if os.path.isdir(flarefitsdir) == False:

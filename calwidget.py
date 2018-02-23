@@ -16,6 +16,10 @@
 #  2018-02-14  DG 
 #    Added brute-force coarse delay calculation, and fixed phasecal to plot against band
 #    instead of frequency.  Also write SQL time on each refcal line if found in SQL.
+#  2018-02-17  DG
+#    Replace antenna tabs with a single one with "reusable" plots, in an
+#    attempt to speed things up.  Also finally solved the "keys do not work"
+#    problem!
 #
 
 import matplotlib
@@ -104,7 +108,7 @@ class App():
         #   Scan list widget
         pc_scanframe = Tk.Frame(self.pc_tlframe)
         pc_scanframe.pack(expand=False, fill=Tk.BOTH, side=Tk.TOP)
-        self.pc_scanbox = Tk.Listbox(pc_scanframe, selectmode=Tk.SINGLE, width=39, height=10, font="Courier 10 bold")
+        self.pc_scanbox = Tk.Listbox(pc_scanframe, selectmode=Tk.SINGLE, width=39, height=30, font="Courier 10 bold")
         self.pc_scanscrl = Tk.Scrollbar(pc_scanframe,orient=Tk.VERTICAL)
         self.pc_scanscrl.pack(side=Tk.RIGHT, fill=Tk.Y)
         self.pc_scanbox.pack(side=Tk.LEFT, expand=True, fill=Tk.BOTH)
@@ -164,26 +168,26 @@ class App():
         self.nb_ant = ttk.Notebook(pc_botframe)
         self.nb_ant.pack(fill='both', expand='yes')
         self.nb_ant.bind("<<NotebookTabChanged>>", self.ant_tab_event)
-        self.ant_tab = None   # Currently selected antenna tab
+        self.ant_selected = 0   # Currently selected antenna (0-based index)
         fant = []      # Frame for each antenna
         self.fig_info = []  # Figure handle and axes for each antenna
-        for i in range(15):
-            fant.append(Tk.Frame())
-            if i < 13:
-                self.nb_ant.add(fant[i], text='Ant'+str(i+1))
-                self.fig_info.append(subplots(1,2))
-            elif i == 13:
-                self.nb_ant.add(fant[i], text='Sum Amp')
-                self.fig_info.append(subplots(2,13))
-                self.fig_info[-1][0].subplots_adjust(wspace=0, left=0.08, right=0.98)
-            else:
-                self.nb_ant.add(fant[i], text='Sum Pha')
-                self.fig_info.append(subplots(2,13))
-                self.fig_info[-1][0].subplots_adjust(wspace=0, left=0.08, right=0.98)
-            self.fig_info[-1][0].set_size_inches(9.0,5.2)
+        fant.append(Tk.Frame())
+        self.nb_ant.add(fant[0], text='Time History')
+        self.fig_info.append(subplots(1,2))
+        fant.append(Tk.Frame())
+        self.nb_ant.add(fant[1], text='Sum Amp')
+        self.fig_info.append(subplots(2,13))
+        self.fig_info[-1][0].subplots_adjust(wspace=0, left=0.08, right=0.98)
+        fant.append(Tk.Frame())
+        self.nb_ant.add(fant[2], text='Sum Pha')
+        self.fig_info.append(subplots(2,13))
+        self.fig_info[-1][0].subplots_adjust(wspace=0, left=0.08, right=0.98)
+        self.fig_info[-1][0].set_size_inches(9.0,5.2)
 #            bbox = self.fig_info[-1][1].get_position().extents
 #            self.fig_info[-1][1].set_position([bbox[0]-0.05,bbox[1],bbox[2]-bbox[0],bbox[3]-bbox[1]+0.1])
+        for i in range(3):
             canvas = FigureCanvasTkAgg(self.fig_info[i][0], master=fant[i])
+            if i == 0: canvas.mpl_connect('key_press_event',self.key_event)
             canvas.show()
             canvas.get_tk_widget().pack(side=Tk.TOP, fill=Tk.BOTH, expand=1)
             toolbar = NavigationToolbar2TkAgg(canvas, fant[i])
@@ -270,34 +274,21 @@ class App():
         
     def ant_tab_event(self, event):
         '''When user selects an antenna tab, this callback allows the newly
-           exposed plots to be activated for keyboard events.
+           exposed plot to be updated for current band and antenna.
            
            Antenna numbers are 0-based.
         '''
-        ant = self.nb_ant.index(self.nb_ant.select())
-        antprev = self.ant_tab
-        if antprev is None:
-            pass
-        else:
-            fig, ax = self.fig_info[antprev]
-            fig.canvas.mpl_disconnect(self.key_event)
-            #print 'Disconnected from tab',antprev
-            fig.canvas.show()
-        self.ant_tab = None
-        if ant < 13:
-            # Enable the callback for keyboard events.
-            fig, ax = self.fig_info[ant]
-            fig.canvas.mpl_connect('key_press_event',self.key_event)
-            self.ant_tab = ant
-            #print 'Keyboard events enabled for tab',ant
-            fig.canvas.show()
-        # Update the plot on this tab by "faking" an event
-        try:
-            event.ydata = self.band_selected
-            event.xdata = ant
-            self.ab_select(event)
-        except:
-            pass
+        tab = self.nb_ant.index(self.nb_ant.select())
+        fig, ax = self.fig_info[tab]
+        fig.canvas.show()
+        if tab == 0:
+            # Update the plot on the antenna tab by "faking" an event
+            try:
+                event.xdata = self.ant_selected
+                event.ydata = self.band_selected
+                self.ab_select(event)
+            except:
+                pass
             
     def key_event(self, event):
         '''The user has pressed a key while the mouse is in an active
@@ -313,9 +304,12 @@ class App():
             self.status.config(text = 'Status: '+event.key+' ignored.  Not in window.')
             return
         key = event.key.upper()
+        self.status.config(text = 'Status: '+key+' at data coordinates '+str(event.xdata)+' '+str(event.ydata))
         if key in ['A','B','X']:
             # This is a valid key, so act accordingly
-            fig, ax = self.fig_info[self.ant_tab]
+            ant = self.ant_selected
+            band = self.band_selected
+            fig, ax = self.fig_info[0]
             if event.inaxes in ax:
                 nlines = len(event.inaxes.lines)
                 tflags = self.pc_dictlist[self.scan_selected]['tflags']
@@ -338,13 +332,13 @@ class App():
                             tflags[:,:,0] = t1
                             tflags[:,:,1] = 0
                         elif allants:
-                            tflags[:,self.band_selected,0] = t1
-                            tflags[:,self.band_selected,1] = 0
+                            tflags[:,band,0] = t1
+                            tflags[:,band,1] = 0
                         elif allbands:
-                            tflags[self.ant_tab,:,0] = t1
-                            tflags[self.ant_tab,:,1] = 0
+                            tflags[ant,:,0] = t1
+                            tflags[ant,:,1] = 0
                         else:
-                            tflags[self.ant_tab,self.band_selected,:] = [t1,0]
+                            tflags[ant,band,:] = [t1,0]
                 elif key == 'B':
                     if nlines == 4:
                         # Erase last-drawn line to add a new one
@@ -361,11 +355,11 @@ class App():
                         if allants and allbands:
                             tflags[:,:,1] = t2
                         elif allants:
-                            tflags[:,self.band_selected,1] = t2
+                            tflags[:,band,1] = t2
                         elif allbands:
-                            tflags[self.ant_tab,:,1] = t2
+                            tflags[ant,:,1] = t2
                         else:
-                            tflags[self.ant_tab,self.band_selected,1] = t2
+                            tflags[ant,band,1] = t2
                 elif key == 'X':
                     ax[0].lines.pop()
                     ax[1].lines.pop()
@@ -376,21 +370,21 @@ class App():
                         if allants and allbands:
                             tflags[:,:,:] = 0
                         elif allants:
-                            tflags[:,self.band_selected,:] = 0
+                            tflags[:,band,:] = 0
                         elif allbands:
-                            tflags[self.ant_tab,:,:] = 0
+                            tflags[ant,:,:] = 0
                         else:
-                            tflags[self.ant_tab,self.band_selected,:] = [0,0]
+                            tflags[ant,band,:] = [0,0]
                     elif nlines == 3:
                         # Zero second time flags
                         if allants and allbands:
                             tflags[:,:,1] = 0
                         elif allants:
-                            tflags[:,self.band_selected,1] = 0
+                            tflags[:,band,1] = 0
                         elif allbands:
-                            tflags[self.ant_tab,:,1] = 0
+                            tflags[ant,:,1] = 0
                         else:
-                            tflags[self.ant_tab,self.band_selected,1] = 0
+                            tflags[ant,band,1] = 0
                 self.pc_dictlist[self.scan_selected]['tflags'] = tflags
                 
     def use_date(self, event):
@@ -426,7 +420,7 @@ class App():
         for i in range(len(sd['Timestamp'])):
             st_time = Time(sd['Timestamp'][i],format='lv')
             en_time = Time(sd['Timestamp'][i]+sd['duration'][i]*60.,format='lv')
-            line = st_time.iso[11:19] + '          ' + sd['SourceID'][i] + '{:6.1f} m '.format(sd['duration'][i]) 
+            line = st_time.iso[11:19] + '          ' + sd['SourceID'][i] + '{:6.1f} m  '.format(sd['duration'][i]) 
             # This scan is not a REFCAL unless proven otherwise
             not_a_refcal = True
             # This scan is not a PHACAL unless proven otherwise
@@ -498,8 +492,8 @@ class App():
             self.refcal_btn.configure(state=Tk.NORMAL)
             if not self.ref_selected is None: self.phacal_btn.configure(state=Tk.NORMAL)
             self.resultvar.set('Sigma Map for '+line[:19])
-            fig1, ax1 = self.fig_info[13]
-            fig2, ax2 = self.fig_info[14]
+            fig1, ax1 = self.fig_info[-2]
+            fig2, ax2 = self.fig_info[-1]
             fig, ax = self.ab_fig_info
             ax.set_title(line[:19])
             fig.suptitle('Sigma Map')
@@ -597,61 +591,64 @@ class App():
             fig.canvas.draw()
                     
     def ab_select(self, event):
-        ''' Selects antenna and band based on click of flags image.
+        ''' Selects antenna and band based on click of sigma image.
         '''
         if event.xdata is None:
             pass
         else:
             #print 'Ant =',np.floor(event.xdata), 'Band =',np.floor(event.ydata)
-        
             if self.ab_text.get_text() != '':
                 # No active band map, so do nothing
                 pass
             else:
+                ant  = int(np.floor(event.xdata))
                 band = int(np.floor(event.ydata))
-                self.band_selected = band
+                self.band_selected = band  # 0-based index
+                self.ant_selected = ant    # 0-based index
                 k = self.scan_selected
                 scan = self.pc_dictlist[k]
                 vis = scan.get('vis',None)
+                fig, ax = self.fig_info[0]
+                self.nb_ant.select(0)
+                ax[0].cla()
+                ax[1].cla()
                 if vis is None:
                     # This is from SQL.  No time profiles, so do nothing
-                    pass
+                    fig.suptitle('No time history available until the selected scan is reanalyzed')
                 else:
                     pdtimes = Time(scan['times'],format='jd').plot_date
-                    # Update all plots for this band
-                    for i in range(13):
-                       fig, ax = self.fig_info[i]
-                       fig.suptitle('Ant '+str(i+1)+', Band '+str(band+1))
-                       ax[0].cla()
-                       ax[1].cla()
-                       ax[0].plot_date(pdtimes,np.abs(vis[i,0,band]),'.')
-                       ax[0].plot_date(pdtimes,np.abs(vis[i,1,band]),'.')
-                       ax[1].plot_date(pdtimes,np.angle(vis[i,0,band]),'.')
-                       ax[1].plot_date(pdtimes,np.angle(vis[i,1,band]),'.')
-                       datamax = np.max(np.abs(vis[i,:2,band]))
-                       datamin = np.min(np.abs(vis[i,:2,band]))
-                       ax[0].set_ylim(0.001,max(1, datamax))
-                       ax[0].set_yscale('log')
-                       ax[1].set_ylim(-4,4)
-                       ax[0].set_ylabel('Amplitude [arb units]')
-                       ax[1].set_ylabel('Phase [rad]')
-                       ax[0].set_xlabel('Time [UT]')
-                       ax[1].set_xlabel('Time [UT]')
-                       ax[0].xaxis.set_major_locator(MaxNLocator(3))
-                       ax[0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
-                       ax[1].xaxis.set_major_locator(MaxNLocator(3))
-                       ax[1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
-                       # Apply any existing time flags
-                       if 'tflags' in self.pc_dictlist[self.scan_selected].keys():
-                           tflags = self.pc_dictlist[self.scan_selected]['tflags'][i,band,:]
-                           if tflags[0] != 0:
-                               ax[0].plot_date(tflags[0]*np.ones(2),ax[0].get_ylim(),'g-')
-                               ax[1].plot_date(tflags[0]*np.ones(2),ax[1].get_ylim(),'g-')
-                           if tflags[1] != 0:
-                               ax[0].plot_date(tflags[1]*np.ones(2),ax[0].get_ylim(),'r--')
-                               ax[1].plot_date(tflags[1]*np.ones(2),ax[1].get_ylim(),'r--')
-                       fig.canvas.draw()
-                self.nb_ant.select(int(np.floor(event.xdata)))
+                    # Update antenna plot for this band
+                    fig.suptitle('Ant '+str(ant+1)+', Band '+str(band+1))
+                    ax[0].plot_date(pdtimes,np.abs(vis[ant,0,band]),'.')
+                    ax[0].plot_date(pdtimes,np.abs(vis[ant,1,band]),'.')
+                    ax[1].plot_date(pdtimes,np.angle(vis[ant,0,band]),'.')
+                    ax[1].plot_date(pdtimes,np.angle(vis[ant,1,band]),'.')
+                    datamax = np.max(np.abs(vis[ant,:2,band]))
+                    datamin = np.min(np.abs(vis[ant,:2,band]))
+                    ax[0].set_ylim(0.001,max(1, datamax))
+                    ax[0].set_yscale('log')
+                    ax[1].set_ylim(-4,4)
+                    ax[0].set_ylabel('Amplitude [arb units]')
+                    ax[1].set_ylabel('Phase [rad]')
+                    ax[0].set_xlabel('Time [UT]')
+                    ax[1].set_xlabel('Time [UT]')
+                    ax[0].xaxis.set_major_locator(MaxNLocator(3))
+                    ax[0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
+                    ax[1].xaxis.set_major_locator(MaxNLocator(3))
+                    ax[1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
+                    # Apply any existing time flags
+                    if 'tflags' in self.pc_dictlist[self.scan_selected].keys():
+                        tflags = self.pc_dictlist[self.scan_selected]['tflags'][ant,band,:]
+                        if tflags[0] != 0:
+                            ax[0].plot_date(tflags[0]*np.ones(2),ax[0].get_ylim(),'g-')
+                            ax[1].plot_date(tflags[0]*np.ones(2),ax[1].get_ylim(),'g-')
+                        if tflags[1] != 0:
+                            ax[0].plot_date(tflags[1]*np.ones(2),ax[0].get_ylim(),'r--')
+                            ax[1].plot_date(tflags[1]*np.ones(2),ax[1].get_ylim(),'r--')
+                fig.canvas.draw()
+                fig.canvas.show()
+                fig.canvas.get_tk_widget().focus_force()
+                self.nb_ant.select(0)
                 #print band,'selected.'
                 #print self.pc_dictlist[self.scan_selected].keys()
 
