@@ -1,4 +1,4 @@
-def html_movie(t,flare=False, imgprefix='',synoptic=False):
+def html_movie(t,flare=False, imgprefix='', synoptic=False):
     ''' After the quick-look images are created for a given date, this routine will
         write the movie.html file that allows them to be viewed as a movie.  Just
         call this with a Time() object containing the desired date.
