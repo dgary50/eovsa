@@ -34,4 +34,4 @@ def html_movie(t, dir=None, imgprefix='', htmlname=None):
     for i in range(skiplines[-1] + 1, nlines):
         f.write(lines[i])
     f.close()
-    print('html saved to {}.'.format(htmlname))
+    print('html saved to {}'.format(htmlname))
