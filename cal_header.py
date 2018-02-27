@@ -86,6 +86,8 @@
 #   2018-02-03  SJ
 #      Added an twelfth cal type for super reference calibration (with band 4), and updated routines
 #      refcal_sp2xml()
+#   2018-02-23  DG
+#      Added delete_cal() routine for deleting SQL records of a given type for a given time.
 #
 import struct, util
 import stateframe as sf
@@ -1375,6 +1377,63 @@ def write_cal(type, buf, t=None):
                 cursor.close()
                 return False
 
+def delete_cal(type, t=None, relax=False):
+    ''' Locate the calibration record for the given time, verify that it is of the
+        correct type, and request the user to chose ID to delete.  Also requires user
+        to confirm deletion. 
+        
+        type:   Calibration type from cal_types()
+        t:      The specified time in the form of a Time() object, which is the time of 
+                  the SQL record, and must match exactly unless relax is True
+        relax:  If True, the search matches the first record of the requested type that 
+                  occurs prior to the requested time.
+
+        Returns True if success, or False if failure.
+    '''
+    import dbutil as db
+    if t is None:
+        print 'A time (as a Time() object) must be provided.'
+        return False
+    if relax:
+        try:
+            xml, buf = read_cal(type, t=t)
+            sqltime = str(int(sf.extract(buf,xml['SQL_timestamp'])))
+        except:
+            print 'Error reading SQL time for specified cal type'
+            return False
+    else:
+        sqltime = str(int(t.lv))
+        
+    cursor = db.get_cursor()
+    query = 'select * from abin where Timestamp = '+sqltime
+    data, msg = db.do_query(cursor, query)
+    if msg == 'Success':
+        print 'Found the following record(s):'
+        print 'ID          Date/Time         Calibration Type'
+        for i in range(len(data['Id'])):
+            ctype = int(data['Version'][i])
+            ctypestr = cal_types()[ctype][0]
+            tiso = util.Time(int(data['Timestamp'][i]),format='lv').iso
+            print data['Id'][i],tiso,ctypestr
+        ids = raw_input('Enter ID number(s) of record(s) to delete [xxxx yyyy zzzz]: ')
+        try:
+            idlist = [int(i) for i in ids.split(' ')]
+        except:
+            print 'ID list not understood.'
+            return False
+        for id in idlist:
+            k, = np.where(id in data['Id'])
+            if len(k) == 1:
+                cursor.execute('delete from abin where Id = '+str(id)+' and Timestamp = '+sqltime)
+                print 'Ready to delete ID:', id
+        ans = raw_input('Are you sure you want to delete these records [y/n]?')
+        if ans.upper() == 'Y':
+            cursor.commit()
+            cursor.close()
+            return True
+        else:
+            cursor.close()
+            return False
 
 def proto_tpcal2sql(filename, t=None):
     ''' Writes prototype TP calibration data as a record into SQL server table abin

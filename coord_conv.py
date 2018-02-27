@@ -4,6 +4,10 @@
 #      Added azel2radec() function.  Hmm.  In order to get the routines
 #      to agree I had to wrestle with some changes. I think the earlier
 #      routines worked--in any case they work now.
+#   2018-Jan-19  DG
+#      More changes to get dradec2dazel() to work.  I tested it in
+#      detail to verify it.  One change--inputs and outputs are
+#      in radians.
 
 from eovsa_lst import *
 from numpy import pi, sin, cos, arcsin, arccos, arctan2
@@ -41,26 +45,16 @@ def azel2radec(az, el, t):
     
 def dradec2dazel(ra,dec,t,dra,ddec):
     # Provide RA, Dec in radians, and time as Time() object t
-    # Provide dra and ddec in radians
-    # Returns dXel = daz/cos(el) and d_el
+    # Provide dra and ddec in radians (NB: Does NOT work if in degrees)
+    # Returns dXel = daz/cos(el) and d_el in radians
     ha = eovsa_lst(t) - ra
 
     az1, el1 = radec2azel(ra, dec, t)
     az2, el2 = radec2azel(ra+dra, dec+ddec, t)
     
-    da = az2 - az1
+    daz = az2 - az1
     d_el = el2 - el1
     
-    #d_el = (ddec*(cos(dec)*sin(lat) - sin(dec)*cos(lat)*cos(ha)) + dra*cos(dec)*cos(lat)*sin(ha)) / cos(el)
-
-    #da = (d_el*cos(el)*sin(lat) - ddec*cos(dec)) / (cos(el)*cos(lat)*sin(a)) \
-    #     + (d_el*(sin(el)*sin(lat)-sin(dec))*sin(el)*cos(lat)) / ((cos(el)*cos(lat))**2*sin(a))
-
-    if ha <= 0:
-        daz = da
-    else:
-        daz = -da
-
     return daz*cos(el1), d_el
     
 def old_radec2azel(ra, dec, t):

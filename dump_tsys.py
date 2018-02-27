@@ -42,9 +42,12 @@
 #    Added call to apply_gain_corr() in rd_miriad_tsys_16(), to correct for
 #    attenuation settings.
 #  2018-Jan-04  DG
-#    Added tref parameter to rd_miriad_tsys16() call, so that reference
+#    Added tref parameter to rd_miriad_tsys_16() call, so that reference
 #    time of attenuation correction can pertain to the data time (used
 #    for SOLPNTCAL).
+#  2018-Jan-26  DG
+#    Changed to call gc.apply_fem_level() instead of gc.apply_gain_corr(), since
+#    this uses frequency-dependent attenuations.
 #
 
 import subprocess, time, sys, glob
@@ -237,11 +240,17 @@ def rd_miriad_tsys_16(trange, udb=False, auto=False, tref=None):
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by trange.  This version works only for 16-ant correlator
         Simply calls read_idb and returns a subset of the data with new dictionary keys.
+        
+        2018-01-26  Changed to call gc.apply_fem_level() instead of gc.apply_gain_corr().
     '''
     import gaincal2 as gc
     import read_idb
     out = read_idb.read_idb(trange)
-    cout = gc.apply_gain_corr(out, tref=tref)
+    #cout = gc.apply_gain_corr(out, tref=tref)
+    try:
+        cout = gc.apply_fem_level(out)
+    except:
+        cout = out
     if auto:
         return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':np.real(cout['a'][:,:2])}
     else:

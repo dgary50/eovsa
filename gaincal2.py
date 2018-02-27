@@ -25,6 +25,9 @@
 #    Added get_fem_level() and apply_fem_level() routines, similar to get_gain_state()
 #    and apply_gain_state(), except these take account of non-uniform attenuation
 #    vs. frequency, based on GAINCALTEST measurements. 
+#  2018-01-26  DG
+#    First try to read from SQL in apply_fem_level(), and then go to data only if
+#    that fails.
 #
 import dbutil as db
 import read_idb as ri
@@ -377,7 +380,11 @@ def apply_fem_level(data,gctime=None):
     src_lev = get_fem_level(trange,dt)   # solar gain state for timerange of file
     nf = len(data['fghz'])
     nt = len(src_lev['times'])
-    attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
+    # First attempt to read from the SQL database.  If that fails, read from the IDB file itself
+    try:
+        attn = ac.read_attncal(gctime)[0]   # Attn from SQL
+    except:
+        attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
     antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
     idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
