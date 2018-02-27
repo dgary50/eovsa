@@ -30,9 +30,9 @@ def html_movie(t,flare=False, imgprefix='', synoptic=False):
             skiplines.append(i)
     #print skiplines
     if synoptic:
-        htmlname = dir + '/movie_' + datstr.replace('-', '') + '.html'
-    else:
         htmlname = dir + '/movie_' + datstr[:4] + '.html'
+    else:
+        htmlname = dir + '/movie_' + datstr.replace('-', '') + '.html'
     f = open(htmlname, 'w')
     for i in range(skiplines[1] - 1):
         f.write(lines[i])
