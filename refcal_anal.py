@@ -35,6 +35,9 @@
 #    date can be saved.
 #  2018-01-08  DG
 #    Update unrot_refcal() to read from SQL and apply new xi_rot term.
+#  2018-03-05  NK
+#    Update refcal_anal() to calculate band 4 phase from lohi scan if lohi=True,
+#    and estimate band 4 phase using the most recent lohi=True result if otherwise.
 #
 import read_idb as ri
 from util import Time, ant_str2list, lobe, nearest_val_idx
@@ -326,7 +329,7 @@ def graph(out, refcal=None, ant_str='ant1-13', bandplt=[5, 11, 17, 23], scanidx=
                     ax2[ant, b].plot_date(refcal['timestamp'].plot_date, ampavg, 'o')
 
 
-def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 17, 23], doplot=True):
+def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 17, 23], doplot=True, lohi=False):
     '''Analyze the visibility data from rd_refcal and return time averaged visibility values and flags.
        ***Optional Keywords***
        timerange: time range to obtain the average. E.g., timerange=Time(['2017-04-08T05:00','2017-04-08T07:00'])
@@ -425,11 +428,38 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
     # timestamps
     timestamp = Time(np.mean(timeavg), format='jd')
     timestamp_gcal = Time((tstlist[0].jd + tedlist[0].jd) / 2., format='jd')
+    
+    #Calculate band 4 phases
+    refcal_lohi = sql2refcal(timestamp, lohi=True)  #obtain from SQL database
+    dph = np.zeros((15,2,30))
+    for i in range(13):
+         for j in range(2):
+             dph[i,j,:] = np.unwrap(lobe(np.angle(vis_)[i,j,4:] - refcal_lohi['pha'][i,j,4:]))
+                 
+    dphfitxxyy = np.zeros((13,2,2))
+    w = np.ones(31)
+    w[0] += 99
+    for i in range(13):
+         for j in range(2):
+             dphfitxxyy[i,j,:] = np.polyfit(np.append([0.],fghz[4:]),np.append([0.],[dph[i,j]]),1,w=w)
+    
+    fghz[3] = refcal_lohi['fghz'][3]
+    dph4 = np.zeros((13,2))
+    for i in range(13):
+         for j in range(2):
+             dph4[i,j] = np.polyval(dphfitxxyy[i,j,:],fghz[3])        
+    dph4 = dph4
+    for i in range(13):  #Insert band 4 phase in high frequency receiver
+        for j in range(2):
+            vis_[i,j,3] = np.complex(np.cos(refcal_lohi['pha'][i,j,3] + dph4[i,j]), np.sin(refcal_lohi['pha'][i,j,3] + dph4[i,j]))  #Amp = 1.0
+    
     if doplot:
         visavg = {'pha': np.angle(vis_), 'amp': np.abs(vis_), 'timestamp': timestamp, 't_bg': timeavg[0], 't_ed': timeavg[-1], 'flag': flag}
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt)
         graph(out, visavg, scanidx=scanidx, bandplt=bandplt, pol=1)
         f2, ax2 = plt.subplots(2, 13, figsize=(12, 5))
+        if lohi == 0:
+            f2.suptitle('Orange = Estimated band 4 phases based on lohi scans on ' + str(refcal_lohi['timestamp'].iso))
         plt.title('source: {}'.format(srclist[scanidx[0]]))
         f3, ax3 = plt.subplots(2, 13, figsize=(12, 5))
         plt.title('source: {}'.format(srclist[scanidx[0]]))
@@ -438,6 +468,8 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
             for pol in range(2):
                 ind, = np.where(flag[ant, pol, :] == 0)
                 ax2[pol, ant].plot(allbands[ind], np.unwrap(visavg['pha'][ant, pol, ind]), '.', markersize=5)
+                if lohi == 0:
+                    ax2[pol, ant].plot(4., np.unwrap(visavg['pha'])[ant, pol, 3], '.', markersize=5)  #Add band 4
                 ax2[pol, ant].set_ylim([-20, 20])
                 ax2[pol, ant].set_xlim([1, 34])
                 ax3[pol, ant].plot(allbands[ind], visavg['amp'][ant, pol, ind], '.', markersize=5)
@@ -457,6 +489,66 @@ def refcal_anal(out, timerange=None, scanidx=None, minsnr=0.7, bandplt=[5, 11, 1
                     ax2[pol, ant].set_xticks([])
                     ax3[pol, ant].set_title('Ant ' + str(ant + 1))
                     ax3[pol, ant].set_xticks([])
+                    
+        if lohi == 0:
+            f, ax = plt.subplots(2,13,figsize=(12,5))  #Plot delay curve used for band 4 phase estimation
+            f.suptitle('Phase differences with respect to ' + str(refcal_lohi['timestamp'].iso))
+            for i in range(13):
+                 ax[0,i].set_title('Ant ' + str(i+1))
+                 for j in range(2):
+                     ax[j,i].plot(fghz[4:],dph[i,j,:],'.')
+                     ax[j,i].plot(np.append([0.],fghz[4:]),np.polyval(dphfitxxyy[i,j,:],np.append([0.],fghz[4:])))
+                     ax[j,i].plot(fghz[3],np.polyval(dphfitxxyy[i,j,:],fghz[3]),'.')
+                     ax[j,i].set_xlim([0.,18.])
+                     ax[j,i].set_ylim([-np.pi,np.pi])
+                     ax[0,0].set_ylabel('XX')
+                     ax[1,0].set_ylabel('YY')
+                     ax[1,0].set_xlabel('fghz')
+
+    if lohi:
+        fghz = out['fghzs'][0]
+        fghz[3] = out['fghzs'][1][3]
+        bandnames = np.append(4,out['bandnames'][0])
+        com_idx = [4,5,6,7,8,9,10,11]  #because common_val_idx somehow failed
+        phlo = np.angle(np.sum(out['vis'][1],3))[:,:2,:]
+        phhi = np.angle(vis_)
+        
+        #Caliculate band 4 phase
+        dphlohi = np.unwrap(lobe(phlo[:,:,com_idx] - phhi[:,:,com_idx]))  #dph over bands 5-12
+        dphfitlohi = np.zeros((13,2,3))
+        for i in range(13):  #Poly-fit dph curve
+             for j in range(2):
+                 dphfitlohi[i,j,:] = np.polyfit(out['fghzs'][0][com_idx],dphlohi[i,j,:],2)
+        dph4 = np.zeros((13,2))  #Extrapolate the fit to band 4
+        for i in range(13):
+             for j in range(2):
+                 dph4[i,j] = np.polyval(dphfitlohi[i,j,:],out['fghzs'][1][3])
+        for i in range(13):  #Insert band 4 phase in high frequency receiver
+            for j in range(2):
+                vis_[i,j,3] = np.complex(np.cos(phlo[i,j,3] - dph4[i,j]), np.sin(phlo[i,j,3] - dph4[i,j]))  #Amp = 1.0
+        phhi_new = np.angle(vis_)
+        
+        #Plot band 4 phase
+        f, ax = plt.subplots(2,13,figsize=(12,5))
+        f.suptitle('Calculated band 4 phases (orange)')
+        plt.title('source: {}'.format(srclist[scanidx[0]]))
+        for ant in range(13):
+             ax[0,ant].set_title('Ant ' + str(ant+1))
+             for pol in range(2):
+                 ax[pol,ant].plot(bandnames[1:], np.unwrap(phhi_new)[ant,pol,4:],'.')
+                 ax[pol,ant].plot(bandnames[0], np.unwrap(phhi_new)[ant,pol,3],'.')                                  
+                 ax[pol,ant].set_ylim([-20,20])
+                 ax[pol,ant].set_xlim([1,34])
+                 if pol == 0: ax[pol,ant].set_xticks([])
+                 if ant >= 1: ax[pol,ant].set_yticks([])
+        ax[1,0].set_xlabel('Band #')
+        ax[0,0].set_ylabel('XX Phase (radian)')
+        ax[1,0].set_ylabel('YY Phase (radian)')
+        
+        return {'src': src, 'vis': vis_, 'pha': np.angle(vis_), 'amp': np.abs(vis_), 'fghz': fghz, 'flag': flag,
+                'sigma': sigma, 'timestamp': timestamp, 't_gcal': timestamp_gcal, 't_bg': Time(timeavg[0], format='jd'),
+                't_ed': Time(timeavg[-1], format='jd')}
+
     return {'src': src, 'vis': vis_, 'pha': np.angle(vis_), 'amp': np.abs(vis_), 'fghz': fghz, 'flag': flag, 'sigma': sigma, 'timestamp': timestamp,
             't_gcal': timestamp_gcal, 't_bg': Time(timeavg[0], format='jd'), 't_ed': Time(timeavg[-1], format='jd')}
 

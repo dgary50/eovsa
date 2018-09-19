@@ -91,6 +91,8 @@
 #  2017-Aug-11  DG
 #    The allday_udb() plot was crashing due to GOES-15 data being all zero, so add
 #    handling of that situation.  Also worked on the plot labeling a bit.
+#  2018-Mar-18  DG
+#    Attempt to make read_idb skip incompatible files (not matching shape of first file).
 #
 
 import aipy
@@ -921,8 +923,17 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
     ha = []
     # This could be a lot of data, so handle P data first to determine
     # frequencies to eliminate
-    for out in datalist:
-        outp.append(out['p'])
+    # Keep track of files whose shape matches the first file
+    shape1 = datalist[0]['p'].shape[:-1]
+    match = []
+    for i,out in enumerate(datalist):
+        shape2 = out['p'].shape[:-1]
+        if shape1 == shape2:
+            match.append(True)
+            outp.append(out['p'])
+        else:
+            match.append(False)
+            print 'Scan/file',i+1,'skipped. Array shape',shape2,'does not match shape',shape1,'of first scan/file'
     out['p'] = np.concatenate(outp,3)
     if filter:
         # Eliminate frequencies where there is no nonzero value
@@ -930,37 +941,38 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
         goodidx, = np.sum(np.sum(np.sum(out['p'],3),1),0).nonzero()
         # Eliminate frequencies where there is no nonzero value
         out['p'] = out['p'][:,:,goodidx]
-    for out in datalist:
-        if filter:
-            # Eliminate frequencies where there is no nonzero value
-            # before concatenation, to reduce memory load
-            out['p2'] = out['p2'][:,:,goodidx]
-            out['m'] = out['m'][:,:,goodidx]
-            if not tp_only:
-                out['a'] = out['a'][:,:,goodidx]
-                out['x'] = out['x'][:,:,goodidx]
-            out['fghz'] = out['fghz'][goodidx]
-            out['band'] = out['band'][goodidx]
-        if quackint > 0.:
-            # time interval between data points in seconds
-            dt = np.nanmedian(np.diff(out['time']))*86400.             
-            nt = np.rint(quackint/dt).astype('int')
-            # check if nt is too large
-            if nt < len(out['time']):
-                out['a']=out['a'][:,:,:,nt:]
-                out['x']=out['x'][:,:,:,nt:]
-                out['p2']=out['p2'][:,:,:,nt:]
-                out['m']=out['m'][:,:,:,nt:]
-                out['uvw']=out['uvw'][:,nt:]
-                out['time']=out['time'][nt:]
-                out['ha']=out['ha'][nt:]
-        outa.append(out['a'])
-        outx.append(out['x'])
-        outp2.append(out['p2'])
-        outm.append(out['m'])
-        uvw.append(out['uvw'])
-        time.append(out['time'])
-        ha.append(out['ha'])
+    for i,out in enumerate(datalist):
+        if match[i]:
+            if filter:
+                # Eliminate frequencies where there is no nonzero value
+                # before concatenation, to reduce memory load
+                out['p2'] = out['p2'][:,:,goodidx]
+                out['m'] = out['m'][:,:,goodidx]
+                if not tp_only:
+                    out['a'] = out['a'][:,:,goodidx]
+                    out['x'] = out['x'][:,:,goodidx]
+                out['fghz'] = out['fghz'][goodidx]
+                out['band'] = out['band'][goodidx]
+            if quackint > 0.:
+                # time interval between data points in seconds
+                dt = np.nanmedian(np.diff(out['time']))*86400.             
+                nt = np.rint(quackint/dt).astype('int')
+                # check if nt is too large
+                if nt < len(out['time']):
+                    out['a']=out['a'][:,:,:,nt:]
+                    out['x']=out['x'][:,:,:,nt:]
+                    out['p2']=out['p2'][:,:,:,nt:]
+                    out['m']=out['m'][:,:,:,nt:]
+                    out['uvw']=out['uvw'][:,nt:]
+                    out['time']=out['time'][nt:]
+                    out['ha']=out['ha'][nt:]
+            outa.append(out['a'])
+            outx.append(out['x'])
+            outp2.append(out['p2'])
+            outm.append(out['m'])
+            uvw.append(out['uvw'])
+            time.append(out['time'])
+            ha.append(out['ha'])
     if tp_only:
         out['a'] = outa
         out['x'] = outx

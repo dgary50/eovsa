@@ -128,11 +128,11 @@ def tp_writefits(out, med):
     t0 = Time(t[0], format='jd') #The format is to tell the Time object about the input time
     t01 = t0.iso
     yr = t01[0:4]
-    mn = t01[5:7]
+    mm = t01[5:7]
     dy = t01[8:10]
     hr = t01[11:13]
-    mn = t01[14:15]
-    file_out = 'EOVSA'+yr+mn+dy+hr+mn+'.fts'
+    mn = t01[14:16]
+    file_out = 'EOVSA'+yr+mm+dy+hr+mn+'.fts'
 #flare fits files
     flarefitsdir = '/data1/eovsa/fits/flares/'
     if os.path.isdir(flarefitsdir) == False:

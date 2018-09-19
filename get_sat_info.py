@@ -61,9 +61,9 @@ def get_sat_info(names=None,doplot=False):
     if not names is None:
         names = np.array([name.upper() for name in names])
     for line in lines:
-        if line.find('<font face="Arial"><font size=2><a href="http://www.lyngsat.com/tracker/') != -1:
+        if line.find('<font face="Verdana"><font size=2><a href="https://www.lyngsat.com/tracker/') != -1:
             if line.find('bgcolor=#ffffff') == -1:
-                name = line.split('http://www.lyngsat.com/tracker/')[1].split('.html')[0]
+                name = line.split('https://www.lyngsat.com/tracker/')[1].split('.html')[0]
                 if names is None:
                     # If no name list given, mark all satellites as found
                     found = True

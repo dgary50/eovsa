@@ -6,7 +6,7 @@ from util import Time, nearest_val_idx, ant_str2list
 import matplotlib.pylab as plt
 from matplotlib.dates import DateFormatter
 
-def autocorrect(out,ant_str='ant1-13'):
+def autocorrect(out,ant_str='ant1-13',brange=[0,300]):
     nt = len(out['time'])
     nf = len(out['fghz'])
     pfac1 = (out['p'][:,:,:,:-1] - out['p'][:,:,:,1:])/out['p'][:,:,:,:-1]
@@ -43,13 +43,21 @@ def autocorrect(out,ant_str='ant1-13'):
     for i in range(nt):
         out['p'][:13,:,:,i] = (out['p'][:13,:,:,i]*attnfac - tpoffsun)*tpcalfac 
     antlist = ant_str2list(ant_str)
+    # Subtract background for each antenna/polarization
+    for ant in antlist:
+        for pol in range(2):
+            bg = np.median(out['p'][ant,pol,:,brange[0]:brange[1]],1).repeat(nt).reshape(nf,nt)
+            out['p'][ant,pol] -= bg
+    # Form median over antennas/pols
     med = np.mean(np.median(out['p'][antlist],0),0)
+    # Do background subtraction once more for good measure
     bg = np.median(med[:,0:300],1).repeat(nt).reshape(nf,nt)
     med -= bg
     pdata = np.log10(med)
     f, ax = plt.subplots(1,1)
     vmax = np.median(np.nanmax(pdata,1))
     im = ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmin=1,vmax=vmax)
+    ax.axvspan(Time(out['time'][brange[0]],format='jd').plot_date,Time(out['time'][brange[1]],format='jd').plot_date,color='w',alpha=0.3)
     plt.colorbar(im,ax=ax,label='Log Flux Density [sfu]')
     ax.xaxis_date()
     ax.xaxis.set_major_formatter(DateFormatter("%H:%M"))

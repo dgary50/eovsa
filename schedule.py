@@ -268,6 +268,17 @@
 #    2017-Sep-01  DG
 #      Added update_status() to create a status file with the currently running
 #      schedule.
+#    2018-Apr-09  DG
+#      My earlier change of split(' ') to just split() everywhere seems to have
+#      vanished, so I reedited this change.
+#    2018-Jun-08  DG
+#      Added a distinct PHASECAL_LO command, in order to selectively change the
+#      receiver commands for a scan using the low-frequency receiver.  At the
+#      moment, a different set of DCM attenuations are needed for that receiver,
+#      but this ability is probably a good idea in general.
+#    2018-Sep-18  DG
+#      Added new functionality for New menu item!  Automatically make today's
+#      solar schedule.
 #
 
 import os, signal
@@ -295,11 +306,13 @@ import corr, time, numpy, socket, struct, sys
 import ephem
 import eovsa_cat
 from eovsa_visibility import scan_visible
+from whenup import whenup
 #import starburst
 from matplotlib.mlab import find
 import cal_header
 import adc_cal2
 import pcapture2
+from whenup import make_sched
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
@@ -677,7 +690,7 @@ class App():
         # Main Listbox widget for Macro commands
         Lframe = Frame(textframe)
         Lframe.pack(expand = False, fill=Y,side=LEFT)
-        self.L = Listbox(Lframe,selectmode=EXTENDED,width=45,height=15)
+        self.L = Listbox(Lframe,selectmode=EXTENDED,width=45,height=30)
         self.Sx = Scrollbar(Lframe,orient=HORIZONTAL,command=self.xview)
         self.L.config( xscrollcommand = self.Sx.set)
         self.L.bind('<<ListboxSelect>>',self.display_ctl)
@@ -782,6 +795,15 @@ class App():
         self.wcomm.pack( side = LEFT, expand=False, fill=X)
         self.wcomm.bind('<Return>',self.handle_entry)
 
+        # Listbox widget for calibrator times
+        CTframe = Frame(fproj)
+        CTframe.pack(expand = False, fill=Y,side=LEFT)
+        self.CalTimeLB = Listbox(CTframe,selectmode=EXTENDED,width=45,height=10,font="Courier 10 bold")
+        out = whenup()
+        for line in out['lines']:
+            self.CalTimeLB.insert(END,line)
+        self.CalTimeLB.pack(side=LEFT)
+            
         # Make sure window can never be smaller than initially created size
         self.root.update_idletasks()
         self.root.minsize(self.root.winfo_width(),self.root.winfo_height())
@@ -795,7 +817,9 @@ class App():
         self.aa.epoch = '2000/1/1 12:00'      # Get coordinates in J2000 epoch
         sys.stdout.flush()
          
-        self.Open('solar.scd')
+        #self.Open('solar.scd')
+        self.New()  # Generate a solar schedule for today
+        self.filename = 'solar.scd'
         
         # Establish connect to ROACHes.
         self.roaches =[]
@@ -1023,7 +1047,7 @@ class App():
             sel = map(int, w.curselection())
             if len(sel) == 1:
                 line = w.get(sel[0])
-                cmds = line[20:].split(' ')
+                cmds = line[20:].split()
                 f2 = open(cmds[0].rstrip()+'.ctl')
                 w.atomlist.delete(0,END)
                 for ctlline in f2.readlines():
@@ -1075,7 +1099,7 @@ class App():
             for i,line in enumerate(lines):
                 self.L.insert(END, line.rstrip('\n'))
                 ctl_cmd = line.split()[2]
-                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'STARBURST' or ctl_cmd == 'CALPNTCAL':
+                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'PHASECAL_LO' or ctl_cmd == 'STARBURST' or ctl_cmd == 'CALPNTCAL':
                     name = line.split()[3]
                     # Get start and stop time for this calibrator, as ephem-compatible strings
                     if i == self.lastline-1:
@@ -1088,7 +1112,7 @@ class App():
                     if ctl_cmd == 'STARBURST':
                         check_27m = True
                         check_2m = False
-                    elif ctl_cmd == 'PHASECAL' or ctl_cmd == 'CALPNTCAL':
+                    elif ctl_cmd == 'PHASECAL' or ctl_cmd == 'PHASECAL_LO' or ctl_cmd == 'CALPNTCAL':
                         check_27m = True
                         check_2m = True
                     # Check visibility for source
@@ -1119,12 +1143,14 @@ class App():
             return
         self.status.configure( state = NORMAL)
         t = util.Time.now()
+        scd = make_sched(t=t)
         self.L.delete(0, END)
-        self.L.insert(0,t.iso[:19] + ' ' + 'SUN')
-        self.L.insert(1,t.iso[:19] + ' ' + 'REWIND')
+        for line in scd:
+            self.L.insert(END,line)
         self.curline = 0
-        self.lastline = 2
+        self.lastline = len(scd)
         self.status.configure( state = DISABLED)
+        self.filename = 'solar.scd'
         
     #============================
     def Save(self):
@@ -1211,25 +1237,22 @@ class App():
         '''
         if t is None:
             t = util.Time.now()
-        # Determine how many days from date of first line to today
-        line = self.L.get(0)
-        days = int(t.mjd) - int(mjd(line))
-        print 'Adding ',days,'days.'
-        for i in range(self.lastline):
-            line = self.L.get(i)
-            linemjd = mjd(line) + days
-            t2 = util.Time(linemjd,format='mjd')
-            line = t2.iso[:10] + line[10:]
-            self.L.delete(i)
-            self.L.insert(i,line)
-#            self.logf.write(str(i)+' '+line+' '+str(linemjd)+'\n')
-        self.curline = 0
-        # If this is the standard solar.scd file, do an auto-generate for date of first line
+        # If this is the standard solar.scd file, do an auto-generate for today
         if self.filename == 'solar.scd':
+            self.New()
+        else:
+            # Determine how many days from date of first line to today
             line = self.L.get(0)
-            linemjd = mjd(line)
-            t = util.Time(linemjd,format='mjd')
-            self.autogen(t)
+            days = int(t.mjd) - int(mjd(line))
+            print 'Adding ',days,'days.'
+            for i in range(self.lastline):
+                line = self.L.get(i)
+                linemjd = mjd(line) + days
+                t2 = util.Time(linemjd,format='mjd')
+                line = t2.iso[:10] + line[10:]
+                self.L.delete(i)
+                self.L.insert(i,line)
+            self.curline = 0
 
     #============================
     def autogen(self,t):
@@ -1446,7 +1469,7 @@ class App():
             # Find the file associated with the Macro command on the current 
             # line and fill in the L2 Listbox
             line = self.L.get(self.curline)
-            cmds = line[20:].split(' ')
+            cmds = line[20:].split()
             f2 = open(cmds[0].rstrip()+'.ctl')
             self.L2.delete(0,END)
             lines = f2.readlines()
@@ -2047,7 +2070,7 @@ class App():
         # Find the file associated with the Macro command on the current 
         # line and fill in the L2 Listbox
         line = self.L.get(self.curline)
-        cmds = line[20:].split(' ')
+        cmds = line[20:].split()
         f2 = open(cmds[0].rstrip()+'.ctl')
         self.L2.delete(0,END)
         # Current options for source ID
@@ -2068,6 +2091,10 @@ class App():
             sh_dict['source_id'] = 'Sun'
             sh_dict['track_mode'] = 'PLANET'
         elif cmds[0].upper() == 'PHASECAL':
+            sh_dict['project'] = 'PHASECAL'
+            sh_dict['source_id'] = cmds[1]
+            sh_dict['track_mode'] = 'RADEC '
+        elif cmds[0].upper() == 'PHASECAL_LO':
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
@@ -2151,7 +2178,7 @@ class App():
         for i in range(sline,len(lines)):
             ctlline = self.L2.get(i)
             self.execute_ctlline(ctlline,mjd1,mjd2)
-            if ctlline.split(' ')[0].upper() == '$WAIT':
+            if ctlline.split()[0].upper() == '$WAIT':
                 self.nextctlline = i+1
                 break
 
@@ -2236,7 +2263,7 @@ class App():
 #                    starburst.execute_ctlline(self,ctlline,sh_dict,sf_dict,mjd1,mjd2)
                 #==== MK_TABLES ====
                 if ctlline.split()[0].upper() == '$MK_TABLES':
-                    cmd, fname, src = ctlline.split(' ')
+                    cmd, fname, src = ctlline.split()
                     if mjd1 is None:
                         d = util.datime()
                         mjd1 = d.get()
@@ -2279,7 +2306,7 @@ class App():
                     # capture filename.  The capture is done on the dpp.  This will take a few
                     # seconds to complete.
                     try:
-                        cmd, stem = ctlline.strip().split(' ')
+                        cmd, stem = ctlline.strip().split()
                     except:
                         # Must be no stem given, so use ''
                         stem = ''
@@ -2291,7 +2318,7 @@ class App():
                 elif ctlline.split()[0].upper() == '$SCAN-START':
                     # Command by itself is normal scan start, while $SCAN-START NODATA
                     # means set up scan, but do not take data.  Used for some calibrations.
-                    nodata = ctlline.strip().split(' ')[-1].upper()
+                    nodata = ctlline.strip().split()[-1].upper()
                     # Do any tasks here that are required to start a new scan
                     sys.stdout.write('Started new scan\n')
 
@@ -2545,7 +2572,7 @@ class App():
                 #==== DLASWEEP ====
                 elif ctlline.split()[0].upper() == '$DLASWEEP':
                     try:
-                        vals = ctlline.split(' ')
+                        vals = ctlline.split()
                         print vals
                         if len(vals) == 4:
                             junk,ant,dla,dlastop = vals

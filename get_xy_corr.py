@@ -1,3 +1,12 @@
+#
+# Routines for handling XY delay phase measurements.
+# 
+# History:
+#   2018-Jun-13  DG
+#     Started this history log, on the occasion of adding routine xydelay_anal()
+#
+import numpy as np
+
 def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
     ''' Analyze a pair of parallel and cross polarization calibration scans and
         return the X vs. Y delay phase corrections on all antennas 1-14.
@@ -13,7 +22,6 @@ def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
         print 'Must provide a list of 2 NPZ files.'
         return None, None
     import read_idb as ri
-    import numpy as np
     from util import lobe, Time
         
     if doplot: import matplotlib.pylab as plt
@@ -53,7 +61,7 @@ def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
     dph[:13] = np.angle(np.sum(np.exp(1j*dphi),0))
     
     if doplot:
-        f, ax = plt.subplots(4,4)
+        f, ax = plt.subplots(4, 4, num='XY_Phase')
         ax.shape = (16,)
         for i in range(13): 
             ax[i].plot(fghz,dphi[0,i],'.')
@@ -68,11 +76,45 @@ def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
     xy_phase = {'timestamp':Time(out0['time'][0],format='jd').lv,'fghz':fghz,'xyphase':dph,'xi_rot':xi_rot}
     return xy_phase
 
+def xydelay_anal(npzfiles):
+    ''' Analyze a "standard" X vs. Y delay calibration, consisting of four observations
+        on a strong calibrator near 0 HA, in the order:
+           90-degree  Low-frequency  receiver,
+           90-degree  High-frequency receiver,
+            0-degree  High-frequency receiver,
+            0-degree  Low-frequency  receiver
+    '''
+    import matplotlib.pylab as plt
+    from util import common_val_idx
+    npzfiles = np.array(npzfiles)
+    dph_lo = get_xy_corr(npzfiles[[3,0]], doplot=False)
+    dph_hi = get_xy_corr(npzfiles[[2,1]])
+    ax = plt.figure('XY_Phase').get_axes()
+    for i in range(14): 
+        ax[i].plot(dph_lo['fghz'],dph_lo['xyphase'][i],'r.')
+        ax[i].set_xlim(0,20)
+    fghz = np.union1d(dph_lo['fghz'],dph_hi['fghz'])
+    nf, = fghz.shape
+    flo_uniq = np.setdiff1d(dph_lo['fghz'],dph_hi['fghz'])  # List of frequencies in LO not in HI
+    idx_lo_not_hi, idx2 = common_val_idx(fghz, flo_uniq)    # List of indexes of unique LO frequencies
+    # Make empty arrays with enough frequencies
+    xyphase = np.zeros((14,nf),dtype=float)
+    xi_rot = np.zeros((nf),dtype=float)
+    idx_hi, idx2 = common_val_idx(fghz,dph_hi['fghz'])  # List of indexes of HI receiver frequencies
+    xyphase[:14,idx_hi] = dph_hi['xyphase']       # Insert all high-receiver xyphases
+    xyphase[:14,idx_lo_not_hi] = dph_lo['xyphase'][:14,idx_lo_not_hi]  # For unique low-receiver frequencies, insert LO xyphases
+    
+    xi_rot[idx_hi] = dph_hi['xi_rot']   # Insert all high-receiver xi_rot
+    xi_rot[idx_lo_not_hi] = dph_lo['xi_rot'][idx_lo_not_hi]   # For unique low-receiver frequencies, insert LO xi_rot
+    dph_hi.update({'xi_rot':xi_rot, 'xyphase':xyphase, 'fghz':fghz})
+    print 'Referring to the output of this routine as "xyphase,"'
+    print 'run cal_header.xy_phasecal2sql(xyphase) to write the SQL record.' 
+    return dph_hi
+
 def apply_xy_corr(out,dph,dphnew=None):
     ''' Does not actually change the data, only calculates and displays it
     '''
     import copy
-    import numpy as np
     import matplotlib.pylab as plt
     from util import lobe
     fghz = out['fghz']
@@ -113,7 +155,6 @@ def apply_unrot(filename):
     import copy
     from util import lobe, Time
     import matplotlib.pylab as plt
-    import numpy as np
     blah = np.load('/common/tmp/Feed_rotation/20170702121949_delay_phase.npz')
     dph = blah['dph']
     fghz = blah['fghz']

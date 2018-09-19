@@ -67,6 +67,10 @@
 #   2018-Jan-10  DG
 #      Added control_room_temp() function to return the ambient temperature in
 #      the control room.
+#   2018-Mar-01  DG
+#      Added temporary get_median_wind() routine to get around current
+#      weather station glitches.  Replaces average wind with median wind speed.
+#      Must change weather() back to original when this has been fixed.
 #
 
 import struct, sys
@@ -151,8 +155,28 @@ def weather(attempt=0):
         temp = float(temp) * 33.8637526
     except:
         return ovro_dict
-    ovro_dict['mtRawBaromPress'] = str(temp)     
-    return ovro_dict
+    ovro_dict['mtRawBaromPress'] = str(temp)
+    return get_median_wind(ovro_dict)
+    
+def get_median_wind(wthr):
+    '''  Temporary work-around for mis-behaving weather station.
+         Given the weather dictionary, query the SQL database for
+         the last 120-s of wind data, and calculate median rather
+         than average.  I hope this does not take too long!  Returns
+         the same dictionary, with median replacing average wind.
+    '''
+    import dbutil as db
+    cursor = db.get_cursor()
+    query = 'select top 120 Timestamp,Sche_Data_Weat_Wind from fV66_vD1 order by Timestamp desc'
+    data, msg = db.do_query(cursor,query)
+    if msg == 'Success':
+        try:
+            medwind = np.median(data['Sche_Data_Weat_Wind'])
+            wthr.update({'mt2MinRollAvgWindSpeed': medwind})
+        except:
+            pass
+    cursor.close()
+    return wthr
 
 #============================
 def rd_solpwr(url='http://data.magnumenergy.com/MW5127'):

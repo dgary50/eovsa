@@ -35,6 +35,13 @@
 #    to add the SQL_timestamp as the key sqltime.
 #  2018-01-03  DG
 #    Updated udb_corr() to work with new xi_rot.
+#  2018-03-22  NK
+#    Added an optional keyword attncal in udb_corr() that, when set to False, 
+#    will skip the attenuation correction.
+#  2018-06-13  DG
+#    Added code to get_sql_info() and unrot() to determine which 27-m
+#    receiver is in use, and correct baselines with Ant 14 accordingly.
+#    The X vs. Y delay is in general very different for the two receivers.
 #
 
 import dbutil as db
@@ -48,12 +55,24 @@ import cal_header as ch
 def get_sql_info(trange):
     ''' Get all antenna information from the SQL database for a given
         timerange, including TrackFlag and Parallactic Angle
+        
+        Also determines if the RFSwitch state (i.e. which 27-m receiver 
+        is being used).
     '''
     cursor = db.get_cursor()
     sqldict = db.get_dbrecs(cursor, dimension=15, timestamp=trange)
     azeldict = stateframe.azel_from_sqldict(sqldict)
     time = Time(sqldict['Timestamp'][:, 0].astype(int), format='lv')
     azeldict.update({'Time': time})
+    sqldict = db.get_dbrecs(cursor, dimension=1, timestamp=trange)
+    azeldict.update({'RFSwitch':sqldict['FEMA_Powe_RFSwitchStatus']})
+    azeldict.update({'LF_Rcvr':sqldict['FEMA_Rece_LoFreqEnabled']})
+    if np.median(azeldict['RFSwitch']) == 0.0 and np.median(azeldict['LF_Rcvr']) == 1.0:
+        azeldict.update({'Receiver':'Low'})
+    elif np.median(azeldict['RFSwitch']) == 1.0 and np.median(azeldict['LF_Rcvr']) == 0.0:
+        azeldict.update({'Receiver':'High'})
+    else:
+        azeldict.update({'Receiver':'Unknown'})
     cursor.close()
     return azeldict
 
@@ -421,7 +440,7 @@ def unrot(data, azeldict=None):
     return cdata
 
 
-def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
+def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, attncal=True):
     ''' Complete routine to read in an existing idb or udb file and output
         a new file of the same name in the local directory, with all corrections
         applied.
@@ -440,7 +459,9 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
                         nominal attenuation corrections are applied.
           gctime    A Time() object whose date is used to find the GAINCALTEST data.
                         If None (default), then the date of the data is used.  Note that
-                        gctime is only used if parameter new is True.          
+                        gctime is only used if parameter new is True.
+          attncal   If False, the attenuation correction is skipped - expected to be
+                        applied manually in post-processing (e.g. 2017-09-10 X8 flare)          
     '''
     import sys
     import os
@@ -467,14 +488,17 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None):
         print 'Reading SQL info took', time.time() - t1, 's'
         sys.stdout.flush()
         # Correct data for attenuation changes
-        t1 = time.time()
-        if new:
-            cout = apply_fem_level(out, gctime)
+        if attncal:
+            t1 = time.time()
+            if new:
+                cout = apply_fem_level(out, gctime)
+            else:
+                cout = apply_attn_corr(out)
+            print 'Applying attn correction took', time.time() - t1, 's'
+            sys.stdout.flush()
+            t1 = time.time()
         else:
-            cout = apply_attn_corr(out)
-        print 'Applying attn correction took', time.time() - t1, 's'
-        sys.stdout.flush()
-        t1 = time.time()
+            cout = out
         # Correct data for differential feed rotation
         coutu = unrot(cout, azeldict)
         print 'Applying feed rotation correction took', time.time() - t1, 's'

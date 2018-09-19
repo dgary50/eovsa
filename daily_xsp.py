@@ -113,7 +113,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=True
         tdif = out['time'][1:] - out['time'][:-1]
         bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
         pdata[:,bad] = 0
-        vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        vmax = X[int(len(X)*0.85)]  # Clip at 15% of points
         im = ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
         plt.colorbar(im,ax=ax,label='Amplitude [arb. units]')
         ax.xaxis_date()
