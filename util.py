@@ -25,6 +25,9 @@
 #  2017-Aug-08  DG
 #    Added precision keyword to common_val_idx()
 #    Also added code for calculating baseline order
+#  2019-Jan-03  DG
+#    Added lin_phase_fit() routine, which is a common need to find the
+#    phase slope of a phase spectrum.
 # * 
 
 import StringUtil as su
@@ -1054,3 +1057,42 @@ def bl_list(nant=16):
     return bl2ord
     
 bl2ord = bl_list()
+
+def lin_phase_fit(f,pha, doplot=False):
+    ''' Given an array of frequencies and corresponding phases,
+        determine the best linear fit and return the parameters
+        and standard deviation of the fit.  Optionally plots the
+        phases and the fit, mainly for testing and evaluation
+        purposes.  
+        
+        Inputs:
+          f         Array of frequencies (does not need to be evenly spaced).
+                       Note, no Nans allowed.
+          pha       Array of phases, in radians, corresponding to array f. 
+                       Note, any phases to be ignored can be flagged with Nan.
+          doplot    Optional flag--if True, opens a new plot and plots the 
+                       phases and the fit.
+                       
+        Returns:
+          Numpy 3-element array of phase-offset, phase-slope, and 
+          standard deviation of the fit
+    '''
+    import numpy as np
+    if len(f) != len(pha):
+        print 'Error: arrays not of same size:',len(f),len(pha)
+        return None
+    dpdf = []
+    good = np.where(np.logical_not(np.isnan(pha)))
+    f_ = f[good]
+    pha_ = pha[good]
+    for i in range(len(f_)-1):
+        dpdf.append((pha_[i+1] - pha_[i])/(f_[i+1]-f_[i]))
+    slp = np.median(np.array(dpdf))
+    p = np.polyfit(f,np.unwrap(pha_-f_*slp),1)
+    p[0] = p[0]+slp
+    stdev = np.std(lobe(pha-np.polyval(p,f_)))
+    if doplot:
+        import matplotlib.pylab as plt
+        plt.plot(f,pha,'.')
+        plt.plot(f,lobe(np.polyval(p,f)))
+    return np.array((p[1], p[0], stdev))

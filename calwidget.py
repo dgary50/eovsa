@@ -20,6 +20,13 @@
 #    Replace antenna tabs with a single one with "reusable" plots, in an
 #    attempt to speed things up.  Also finally solved the "keys do not work"
 #    problem!
+#  2019-01-01  DG
+#    Plot phases using antenna 1 as reference (although plot baseline 1-14 for antenna 1)
+#  2019-01-05  DG
+#    Lots of new code and changes to allow combining LO and HI receiver calibrations for
+#    a combined Refcal.  Also cleaned up the user interface.
+#  2019-01-06  DG
+#    Fixed a bug in writing Refcal back when read directly from SQL.
 #
 
 import matplotlib
@@ -40,7 +47,7 @@ else:
     import tkinter as Tk
 import ttk
 from tkMessageBox import askyesno, showerror
-from util import Time, nearest_val_idx, lobe
+from util import Time, nearest_val_idx, lobe, lin_phase_fit
 import cal_header as ch
 from stateframe import extract
 import refcal_anal as ra   #I'll try to eliminate this later...only needed for phase_diff()
@@ -119,14 +126,27 @@ class App():
         self.refcal_btn = Tk.Button(self.pc_tlframe, text='Analyze as Refcal', command=self.refcal_anal)
         self.refcal_btn.pack(side=Tk.TOP)
         self.refcal_btn.configure(state=Tk.DISABLED)
-        self.refcalset_btn = Tk.Button(self.pc_tlframe, text='Set as Refcal', command=self.refcal_set)
-        self.refcalset_btn.pack(side=Tk.TOP)
+        rsframe = Tk.Frame(self.pc_tlframe)
+        rsframe.pack(expand=False, fill=Tk.X, side=Tk.TOP)
+        self.refcalset_btn = Tk.Button(rsframe, text='Set as Refcal', command=self.refcal_set)
+        self.refcalset_btn.pack(side=Tk.LEFT, expand=1, fill=Tk.X)
         self.refcalset_btn.configure(state=Tk.DISABLED)
+        self.extselect = Tk.BooleanVar()
+        self.extselect_button = Tk.Checkbutton(rsframe, text="Extend Selection",
+                variable=self.extselect, command=self.set_multi)
+        self.extselect_button.configure(state=Tk.DISABLED)
+        self.extselect_button.pack(side=Tk.LEFT, expand=1, fill=Tk.X)
+        
         self.phacal_btn = Tk.Button(self.pc_tlframe, text='Analyze as Phasecal', command=self.phacal_anal)
         self.phacal_btn.pack(side=Tk.TOP)
         self.phacal_btn.configure(state=Tk.DISABLED)
         #self.user_time_btn = Tk.Button(self.pc_tlframe, text='Time request window', command=self.new_window)
         #self.user_time_btn.pack(side=Tk.TOP)
+        self.fixdrift = Tk.BooleanVar()
+        self.drift_button = Tk.Checkbutton(self.pc_tlframe, text="Fix Phase Drift vs. Time",
+                variable=self.fixdrift)
+        self.drift_button.configure(state=Tk.NORMAL)
+        self.drift_button.pack(side=Tk.TOP)
 
         #   Sigma map window
         pc_resultframe = Tk.Frame(pc_trframe)
@@ -205,10 +225,11 @@ class App():
     def do_flags(self):
         ''' Apply the tflags.  All this is, is a call to refcal_anal for the selected scan
         '''
-        self.status.config(text = 'Status: Applying new time flags.  Select scan again to update screen.')
+        self.status.config(text = 'Status: New time flags applied.')
         out = self.pc_dictlist[self.scan_selected]
         out = refcal_anal(out)
         self.pc_dictlist[self.scan_selected] = out
+        self.scan_select()
         
     def do_SQL(self):
         #print 'Selected Save to SQL button.'
@@ -244,9 +265,19 @@ class App():
                 self.saved[k] = True
             elif scan[-1] == 'R':
                 #Form correct dictionary for ch.refcal2sql()
-                t_ref = Time(data['times'][0],format='jd')
-                t_ed = Time(data['times'][-1],format='jd')
-                rfcal = {'timestamp':t_ref, 't_bg':t_ref, 't_ed':t_ed, 'flag':data['flags'][:,:2],
+                try:
+                    t_ref = Time(data['times'][0],format='jd')
+                    t_ed = Time(data['times'][-1],format='jd')
+                    t_bg = t_ref
+                except:
+                    try:
+                        t_bg = data['T_beg']
+                        t_ed = data['T_end']
+                        t_ref = t_bg
+                    except:
+                        showerror("Error",'Unknown time format.')
+                        return
+                rfcal = {'timestamp':t_ref, 't_bg':t_bg, 't_ed':t_ed, 'flag':data['flags'][:,:2],
                         'vis':data['x'][:,:2], 'sigma':data['sigma'][:,:2], 'fghz':data['fghz']}
                 timestamp = t_ref
                 question = 'Do you want to override SQL time '+t_ref.iso+'?'
@@ -268,7 +299,7 @@ class App():
                 lines = self.pc_scanbox.get(0,Tk.END)
                 self.pc_scanbox.delete(0,Tk.END)
                 for i,line in enumerate(lines):
-                    if k == i:
+                    if k+2 == i:
                         line = line[:8] + timestamp.iso[10:19] + line[17:]
                     self.pc_scanbox.insert(Tk.END, line)
         
@@ -295,13 +326,13 @@ class App():
            plot window, so get information and act accordingly.
         '''
         #print 'Key',event.key,'at data coordinates',event.xdata,event.ydata
-        if not 'tflags' in self.pc_dictlist[self.scan_selected].keys():
-            self.status.config(text = 'Status: Selected scan has no time profiles (SQL scan?)')
-            return
         if event.xdata is None or event.xdata < 2:
             # Indicates mouse is not in a window, or the window does not
             # contain valid times.
             self.status.config(text = 'Status: '+event.key+' ignored.  Not in window.')
+            return
+        if not 'tflags' in self.pc_dictlist[self.scan_selected].keys():
+            self.status.config(text = 'Status: Selected scan has no time profiles (SQL scan?)')
             return
         key = event.key.upper()
         self.status.config(text = 'Status: '+key+' at data coordinates '+str(event.xdata)+' '+str(event.ydata))
@@ -395,21 +426,46 @@ class App():
             box.  For those scans with SQL calibrations, a notation '*' is
             made on the line.
         '''
+        # Initialize the interface for a new date
+        self.refcal_btn.configure(state=Tk.DISABLED)
+        self.refcalset_btn.configure(state=Tk.DISABLED)
+        self.phacal_btn.configure(state=Tk.DISABLED)
+        #self.pc_resultbox.delete(0,Tk.END)
+        # Erase flags image
+        fig, ax = self.ab_fig_info
+        im = ax.pcolormesh(np.arange(14),np.arange(35),np.zeros((34,13)))
+        self.ab_text.set_text('No scan selected')
+        ax.set_title('')
+        fig.suptitle('')
+        self.ab_fig_info[0].canvas.draw()
+        self.pc_scanbox.delete(0,Tk.END)
+        self.resultvar.set('No Scan Selected')
+        self.ref_selected = None
+        self.scan_selected = None
+        self.ref2_selected = None
+        self.scan2_selected = None
+        self.band_selected = None
+        sel = map(int, self.pc_scanbox.curselection())
+        for s in sel:
+            self.pc_scanbox.selection_clear(s)
+        self.pc_scanbox.configure(selectmode=Tk.SINGLE)
+        self.extselect_button.configure(state=Tk.DISABLED)
+        self.extselect.set(0)
+        self.refcalset_btn.configure(text='Set as Refcal')
+
         refcal_type = 8
         phacal_type = 9
         w = event.widget
-        self.scan_selected = None
-        self.ref_selected = None
         try:
             mjd = Time(w.get()).mjd
         except:
-            self.pc_scanbox.delete(0, Tk.END)
+#            self.pc_scanbox.delete(0, Tk.END)
             self.pc_scanbox.insert(Tk.END, 'Error: Invalid Date.  Must be YYYY-MM=DD')
             return
         trange = Time([mjd+0.25,mjd+1.25],format='mjd')
         self.scan_dict = findscans(trange)
         sd = self.scan_dict
-        self.pc_scanbox.delete(0, Tk.END)
+#        self.pc_scanbox.delete(0, Tk.END)
         if sd['msg'] != 'Success':
             self.pc_scanbox.insert(Tk.END, sd['msg'])
             return
@@ -429,7 +485,9 @@ class App():
             try:
                 xml, buf = ch.read_cal(refcal_type, t=en_time)
                 #refcal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
-                refcal_time = Time((extract(buf,xml['T_beg'])+extract(buf,xml['T_end']))/2,format='lv')  # Mid-time of data
+                t_beg = Time(extract(buf,xml['T_beg']),format='lv')
+                t_end = Time(extract(buf,xml['T_end']),format='lv')
+                refcal_time = Time((t_beg.lv+t_end.lv)/2,format='lv')  # Mid-time of data
                 dtr1 = st_time - refcal_time   # negative if in scan
                 dtr2 = en_time - refcal_time   # positive if in scan
                 if dtr1.jd < 0 and dtr2.jd > 0:
@@ -440,7 +498,7 @@ class App():
                     sigma = extract(buf,xml['Refcal_Sigma'])
                     flags = extract(buf,xml['Refcal_Flag'])
                     fghz = extract(buf,xml['Fghz'])
-                    self.pc_dictlist.append({'refcal_time':refcal_time, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
+                    self.pc_dictlist.append({'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
                     self.saved.append(True)
                     not_a_refcal = False
             except:
@@ -475,19 +533,65 @@ class App():
             nscans = len(self.pc_dictlist)
             self.pc_scanbox.insert(Tk.END, line)
         
-    def scan_select(self, event):
+    def set_multi(self):
+        ''' Set scanbox selection mode to multiple if set '''
+        if self.extselect.get():
+            self.pc_scanbox.config(selectmode=Tk.MULTIPLE)
+        else:
+            self.pc_scanbox.config(selectmode=Tk.SINGLE)
+            
+    def scan_select(self, event=None):
         ''' Get information on what scan has been selected. '''
-        w = event.widget
+        w = self.pc_scanbox
         sel = map(int, w.curselection())
-        if len(sel) == 1:
+        if len(sel) == 3:
+            # Third line selected--deselecting...
+            for s in sel:
+                if s != self.scan_selected+2 and s!= self.scan2_selected+2:
+                    self.pc_scanbox.selection_clear(s)
+                    return
+        if len(sel) == 2:
+            # Extended select means check if these are consistent with analysis as a single refcal
+            # Lines sel[0] and sel[1] selected.
+            if sel[1] < 2:
+                # A header line was clicked, so clear selection and ignore
+                if self.scan_selected == sel[0]-2:
+                    self.pc_scanbox.selection_clear(sel[1])
+                elif self.scan_selected == sel[1]-2:
+                    self.pc_scanbox.selection_clear(sel[0])
+                return
+            # Check that both lines selected are analyzed REFCAL lines
+            curscan = self.scan_selected
+            if curscan == sel[0]-2:
+                # sel[0] is the original line so set k to sel[1]
+                k = sel[1]-2
+            else:
+                # sel[1] is the original line so set k to sel[0]
+                k = sel[0]-2
+            line0 = w.get(curscan+2)
+            line1 = w.get(k+2)
+            if line0[-1] != 'R':
+                # Somehow original line is not a REFCAL!  Clear both and start over.
+                self.pc_scanbox.selection_clear(curscan+2)
+                self.pc_scanbox.selection_clear(k+2)             
+            elif line1[-1] != 'R':
+                print line1,'is not an already analyzed REFCAL scan.'
+                self.pc_scanbox.selection_clear(k+2)
+                return
+            else:
+                # Success!  Now do something useful...
+                self.scan2_selected = k
+                self.extselect_button.configure(state=Tk.DISABLED)
+                self.refcalset_btn.configure(text='Set as Extended Refcal')
+        elif len(sel) == 1:
             if sel[0] < 2:
                 # A header line was clicked, so ignore
                 return
             line = w.get(sel[0])
             k = sel[0]-2
             self.scan_selected = k
+            self.scan2_selected = None
             self.band_selected = None
-
             #self.pc_resultbox.delete(0, Tk.END)
             self.refcal_btn.configure(state=Tk.NORMAL)
             if not self.ref_selected is None: self.phacal_btn.configure(state=Tk.NORMAL)
@@ -513,13 +617,22 @@ class App():
                 # Plot summary plots
                 for i in range(13):
                     for j in range(2):
+                        ax1[j,i].cla()
+                        ax2[j,i].cla()
                         ax1[j,i].plot(bands[good],np.abs(data['x'][i,j,good]),'.')
+                        if i == 0:
+                            # Special case for antenna 1
+                            phz = np.unwrap(np.angle(data['x'][i,j,good]))
+                            # Set 2pi wrap so that minimum of "U" (~ 7 GHz) is near 0
+                            phz -= np.round(phz[14] / (2*np.pi)) * 2*np.pi
+                        else:
+                            phz = np.unwrap(lobe(np.unwrap(np.angle(data['x'][i,j,good]) - np.angle(data['x'][0,j,good]))))
                         # Set 2pi wrap so that minimum of "U" (~ 7 GHz) is near 0
-                        phz = np.unwrap(np.angle(data['x'][i,j,good]))
-                        phz -= np.round(phz[14] / (2*np.pi)) * 2*np.pi
+                        #phz = np.unwrap(np.angle(data['x'][i,j,good]))
+                        #phz -= np.round(phz[14] / (2*np.pi)) * 2*np.pi
                         ax2[j,i].plot(bands[good],phz,'.')
                         ax1[j,i].set_ylim(0,0.5)
-                        ax2[j,i].set_ylim(-2*np.pi,20)
+                        ax2[j,i].set_ylim(-2*np.pi,15)
                         if i != 0:
                             lab = ax1[j,i].get_yticklabels()
                             ax1[j,i].set_yticklabels(['']*len(lab))
@@ -532,6 +645,7 @@ class App():
                 ax1[1,0].set_ylabel('YY Amplitude')
                 ax2[1,0].set_ylabel('YY Phase (rad)')
                 self.refcalset_btn.configure(state=Tk.NORMAL)
+                    
             elif line[-1] == 'P':
                 data = self.pc_dictlist[k]
                 # Convert frequency to band
@@ -544,9 +658,9 @@ class App():
                 #for j in range(34):
                 #    ax.plot([0,13],[j,j],color='white',linewidth=0.2)
                 self.ab_text.set_text('')
-                if not 'pdiff' in data.keys():
-                    if self.ref_selected:
-                        data = phase_diff(data,self.pc_dictlist[self.ref_selected])
+                #if not 'pdiff' in data.keys():
+                if self.ref_selected:
+                    data = phase_diff(data,self.pc_dictlist[self.ref_selected])
                 # Plot summary plots
                 for i in range(13):
                     for j in range(2):
@@ -657,69 +771,60 @@ class App():
         date = Time(Time(w.get()).mjd - 1, format='mjd').iso[0:10]
         w.delete(0, Tk.END)
         w.insert(0, date)
-        self.refcal_btn.configure(state=Tk.DISABLED)
-        self.refcalset_btn.configure(state=Tk.DISABLED)
-        self.phacal_btn.configure(state=Tk.DISABLED)
-        #self.pc_resultbox.delete(0,Tk.END)
-        # Erase flags image
-        fig, ax = self.ab_fig_info
-        im = ax.pcolormesh(np.arange(14),np.arange(35),np.zeros((34,13)))
-        self.ab_text.set_text('No scan selected')
-        ax.set_title('')
-        fig.suptitle('')
-        self.ab_fig_info[0].canvas.draw()
-        self.pc_scanbox.delete(0,Tk.END)
-        self.resultvar.set('No Scan Selected')
-        self.ref_selected = None
-        self.scan_selected = None
-        self.band_selected = None
         
     def date_next(self, event):
         w = event.widget
         date = Time(Time(w.get()).mjd + 1, format='mjd').iso[0:10]
         w.delete(0,Tk.END)
         w.insert(0, date)
-        self.refcal_btn.configure(state=Tk.DISABLED)
-        self.refcalset_btn.configure(state=Tk.DISABLED)
-        self.phacal_btn.configure(state=Tk.DISABLED)
-        #self.pc_resultbox.delete(0,Tk.END)
-        fig, ax = self.ab_fig_info
-        im = ax.pcolormesh(np.arange(14),np.arange(35),np.zeros((34,13)))
-        self.ab_text.set_text('No scan selected')
-        ax.set_title('')
-        fig.suptitle('')
-        self.ab_fig_info[0].canvas.draw()
-        self.pc_scanbox.delete(0,Tk.END)
-        self.resultvar.set('No Scan Selected')
-        self.ref_selected = None
-        self.scan_selected = None
-        self.band_selected = None
         
     def refcal_set(self):
         ''' Indicates the unique refcal selected for use in phasecal
             analysis, by adding an asterisk on the line.  Also sets
             self.ref_selected.
         '''
+        text = self.refcalset_btn.config()['text'][-1]
         lines = self.pc_scanbox.get(0,Tk.END)
         self.pc_scanbox.delete(0,Tk.END)
-        i = self.scan_selected + 2
+        i = self.scan_selected
+        j = None
+        if text == 'Set as Extended Refcal':
+            j = self.scan2_selected
         # Clear any asterisks from lines with '*R'
         for k,line in enumerate(lines):
             if line[-2:] == '*R':
                 line = line[:-2] + ' R'
-            if k == i:
+            if k == i+2:
                 line = line[:-2] + '*R'
+            if j:
+                if k == j+2: line = line[:-2] + '*R'
             self.pc_scanbox.insert(Tk.END, line)
-        self.ref_selected = i - 2
+        self.ref_selected = i
+        # Reset selection cleared by above insertion
+        self.pc_scanbox.selection_set(i+2)
+        if j: 
+            self.ref2_selected = j
+            self.pc_scanbox.selection_set(j+2)
+            # Combine these two scans into a single calibration
+            self.combine_refcal()
+        self.scan_select()
+        if text == 'Set as Refcal':
+            self.extselect_button.configure(state=Tk.NORMAL)
+        elif text == 'Set as Extended Refcal':
+            self.extselect_button.configure(state=Tk.DISABLED)
 
     def refcal_anal(self):
         # Do Reference Calibration analysis for currently selected line
         # Updates pc_dictlist with new refcal dictionary
         if self.scan_selected is None:
             return
+        self.status.config(text = 'Status: Analyzing Refcal -- please wait.')
+        self.status.update()
         i = self.scan_selected
         file = self.scan_dict['filelist'][i]
         refcal = rd_refcal(file)
+        if self.fixdrift.get():
+            refcal = fix_time_drift(refcal)
         out = refcal_anal(refcal)
         # Update the existing dictionary (may be empty) with the new one
         self.pc_dictlist[i].update(out)
@@ -733,8 +838,91 @@ class App():
                 else:
                     line += ' R'
             self.pc_scanbox.insert(Tk.END, line)
+        # Reset selection cleared by above insertion
+        self.pc_scanbox.selection_set(i+2)
+        self.scan_select()
         self.status.config(text = 'Status: Analysis Complete.')
         
+    def combine_refcal(self):
+        # Combines a low- and high-frequency receiver refcal into a single one,
+        # and writes the results to each of the scans separately (so either may
+        # be written to SQL)
+        from copy import deepcopy
+
+        i = self.ref_selected
+        j = self.ref2_selected
+        lodict = None
+        hidict = None
+        print np.sum(np.array(self.pc_dictlist[i]['flags'][:13,:2]).astype(int)), np.sum(np.array(self.pc_dictlist[j]['flags'][:13,:2]).astype(int))
+        if np.sum(np.array(self.pc_dictlist[i]['flags'][:13,:2]).astype(int)) > 500:
+            lodict = self.pc_dictlist[i]
+            loscan = i
+        else:
+            hidict = self.pc_dictlist[i]
+            hiscan = i
+        if np.sum(np.array(self.pc_dictlist[j]['flags'][:13,:2]).astype(int)) > 500:
+            lodict = self.pc_dictlist[j]
+            loscan = j
+        else:
+            hidict = self.pc_dictlist[j]
+            hiscan = j
+        if lodict is None or hidict is None:
+            print 'Selected Refcal scans do not form a LO-HI pair.'
+            return
+        # The LO and HI receiver dicts have been identified.  Now determine phase slope of LO
+        # relative to HI, and apply to correct the LO phases
+        # print 'Writing out file /tmp/calwidget_out.txt'
+        # f = open('/tmp/calwidget_out.txt','wb')
+        # print lodict['fghz'].shape, lodict['fghz'].dtype
+        # f.write(lodict['fghz'])
+        # print lodict['x'].shape, lodict['x'].dtype
+        # f.write(lodict['x'])
+        # print lodict['flags'].shape, lodict['flags'].dtype
+        # f.write(lodict['flags'])
+        # print hidict['x'].shape, hidict['x'].dtype
+        # f.write(hidict['x'])
+        # print hidict['flags'].shape, hidict['flags'].dtype
+        # f.write(hidict['flags'])
+        # f.close()
+        fghz = lodict['fghz']
+        plo = np.angle(lodict['x'])
+        phi = np.angle(hidict['x'])
+        # Simply replace bands 1-4 hidict values with lodict values, and copy flags. 
+        hidict['x'][:,:,:4] = lodict['x'][:,:,:4]
+        hidict['flags'][:,:,:4] = lodict['flags'][:,:,:4]
+        #hidict['vis'][:,:,:4] = lodict['vis'][:,:,:4]
+        #hidict['flag'][:,:,:4] = lodict['flag'][:,:,:4]
+        # Now apply corrections (generally small) for the relevant ants 2-13 and pols XX and YY
+        for i in range(12):
+            for j in range(2):
+                # Calculate phase slope of difference between LO and HI receiver for common frequencies
+                pcal = lobe(plo[0,j,4:11] - phi[0,j,4:11])  # Ant 1 LO - HI phases (for calibration)
+                ph = lobe(plo[i+1,j,4:11] - phi[i+1,j,4:11] - pcal)  # Calibrated difference LO - HI
+                pout = lin_phase_fit(fghz[4:11],ph)  # Linear fit to phase difference
+                # If standard deviation of fit is > 0.7 radians (40 degrees), skip the fit (no adjustment)
+                if pout[2] < 0.7:
+                    # Standard deviation is low enough to apply phase slope correction
+                    p = pout[[1,0]]  # Swap pout order for consistency with polyval
+                    pcor = np.polyval(p,fghz[:4])   # These are the phases to subtract from current LO receiver phases
+                    hidict['x'][i+1,j,:4] = lodict['x'][i+1,j,:4]*(np.cos(pcor)-1j*np.sin(pcor))
+                    # Loop over common frequencies
+                    for ibd in [4,5,6,7,8,9,10]:
+                        # Check for bad (flagged) HI receiver bands, and replace with LO
+                        pcor = np.polyval(p,fghz[ibd])
+                        if hidict['flags'][i+1,j,ibd]:
+                            hidict['x'][i+1,j,ibd] = lodict['x'][i+1,j,ibd]*(np.cos(pcor)-1j*np.sin(pcor))
+        # The HI receiver values have been corrected, so now simply replace the lodict values so that both
+        # scans have the same data.  This permits either one to be written to SQL
+        self.pc_dictlist[loscan] = deepcopy(hidict)
+        self.pc_scanbox.configure(selectmode=Tk.SINGLE)
+        self.extselect_button.configure(state=Tk.DISABLED)
+        self.extselect.set(0)
+        self.refcalset_btn.configure(text='Set as Refcal')
+        self.pc_scanbox.selection_set(hiscan+2)
+        self.scan_selected = hiscan
+        self.refcal_set()
+        self.status.config(text = 'Status: Refcal Combine Complete.')
+                
     def phacal_anal(self):
         # Do Phase Calibration analysis for currently selected line
         # Updates pc_dictlist with new phacal dictionary
@@ -744,9 +932,13 @@ class App():
         if self.ref_selected is None:
             self.status.config(text = 'Status: Error: Please analyze and/or select a reference calibration.')
             return
+        self.status.config(text = 'Status: Analyzing Phasecal -- please wait.')
+        self.status.update()
         i = self.scan_selected
         file = self.scan_dict['filelist'][i]
         phacal = rd_refcal(file)
+        if self.fixdrift.get():
+            phacal = fix_time_drift(phacal)
         out = refcal_anal(phacal)
         # Now calculate the phase difference wrt the appropriate refcal
         pcout = phase_diff(out,self.pc_dictlist[self.ref_selected])
@@ -760,6 +952,9 @@ class App():
                 else:
                     line += ' P'
             self.pc_scanbox.insert(Tk.END, line)
+        # Reset selection cleared by above insertion
+        self.pc_scanbox.selection_set(i+2)
+        self.scan_select()
         self.status.config(text = 'Status: Analysis Complete.')
         
 def phase_diff(phacal, refcal):
@@ -783,11 +978,15 @@ def phase_diff(phacal, refcal):
     def coarse_delay(fghz,phz):
         # Do a coarse search of delays corresponding to phase errors ranging from -0.1 to 0.1
         # Returns the delay value with the minimum sigma
-        tvals = np.arange(-0.1,0.1,0.01)
-        sigma = []
-        for t in tvals:
-            sigma.append(np.std(lobe(phz - 2*np.pi*t*fghz)))
-        return tvals[np.argmin(np.array(sigma))]
+        #tvals = np.arange(-0.1,0.1,0.01)
+        #sigma = []
+        #for t in tvals:
+        #    sigma.append(np.std(lobe(phz - 2*np.pi*t*fghz)))
+        #return tvals[np.argmin(np.array(sigma))]
+        
+        # Replace old coarse_delay (commented code above) with new lin_phase_fit function
+        pout = lin_phase_fit(fghz,phz)
+        return pout[1]/(2*np.pi)
         
     from scipy.optimize import curve_fit
     
@@ -929,6 +1128,8 @@ def rd_refcal(file, quackint=120., navg=3):
                 vis[a, 3, :, j] = vis2[a, 3, :, j] * np.cos(pa[j, a]) - vis2[a, 0, :, j] * np.sin(pa[j, a])
                 vis[a, 1, :, j] = vis2[a, 1, :, j] * np.cos(pa[j, a]) - vis2[a, 2, :, j] * np.sin(pa[j, a])
     # *******
+    if fghz[1] < 1.:
+        fghz[1] = 1.9290   # This band is missing, but no need to set its frequency to zero...
     return {'file': file, 'source': out['source'], 'vis': vis, 'bands': bds, 'fghz': fghz, 'times': out['time'], 'ha': out['ha'], 'dec': out['dec'], 'flag': np.zeros_like(vis, dtype=np.int)}
     
 def refcal_anal(out):
@@ -966,6 +1167,24 @@ def refcal_anal(out):
     flagavg = (snr < 1).astype(np.int)  # Will be unity where snr < 1
     flagavg[np.where(np.isnan(snr))] = 1
     out.update({'x':vis_median, 'sigma':sigma, 'flags':flagavg})
+    return out
+    
+def fix_time_drift(out):
+    nant, npol, nband, nt = out['vis'].shape
+    for iant in range(nant):
+        for ipol in range(2):
+            slopes = []
+            for iband in range(nband):
+                phz = np.angle(out['vis'][iant,ipol,iband])
+                #if out['flags'][iant,ipol,iband] == 0:
+                p = lin_phase_fit(out['times'],phz)
+                if p[2] < 0.7:
+                    slopes.append(p[1]/out['fghz'][iband])
+            if len(slopes) > 0:
+                dpdt = np.median(slopes)  # Radians/GHz/Day
+                for iband in range(nband):
+                    pfit = dpdt*out['fghz'][iband]*(out['times']-out['times'][nt/2])
+                    out['vis'][iant,ipol,iband] *= np.cos(pfit)-1j*np.sin(pfit)
     return out
 
 if __name__ == "__main__":

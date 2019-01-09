@@ -68,6 +68,8 @@
 #     Cryo-temperature (second stage) to front page, and fixed color coding to be red only
 #     if temperature is out of range. Also changed startup page size and opened Temperature
 #     tab on startup.
+#   2018-Nov-17  DG
+#     Fixed some deprecated function calls to call the replacement routines
 #
 
 from Tkinter import *
@@ -75,7 +77,7 @@ from ttk import *
 from tkMessageBox import *
 import tkFileDialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, \
-                                              NavigationToolbar2TkAgg
+                                              NavigationToolbar2Tk
 import pylab as plt
 
 import time
@@ -107,7 +109,7 @@ class App():
             self.accini['sfport'] = int(sys.argv[2])
         print 'Setting host to ', self.accini['host']
         print 'Setting port to ', self.accini['sfport']
-
+        
         self.root = Tk()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.wm_title('Stateframe Display')
@@ -122,7 +124,7 @@ class App():
         self.CB.pack(side=LEFT, expand=0, fill=BOTH)
 
         toolbar.pack(side=TOP, fill=X)
-
+        
         style = Style()
         style.configure('BW.TLabel', foreground='black', background='yellow')
         style.configure('BG.TLabel', foreground='black', background='#8f8',
@@ -218,37 +220,40 @@ class App():
         fcryo = Frame()
         self.nb.add(fcryo, text='CryoRX')
 
+        # pngfile tab--create a figure named 'pcapture' so we can refer to
+        # it later
+        self.pngtime = time.time()
+        self.pngplot = plt.figure('pcapture')
+        self.canvas1 = FigureCanvasTkAgg(self.pngplot, fpng)
+        print 'draw pcapture canvas'
+        self.canvas1.draw()
+        self.canvas1.get_tk_widget().pack(side=TOP, expand=1)
+        toolbar0 = NavigationToolbar2Tk(self.canvas1, fpng)
+        toolbar0.update()
+        self.canvas1._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
+
         # plot tab
         self.prevtab = None
         self.plot1 = plt.figure(1)
         self.sub_plot1 = self.plot1.add_subplot(111)
         self.sub_plot1.grid()
         self.canvas = FigureCanvasTkAgg(self.plot1, fplot)
-        self.canvas.show()
+        print 'draw temperature canvas'
+        self.canvas.draw()
+        print 'draw canvas done'
         self.canvas.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar1 = NavigationToolbar2TkAgg(self.canvas, fplot)
+        toolbar1 = NavigationToolbar2Tk(self.canvas, fplot)
         toolbar1.update()
         self.canvas._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
-
-        # pngfile tab--create a figure named 'pcapture' so we can refer to
-        # it later
-        self.pngtime = time.time()
-        self.pngplot = plt.figure('pcapture')
-        self.canvas1 = FigureCanvasTkAgg(self.pngplot, fpng)
-        self.canvas1.show()
-        self.canvas1.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar0 = NavigationToolbar2TkAgg(self.canvas1, fpng)
-        toolbar0.update()
-        self.canvas1._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
         # multi-plot tab
         self.plot2 = plt.figure(2)
         self.sub_plot2 = self.plot2.add_subplot(111)
         self.sub_plot2.grid()
         self.canvas2 = FigureCanvasTkAgg(self.plot2, self.f2plot)
-        self.canvas2.show()
+        self.canvas2.draw()
         self.canvas2.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar2 = NavigationToolbar2TkAgg(self.canvas2, self.f2plot)
+        toolbar2 = NavigationToolbar2Tk(self.canvas2, self.f2plot)
         toolbar2.update()
         self.canvas2._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -281,7 +286,7 @@ class App():
         # Add a clear button plot button
         clearbtn = Button(btnframe, text='Clear Graph', command=self.Clear)
         clearbtn.pack(side=RIGHT)
-
+        
         # Add delete last plot button
         self.DeleteBtn = Button(btnframe, text='Delete Selected Item',
                                 command=self.delete_selected)
@@ -314,8 +319,7 @@ class App():
                           font=font2use)
         #self.cryoLB.bind('<<ListboxSelect>>', self.toggle_heading)
         self.cryoLB.pack(side=LEFT, fill=BOTH, expand=0)
-               
-                       
+        
         t = Time.now()
         self.label.configure(text=t.iso)
         self.lst_label.configure(text='  Local Sidereal Time:  '+str(el.eovsa_lst())[:8])
@@ -402,7 +406,7 @@ class App():
                 self.saved_dict[key] = locator
             
         self.text2 = []
-
+        
         #if there are saved plots, create new tabs and plotting devices
         if os.listdir(self.path):
             self.f3plot = Frame()
@@ -411,9 +415,9 @@ class App():
             self.sub_plot3 = self.plot3.add_subplot(111)
             self.sub_plot3.grid()
             self.canvas3 = FigureCanvasTkAgg(self.plot3, self.f3plot)
-            self.canvas3.show()
+            self.canvas3.draw()
             self.canvas3.get_tk_widget().pack(side=TOP, expand=1)
-            toolbar3 = NavigationToolbar2TkAgg(self.canvas3, self.f3plot)
+            toolbar3 = NavigationToolbar2Tk(self.canvas3, self.f3plot)
             toolbar3.update()
             self.canvas3._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -433,7 +437,7 @@ class App():
 
             self.current_tab = None
             self.tab_change = self.nb.tab(self.nb.select(),'text')
-            
+
         # Start the clock ticking
         self.root.after(1000 - int((t.datetime.microsecond)/1000.),self.inc_time)
 
@@ -711,9 +715,9 @@ class App():
             self.sub_plot3 = self.plot3.add_subplot(111)
             self.sub_plot3.grid()
             self.canvas3 = FigureCanvasTkAgg(self.plot3, self.f3plot)
-            self.canvas3.show()
+            self.canvas3.draw()
             self.canvas3.get_tk_widget().pack(side=TOP, expand=1)
-            toolbar3 = NavigationToolbar2TkAgg(self.canvas3, self.f3plot)
+            toolbar3 = NavigationToolbar2Tk(self.canvas3, self.f3plot)
             toolbar3.update()
             self.canvas3._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -2112,7 +2116,7 @@ def plot_creator(frame,name,number):
     canvas = FigureCanvasTkAgg(name, frame)
     #canvas.show()
     #canvas.get_tk_widget().pack(side=TOP, expand=1)
-    toolbar = NavigationToolbar2TkAgg(canvas, frame)
+    toolbar = NavigationToolbar2Tk(canvas, frame)
     #toolbar.update()
     #canvas._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
