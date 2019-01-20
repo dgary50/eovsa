@@ -29,6 +29,9 @@
 #     delay from ndon capture file.
 #   2017-04-09  DG
 #     Fixed DCM_cal() to use fixed 24-db attenuation for Ant14.
+#   2019-01-20  DG
+#     Removed the above attenuation for Ant14, which is no longer in
+#     effect.  Also fixed a bug in updating table for missing antennas.
 #
 
 import pcapture2 as p
@@ -61,29 +64,30 @@ def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',up
         if len(idx) > 0:
             new_pwr[i] = np.median(pwr[idx],0)
     new_pwr.shape = (34,32)
+    # Read table from the database.
+    import cal_header
+    import stateframe
+    xml, buf = cal_header.read_cal(2)
+    cur_table = stateframe.extract(buf,xml['Attenuation'])
     
     if dcmattn:
         # A DCM attenuation value was given, which presumes a constant value
         # so use it as the "original table."
         orig_table = np.zeros((34,30)) + dcmattn
-        orig_table[:,26:28] = 24
+        # orig_table[:,26:28] = 24
         orig_table[:,28:] = 0
     else:
-        # No DCM attenuation value was given, so read the current DCM master
+        # No DCM attenuation value was given, so use current DCM master
         # table from the database.
-        import cal_header
-        import stateframe
-        xml, buf = cal_header.read_cal(2)
-        orig_table = stateframe.extract(buf,xml['Attenuation'])
-        # Replace orig_table values for Ant14 with 24, which is the fixed values we use
-        # orig_table[:,26:28] = 24
+        orig_table = cur_table
         
     attn = np.log10(new_pwr[:,:-2]/1600.)*10.
-    # Zero any changes for missing antennas
+    # Zero any changes for missing antennas, and override orig_table with cur_table for those antennas
     if missing:
         idx = p.ant_str2list(missing)
         bad = np.sort(np.concatenate((idx*2,idx*2+1)))
         attn[:,bad] = 0
+        orig_table[:,bad] = cur_table[:,bad]
     new_table = (np.clip(orig_table + attn,0,30)/2).astype(int)*2
     DCMlines = []
     DCMlines.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15')

@@ -7,6 +7,10 @@
 #    First wrote whenup(), based on whatup.py
 #  2018-09-18  DG
 #    Completed the routines whenup(), sunup(), plot_sun(), and make_sched()
+#  2019-01-18  DG
+#    A bug occurred on some dates due to source not being within 0.1 degree of
+#    10 degrees altitude.  Introduced a for loop and test in both whenup() and
+#    make_sched() to use a wider window.
 
 import os
 from util import Time
@@ -92,10 +96,15 @@ def whenup(date=None,verbose=False):
                 tset_eq += TimeDelta(1,format='jd')
             else:
                 tset_eq += TimeDelta(1436./60./24.,format='jd')
-        i1 = np.where(np.abs(alt[j] - 10.0) < 0.1)[0][0]
-        i2 = np.where(np.abs(alt[j] - 10.0) < 0.1)[0][1]
-        if i2 == i1+1:
-            i2 = np.where(np.abs(alt[j] - 10.0) < 0.1)[0][2]
+        for iwindow in np.arange(0.1,0.2,0.01):
+            try:
+                i1 = np.where(np.abs(alt[j] - 10.0) < iwindow)[0][0]
+                i2 = np.where(np.abs(alt[j] - 10.0) < iwindow)[0][1]
+                if i2 == i1+1:
+                    i2 = np.where(np.abs(alt[j] - 10.0) < iwindow)[0][2]
+                break
+            except:
+                print 'Window',iwindow,'did not work.  Trying again'
         if alt[j,i1] < alt[j,i1+1]:
             irise_az = i1
             iset_az = i2
@@ -178,14 +187,19 @@ def sunup(daterange):
         tset_eq = ts[iset_eq]
         if iset_eq < irise_eq:
             tset_eq += TimeDelta(1,format='jd')
-        idx, = np.where(np.abs(alt - 10.0) < 0.1)
-        i1 = idx[0]
-        i2 = idx[1]
-        if i2 == i1+1:
-            if len(idx) > 2:
-                i2 = idx[2]
-            else:
-                i2 = 1439  # Transition is at end
+        for iwindow in np.arange(0.1,0.2,0.01):
+            try:
+                idx, = np.where(np.abs(alt - 10.0) < iwindow)  #****Was 0.1
+                i1 = idx[0]
+                i2 = idx[1]
+                if i2 == i1+1:
+                    if len(idx) > 2:
+                        i2 = idx[2]
+                    else:
+                        i2 = 1439  # Transition is at end
+                break
+            except:
+                print 'Window',iwindow,'did not work.  Trying again'
         if alt[i1] < alt[i1+1]:
             irise_az = i1
             iset_az = i2

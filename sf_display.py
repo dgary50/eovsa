@@ -70,6 +70,8 @@
 #     tab on startup.
 #   2018-Nov-17  DG
 #     Fixed some deprecated function calls to call the replacement routines
+#   2019-Jan-16  DG
+#     Added indication of solar power not updating.
 #
 
 from Tkinter import *
@@ -1064,11 +1066,23 @@ class App():
         solpwr12 = sf['Schedule']['Data']['SolarPower'][0]
         solpwr13 = sf['Schedule']['Data']['SolarPower'][1]
         new_line = 'SolPwr12>>'
-        charge12 = stf.extract(data,solpwr12['Charge'])
-        new_line += ' Charge: ' + str(charge12)+'%  Volts:'+str(stf.extract(data,solpwr12['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr12['Amps']))[:4]+'A'
+        sptime = Time(stf.extract(data, solpwr12['Timestamp']),format='lv')
+        nsec = (t - sptime).value*86400
+        if nsec > 120.0:
+            new_line += 'Last read '+sptime.iso[:19]+', '+str(int(nsec))+'s'
+            charge12 = 0.0
+        else:
+            charge12 = stf.extract(data,solpwr12['Charge'])
+            new_line += ' Charge: ' + str(charge12)+'%  Volts:'+str(stf.extract(data,solpwr12['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr12['Amps']))[:4]+'A'
         new_line += '  SolPwr13>>'
-        charge13 = stf.extract(data,solpwr13['Charge'])
-        new_line += ' Charge: ' + str(charge13)+'%  Volts:'+str(stf.extract(data,solpwr13['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr13['Amps']))[:4]+'A'
+        sptime = Time(stf.extract(data, solpwr13['Timestamp']),format='lv')
+        nsec = (t - sptime).value*86400
+        if nsec > 120.0:
+            new_line += 'Last read '+sptime.iso[:19]+', '+str(int(nsec))+'s'
+            charge13 = 0.0
+        else:
+            charge13 = stf.extract(data,solpwr13['Charge'])
+            new_line += ' Charge: ' + str(charge13)+'%  Volts:'+str(stf.extract(data,solpwr13['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr13['Amps']))[:4]+'A'
         self.L3.insert(END,new_line)
         if charge12 == 0.0 or charge13 == 0.0:
             self.L3.itemconfig(END,bg=self.colors['error'])
