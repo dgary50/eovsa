@@ -28,6 +28,9 @@
 #  2018-01-26  DG
 #    First try to read from SQL in apply_fem_level(), and then go to data only if
 #    that fails.
+#  2019-02-25  DG
+#    Fixed the bugs where the number of bands was hardcoded as 34. Now the number of
+#    bands is determined from the arrays returned from the SQL database.
 #
 import dbutil as db
 import read_idb as ri
@@ -65,7 +68,7 @@ def fseqfile2bandlist(fseqfile=None):
            fseqfile    string filename (must exist in ACC:/parm folder.
         
         Returns:
-           bandlist    numpy 50-element integer array of band numbers, 1-34
+           bandlist    numpy 50-element integer array of band numbers, 1-nbands
     '''
     import urllib2
     if fseqfile is None:
@@ -94,7 +97,7 @@ def get_fem_level(trange, dt=None):
         times:     A Time object containing the array of times, size (nt)
         hlev:      The FEM attenuation level for HPol, size (nt, 15) 
         vlev:      The FEM attenuation level for VPol, size (nt, 15)
-        dcmattn:   The base DCM attenuations for 34 bands x 15 antennas x 2 Poln, size (34,30)
+        dcmattn:   The base DCM attenuations for nbands (34 or 52) bands x 15 antennas x 2 Poln, size (nbands,30)
                       The order is Ant1 H, Ant1 V, Ant2 H, Ant2 V, etc.
         dcmoff:    If DPPoffset-on is 0, this is None (meaning there are no changes to the
                       above base attenuations).  
@@ -159,7 +162,8 @@ def get_fem_level(trange, dt=None):
     # Get back end attenuator states
     xml, buf = ch.read_cal(2, t=trange[0])
     dcmattn = stf.extract(buf,xml['Attenuation'])
-    dcmattn.shape = (34, 15, 2)
+    nbands = dcmattn.shape[0]
+    dcmattn.shape = (nbands, 15, 2)
     # Put into canonical order [nant, npol, nband]
     dcmattn = np.moveaxis(dcmattn,0,2)
     # See if DPP offset is enabled
@@ -188,10 +192,11 @@ def get_fem_level(trange, dt=None):
                 else:
                     # Get fseqfile from ACC and return bandlist
                     bandlist = fseqfile2bandlist(fseqfile)
-                    # Use bandlist to covert nt x 50 array to nt x 34 band array of DCM attn offsets
+                    # Use bandlist to covert nt x 50 array to nt x nbands array of DCM attn offsets
                     # Note that this assumes DCM offset is the same for any multiply-sampled bands
                     # in the sequence.
-                    dcm_off = np.zeros((nt,34),float)
+                    nbands = len(bandlist)
+                    dcm_off = np.zeros((nt,nbands),float)
                     dcm_off[:,bandlist - 1] = dcmoff
                     # Put into canonical order [nband, nt]
                     dcm_off = dcm_off.T
@@ -199,7 +204,7 @@ def get_fem_level(trange, dt=None):
                         # If we want other than full cadence, find mean over dt measurements
                         new_nt = len(times)
                         dcm_off = dcm_off[:,:new_nt*dt]
-                        dcm_off.shape = (34,dt,new_nt)
+                        dcm_off.shape = (nbands,dt,new_nt)
                         dcm_off = np.mean(dcm_off,1)
             else:
                 print 'Error reading DCM attenuations:',msg
@@ -219,7 +224,7 @@ def get_gain_state(trange, dt=None):
         v1:        The first VPol attenuator value for 15 antennas, size (nt, 15) 
         h2:        The second HPol attenuator value for 15 antennas, size (nt, 15) 
         v2:        The second VPol attenuator value for 15 antennas, size (nt, 15)
-        dcmattn:   The base DCM attenuations for 34 bands x 15 antennas x 2 Poln, size (34,30)
+        dcmattn:   The base DCM attenuations for nbands x 15 antennas x 2 Poln, size (34 or 52,30)
                       The order is Ant1 H, Ant1 V, Ant2 H, Ant2 V, etc.
         dcmoff:    If DPPoffset-on is 0, this is None (meaning there are no changes to the
                       above base attenuations).  
@@ -297,7 +302,8 @@ def get_gain_state(trange, dt=None):
     # Get back end attenuator states
     xml, buf = ch.read_cal(2, t=trange[0])
     dcmattn = stf.extract(buf,xml['Attenuation'])
-    dcmattn.shape = (34, 15, 2)
+    nbands = dcmattn.shape[0]
+    dcmattn.shape = (nbands, 15, 2)
     # Put into canonical order [nant, npol, nband]
     dcmattn = np.moveaxis(dcmattn,0,2)
     # See if DPP offset is enabled
@@ -330,10 +336,11 @@ def get_gain_state(trange, dt=None):
                 else:
                     # Get fseqfile from ACC and return bandlist
                     bandlist = fseqfile2bandlist(fseqfile)
-                    # Use bandlist to covert nt x 50 array to nt x 34 band array of DCM attn offsets
+                    nbands = len(bandlist)
+                    # Use bandlist to covert nt x 50 array to nt x nbands array of DCM attn offsets
                     # Note that this assumes DCM offset is the same for any multiply-sampled bands
                     # in the sequence.
-                    dcm_off = np.zeros((nt,34),float)
+                    dcm_off = np.zeros((nt,nbands),float)
                     dcm_off[:,bandlist - 1] = dcmoff
                     # Put into canonical order [nband, nt]
                     dcm_off = dcm_off.T
@@ -341,7 +348,7 @@ def get_gain_state(trange, dt=None):
                         # If we want other than full cadence, find mean over dt measurements
                         new_nt = len(times)
                         dcm_off = dcm_off[:,:new_nt*dt]
-                        dcm_off.shape = (34,dt,new_nt)
+                        dcm_off.shape = (nbands,dt,new_nt)
                         dcm_off = np.mean(dcm_off,1)
             else:
                 print 'Error reading DCM attenuations:',msg
@@ -467,9 +474,14 @@ def apply_gain_corr(data, tref=None):
     # Get the gain state of the requested timerange
     src_gs = get_gain_state(trange,dt)   # solar gain state for timerange of file
     nt = len(src_gs['times'])
-    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    nbands = src_gs['dcmattn'].shape[2]
+    if nbands != ref_gs['dcmattn'].shape[2]:
+        # Reference gain state is incompatible with this one, so set to src gain state (no correction will be applied)
+        ref_gs = src_gs
+        print 'GAINCAL2 Warning: Data and reference gain states are not compatible. No correction applied!'
+    antgain = np.zeros((15,2,nbands,nt),np.float32)   # Antenna-based gains vs. band
     for i in range(15):
-        for j in range(34):
+        for j in range(nbands):
             antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
             antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
 
@@ -518,7 +530,7 @@ def get_gain_corr(trange, tref=None, fghz=None):
         state is referred to the nearest earlier REFCAL.
         
         Returns a dictionary containing:
-          antgain    Array of size (15, 2, 34, nt) = (nant, npol, nbands, nt)
+          antgain    Array of size (15, 2, nbands, nt) = (nant, npol, nbands, nt)
           times      A Time() object corresponding to the times in 
                        antgain
     '''
@@ -538,9 +550,10 @@ def get_gain_corr(trange, tref=None, fghz=None):
     # Get the gain state of the requested timerange
     src_gs = get_gain_state(trange)   # solar gain state for timerange of file
     nt = len(src_gs['times'])
-    antgain = np.zeros((15,2,34,nt),np.float32)   # Antenna-based gains vs. band
+    nbands = src_gs['dcmattn'].shape[2]
+    antgain = np.zeros((15,2,nbands,nt),np.float32)   # Antenna-based gains vs. band
     for i in range(15):
-        for j in range(34):
+        for j in range(nbands):
             antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
             antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
 

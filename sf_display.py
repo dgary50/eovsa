@@ -72,6 +72,10 @@
 #     Fixed some deprecated function calls to call the replacement routines
 #   2019-Jan-16  DG
 #     Added indication of solar power not updating.
+#   2019-Feb-23  DG
+#     Fixed some annoying string display problems that were not there for earlier version
+#     of Tkinter. Also finally killed the old "pcapture" tab, which had not been used in
+#     forever.
 #
 
 from Tkinter import *
@@ -217,22 +221,22 @@ class App():
         self.nb.add(fplot, text='Temps')
         self.f2plot = Frame()
         self.nb.add(self.f2plot, text='Create')
-        fpng = Frame()
-        self.nb.add(fpng, text='PCapture')
+#        fpng = Frame()
+#        self.nb.add(fpng, text='PCapture')
         fcryo = Frame()
         self.nb.add(fcryo, text='CryoRX')
 
-        # pngfile tab--create a figure named 'pcapture' so we can refer to
-        # it later
-        self.pngtime = time.time()
-        self.pngplot = plt.figure('pcapture')
-        self.canvas1 = FigureCanvasTkAgg(self.pngplot, fpng)
-        print 'draw pcapture canvas'
-        self.canvas1.draw()
-        self.canvas1.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar0 = NavigationToolbar2Tk(self.canvas1, fpng)
-        toolbar0.update()
-        self.canvas1._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
+#        # pngfile tab--create a figure named 'pcapture' so we can refer to
+#        # it later
+#        self.pngtime = time.time()
+#        self.pngplot = plt.figure('pcapture')
+#        self.canvas1 = FigureCanvasTkAgg(self.pngplot, fpng)
+#        print 'draw pcapture canvas'
+#        self.canvas1.draw()
+#        self.canvas1.get_tk_widget().pack(side=TOP, expand=1)
+#        toolbar0 = NavigationToolbar2Tk(self.canvas1, fpng)
+#        toolbar0.update()
+#        self.canvas1._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
         # plot tab
         self.prevtab = None
@@ -830,27 +834,27 @@ class App():
                 if self.prevtab != curtab: self.extra_plots[curtab][0].autoscale()
                 self.cur_tab = curtab
                 self.handle_Extra_plots()
-            elif curtab == 'PCapture':
-                # Case of PCapture tab showing
-                pngfile = '/common/tmp/dppcapture.png'
-                # Get creation/modification time of file, and display it
-                # if it is a new file (and the size of the file is > 100 kB).
-                (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime) = os.stat(pngfile)
-                if ctime > self.pngtime and size > 100000:
-                    t = time.time()
-                    self.pngtime = ctime+5.  # Make sure pngtime is > ctime
-                    pngdata = plt.imread(pngfile)
-                    # Set the figure and clear it (otherwise the plots build up and take longer
-                    # to redraw)
-                    plt.figure('pcapture')
-                    plt.clf()
-                    self.pngplot.set_size_inches(10,10,forward=True)
-                    ax = plt.Axes(self.pngplot,[0,0,1,1])
-                    ax.set_axis_off()
-                    self.pngplot.add_axes(ax)
-                    ax.imshow(pngdata,origin='upper')
-                    self.canvas1.draw()
-                    print 'Update took',time.time()-t,'seconds.'
+#            elif curtab == 'PCapture':
+#                # Case of PCapture tab showing
+#                pngfile = '/common/tmp/dppcapture.png'
+#                # Get creation/modification time of file, and display it
+#                # if it is a new file (and the size of the file is > 100 kB).
+#                (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime) = os.stat(pngfile)
+#                if ctime > self.pngtime and size > 100000:
+#                    t = time.time()
+#                    self.pngtime = ctime+5.  # Make sure pngtime is > ctime
+#                    pngdata = plt.imread(pngfile)
+#                    # Set the figure and clear it (otherwise the plots build up and take longer
+#                    # to redraw)
+#                    plt.figure('pcapture')
+#                    plt.clf()
+#                    self.pngplot.set_size_inches(10,10,forward=True)
+#                    ax = plt.Axes(self.pngplot,[0,0,1,1])
+#                    ax.set_axis_off()
+#                    self.pngplot.add_axes(ax)
+#                    ax.imshow(pngdata,origin='upper')
+#                    self.canvas1.draw()
+#                    print 'Update took',time.time()-t,'seconds.'
             else:
                 if version != 0.0:
                     self.update_display(data)
@@ -1033,7 +1037,7 @@ class App():
         mjd = t.mjd
         version = stf.extract(data,sf['Version'])
         line = 'SF v'+str(version)+' Time: '+t.iso
-        task = stf.extract(data,sf['Schedule']['Task']).strip('\x00')
+        task = stf.extract(data,sf['Schedule']['Task']).strip('\x00').replace('\t',' ')
         if task == '':
             task = self.last_task
         else:
@@ -1283,7 +1287,7 @@ class App():
             errmsg = errvals[0]
         stat = stf.extract(data,sf['LODM']['LO1A']['SweepStatus'])
         statdict = {0:'Stopped',8:'Sweeping',32:'Wait4Trg'}
-        fseqfile = stf.extract(data,sf['LODM']['LO1A']['FSeqFile'])
+        fseqfile = stf.extract(data,sf['LODM']['LO1A']['FSeqFile']).strip('\x00')
         try:
             status = statdict[stat]
         except KeyError:
@@ -1530,7 +1534,7 @@ class App():
 
         for i in antindex:
             parser = sf['Antenna'][i]['Parser']
-            self.L3.insert(END,'Ant'+str(i+1)+' Last Command:'+stf.extract(data,parser['Command'])+' '+str(stf.extract(data,parser['CommErr'])))
+            self.L3.insert(END,'Ant'+str(i+1)+' Last Command:'+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
 
     def cryo_display(self,data):
         ''' Creates the CryoRX page to display Cryo Receiver information

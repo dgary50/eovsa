@@ -283,6 +283,9 @@
 #      Rearrange code to check if another schedule is running BEFORE opening a
 #      new schedule.log file.  This avoids overwriting the schedule.log file of
 #      a running schedule.
+#    2019-Feb-22  DG
+#      Import chan_util from new chan_util_52, which defines things for new
+#      IF filters, e.g. 52 channels of 325 MHz bandwidth.
 #
 
 import os, signal
@@ -302,7 +305,8 @@ from eovsa_array import *
 from eovsa_lst import eovsa_ha
 from math import pi
 from readvla import *
-from scan_header import *
+import chan_util_52 as cu
+from scan_header import scan_header
 from gen_schedule_sf import *
 import stateframe, stateframedef
 from aipy.phs import PointingError
@@ -2744,9 +2748,9 @@ class App():
                         keywd = 'LIST:DWELL'
                         if line.find(keywd) == 0:
                             dwellseq = line[len(keywd):].split(',')
-                            if len(dwellseq) != 35:
-                                print 'FSEQ file',cmds[1],'DWELL line must have 35 entries.'
-                                break
+#                            if len(dwellseq) != 35:
+#                                print 'FSEQ file',cmds[1],'DWELL line must have 35 entries.'
+#                                break
                             # Find nearest-integer number of 0.02 s periods
                             nrpt = (numpy.array(dwellseq).astype('float')/0.02 + 0.5).astype('int')
                         keywd = 'LIST:SEQUENCE'
@@ -2758,7 +2762,7 @@ class App():
                             # Step through bands in fsequence and repeat them according to
                             # nrpt in order to form a 50-element sequence
                             for band in bands:
-                                for i in range(nrpt[band]):
+                                for i in range(nrpt[band-1]):
                                     fsequence += str(band)+','
                             break
                     if fsequence == '':

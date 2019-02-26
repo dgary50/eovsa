@@ -97,6 +97,66 @@ def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',up
         DCMlines.append('{:2} :  {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2}'.format(band,*new_table[band-1]))
     return DCMlines
 
+def DCM_calnew(filename=None,fseqfile='solarnew.fsq',dcmattn=None,missing='ant15',update=False):
+
+    if filename is None:
+        return 'Must specify ADC packet capture filename, e.g. "/dppdata1/PRT/PRT<yyyymmddhhmmss>adc.dat"'
+
+    userpass = 'admin:observer@'
+    fseq_handle = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fseqfile,timeout=0.5)
+    lines = fseq_handle.readlines()
+    fseq_handle.close()
+    for line in lines:
+        if line.find('LIST:SEQUENCE') != -1:
+            line = line[14:]
+            bandlist = np.array(map(int,line.split(',')))
+    if len(np.unique(bandlist)) != 50:
+        print 'Frequency sequence must contain all bands [1-34]'
+        return None
+    # Read packet capture file
+    adc = p.rd_jspec(filename)
+    pwr = np.rollaxis(adc['phdr'],2)[:,:,:2]
+    # Put measured power into uniform array arranged by band
+    new_pwr = np.zeros((52,16,2))
+    for i in range(52):
+        idx, = np.where(bandlist-1 == i)
+        if len(idx) > 0:
+            new_pwr[i] = np.median(pwr[idx],0)
+    new_pwr.shape = (52,32)
+    # Read table from the database.
+    #import cal_header
+    #import stateframe
+    #xml, buf = cal_header.read_cal(2)
+    #cur_table = stateframe.extract(buf,xml['Attenuation'])
+    
+    if dcmattn:
+        # A DCM attenuation value was given, which presumes a constant value
+        # so use it as the "original table."
+        orig_table = np.zeros((52,30)) + dcmattn
+        # orig_table[:,26:28] = 24
+        orig_table[:,28:] = 0
+    else:
+        # No DCM attenuation value was given, so use current DCM master
+        # table from the database.
+        orig_table = cur_table
+        
+    attn = np.zeros((52,30),dtype=np.float)
+    attn = np.log10(new_pwr[:,:-2]/1600.)*10.
+    # Zero any changes for missing antennas, and override orig_table with cur_table for those antennas
+    if missing:
+        idx = p.ant_str2list(missing)
+        bad = np.sort(np.concatenate((idx*2,idx*2+1)))
+        attn[:,bad] = 0
+        orig_table[:,bad] = cur_table[:,bad]
+    new_table = (np.clip(orig_table + attn,0,30)/2).astype(int)*2
+    DCMlines = []
+    DCMlines.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15')
+    DCMlines.append('#      X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y')
+    DCMlines.append('#     ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- -----')
+    for band in range(1,53):
+        DCMlines.append('{:2} :  {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2}'.format(band,*new_table[band-1]))
+    return DCMlines
+
 def getphasecor(data, ant_str='ant1-14', polist=[0,1], crange=[0,4095], pplot=False):
     ''' Routine adapted from Maria Loukitcheva's code, to find phase slopes in
         correlated data on a geosynchronous satellite.

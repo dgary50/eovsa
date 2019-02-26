@@ -186,7 +186,7 @@ class App():
             self.ph[:,2,k] = 2*np.pi*fghz*(tauy14 - taux) + df[:,2,k] # XY
             self.ph[:,3,k] = 2*np.pi*fghz*(taux14 - tauy) + df[:,3,k] # YX
         self.doplot(ant=1)
-        
+
     def cb(self):
         # Handle the checkbox widget
         ant_str = self.ant.get()  # Current antenna showing

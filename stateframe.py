@@ -71,6 +71,9 @@
 #      Added temporary get_median_wind() routine to get around current
 #      weather station glitches.  Replaces average wind with median wind speed.
 #      Must change weather() back to original when this has been fixed.
+#   2019-Feb-12  DG
+#      Discovered a bug in reading the solar power temperatures, when FET temp
+#      was less than 10 C.  Fixed by reading either two or one digit.
 #
 
 import struct, sys
@@ -228,9 +231,15 @@ def rd_solpwr(url='http://data.magnumenergy.com/MW5127'):
                 # so just set to -1 C on error.
                 solpwr.update({'BatteryTemp':-1})
         elif line.find('Transformer Temperature') >0:
-            solpwr.update({'TransformerTemp':int(lines[i].split('&deg;C')[0][-2])})
+            try:
+                solpwr.update({'TransformerTemp':int(lines[i].split('&deg;C')[0][-2:])})
+            except:
+                solpwr.update({'TransformerTemp':int(lines[i].split('&deg;C')[0][-1:])})
         elif line.find('FET Temperature') >0:
-            solpwr.update({'FETTemp':int(lines[i].split('&deg;C')[0][-2])})
+            try:
+                solpwr.update({'FETTemp':int(lines[i].split('&deg;C')[0][-2:])})
+            except:
+                solpwr.update({'FETTemp':int(lines[i].split('&deg;C')[0][-1:])})
 
     return solpwr
 

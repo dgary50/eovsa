@@ -93,6 +93,9 @@
 #    handling of that situation.  Also worked on the plot labeling a bit.
 #  2018-Mar-18  DG
 #    Attempt to make read_idb skip incompatible files (not matching shape of first file).
+#  2019-Feb-20  DG
+#    Fix long-standing error mode, where an empty datalist in read_idb() would cause a 
+#    crash.  Now returns an empty dictionary.
 #
 
 import aipy
@@ -912,6 +915,8 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
         except:
             print 'The problematic file is:',file
             
+    if len(datalist) == 0:
+        return {}
     # Have to concatenate outa, outx, uvw, time, and ha arrays
     outa = []
     outx = []
