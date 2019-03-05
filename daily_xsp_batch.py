@@ -20,9 +20,9 @@ if __name__ == "__main__":
 def last_date():
     import glob
     from util import Time
-    files = glob.glob('/common/webplots/flaremon/daily/2017/*.png')
+    files = glob.glob('/common/webplots/flaremon/daily/2018/*.png')
     files.sort()
-    date = '2016-12-31 20:00:00'
+    date = '2017-12-31 20:00:00'
     if files != []:
         datstr = files[-1].split('XSP')[1]
         date = datstr[:4]+'-'+datstr[4:6]+'-'+datstr[6:8]
@@ -46,5 +46,5 @@ if __name__ == "__main__":
         mjd = t.mjd
         t = Time(mjd+1,format='mjd')
         print 'Working on:',t.iso[:19]
-        blah = daily_xsp.allday_udb(t=t, savfig=True)   # Process time t
+        blah = daily_xsp.allday_udb(t=t, savfig=True, savfits=True)   # Process time t
         

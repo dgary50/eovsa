@@ -123,6 +123,9 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
         print 'No files found in /data1/eovsa/fits/UDB/ for',date
         return {}
     out = ri.read_idb(files,src='Sun')
+    if out.keys() == []:
+        print 'Read error, or no Sun data in',files
+        return {}
     if gain_corr:
         import gaincal2 as gc
         out = gc.apply_gain_corr(out)
@@ -286,6 +289,7 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2:
         try:
             t = Time(sys.argv[1])
+            print t.iso
             if len(sys.argv) == 3:
                 argin = sys.argv[2].upper()
         except:
@@ -299,7 +303,7 @@ if __name__ == "__main__":
     elif argin == 'FITS':
         # Asking for FITS means also do all other features.
         savfits = True
-    else:
+    elif argin != '':
         print 'Cannot interpret',argin,'as valid time, or string FITS or FITS-ONLY.'
         exit()
     if t is None:
