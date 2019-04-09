@@ -3,7 +3,7 @@
    Main application for the EOVSA Schedule, which sends commands to the
    Array Control Computer according to a timed schedule and runs various
    routines locally to generate source coordinates, track tables, uvw
-   and delay information.'''
+   and delay information.  This version using the QT Gui'''
 #  ____      _             _        _              
 # / ___| ___| |__  ___  __| |_   _ | | ___  
 # \___ \/ __| '_ \/ _ \/ _` | | | || |/ _ \
@@ -283,17 +283,17 @@
 #      Rearrange code to check if another schedule is running BEFORE opening a
 #      new schedule.log file.  This avoids overwriting the schedule.log file of
 #      a running schedule.
-#    2019-Feb-22  DG
-#      Import chan_util from new chan_util_52, which defines things for new
-#      IF filters, e.g. 52 channels of 325 MHz bandwidth.
+#    2018-Dec-26  DG
+#      First attempt to make the schedule work using the QT Gui
 #
 
 import os, signal
 os.chdir('/home/sched/Dropbox/PythonCode/Current')
-from Tkinter import *
-import ttk
-from tkMessageBox import *
-from tkFileDialog import *
+from PyQt4 import QtGui, QtCore
+#from Tkinter import *
+#import ttk
+#from tkMessageBox import *
+#from tkFileDialog import *
 from ftplib import FTP
 import urllib2
 import util
@@ -305,8 +305,7 @@ from eovsa_array import *
 from eovsa_lst import eovsa_ha
 from math import pi
 from readvla import *
-import chan_util_52 as cu
-from scan_header import scan_header
+from scan_header import *
 from gen_schedule_sf import *
 import stateframe, stateframedef
 from aipy.phs import PointingError
@@ -370,19 +369,6 @@ global sh_dict, sf_dict
 userpass = 'admin:observer@'
 sh_dict = {}
 sf_dict = {}
-
-#============================
-class FuncThread(threading.Thread):
-    ''' Defines a class for passing arguments to a function that will run on a
-        separate thread.  Was used for call to execute_cmds(), but was
-        unsuccessful so NOT CURRENTLY IN USE.
-    '''
-    def __init__(self, target, *args):
-        self._target = target
-        self._args = args
-        threading.Thread.__init__(self)
-    def run(self):
-        self._target(*self._args)
 
 #============================
 def init_scanheader_dict(version=37.0):
@@ -604,15 +590,41 @@ def get_antlist(key='sun',filename='default.antlist'):
         return ''
 
 #============================
-class App():
+class App(QtGui.QMainWindow):
     '''Main application
     '''
-    def __init__(self):
+    def __init__(self, parent=None):
         '''Create the user interface and initialize it
         '''
-        self.root = Tk()
-        self.root.geometry("+100+0")
+        super(App, self).__init__(parent)
+
+        menu = self.menuBar()
+        #self.menu = Menu(self.root)
+        # Define Menu Actions        
+        newAction = QtGui.QAction('&New', self)        
+        newAction.setShortcut('Ctrl+N')
+        newAction.setStatusTip('Create new file')
+        newAction.triggered.connect(self.New)
+        saveAction = QtGui.QAction('&Save', self)        
+        saveAction.setShortcut('Ctrl+S')
+        saveAction.setStatusTip('Save current file')
+        saveAction.triggered.connect(self.Save)
+        openAction = QtGui.QAction('&Open', self)        
+        openAction.setShortcut('Ctrl+O')
+        openAction.setStatusTip('Open an existing file')
+        openAction.triggered.connect(self.Open)
+        exitAction = QtGui.QAction('&Exit', self)        
+        exitAction.setShortcut('Ctrl+E')
+        exitAction.setStatusTip('Exit the schedule')
+        exitAction.triggered.connect(QtGui.qApp.quit)
         
+        self.statusBar()
+        filemenu = menu.addMenu('&File')
+        filemenu.addAction(newAction)
+        fileMenu.addAction(openAction)
+        fileMenu.addAction(saveAction)
+        fileMenu.addAction(exitAction)
+
         self.subarray_name = subarray_name # Subarray1 for master schedule, sys.argv[1] for 2nd schedule
         
         # Define self.mypid, since this will be used by get_subarray_pid() and wake_up()
@@ -670,63 +682,167 @@ class App():
             self.sql = {'cnxn':None,'cursor':None,'sfbrange':None,'shbrange':None}
         
         # Set window title from command-line argument, which is saved in self.subarray_name
-        self.root.wm_title('Schedule for '+self.subarray_name)
+        self.setWindowTitle('Schedule for '+self.subarray_name)
+
+        self.form_widget = FormWidget(self)
+        self.setCentralWidget(self.form_widget)
+        self.show()
+
+    #============================
+    def Open(self, filename=None):
+        ''' To open a new file, delete the contents of lines, and
+            the text widget. Then proceed to populate them again,
+            checking any PHASECAL lines to confirm that they will be visible.
+        '''
+        if self.Toggle == 0:
+            # Schedule is running, so do nothing
+            return
+        self.status.configure(state = NORMAL)
+        if filename is None:
+            init_dir = os.getcwd()
+            f = askopenfile(initialdir = init_dir, mode = 'r',
+                            filetypes = [('SCD Files','*.scd'),('all files','*.*')])
+            if f is None:
+                # User cancelled, so do nothing.
+                self.status.configure(state = DISABLED)
+                return        
+        else:
+            f = open(filename,'r')
+        try:    #takes care of an empty line, if there is one, in
+                #the file being read.
+            lines = f.readlines()
+        except AttributeError:
+            pass
+        else:
+            self.L.delete(0, END)
+            self.curline = 0
+            self.lastline = len(lines)
+            for i,line in enumerate(lines):
+                self.L.insert(END, line.rstrip('\n'))
+                ctl_cmd = line.split()[2]
+                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'PHASECAL_LO' or ctl_cmd == 'STARBURST' or ctl_cmd == 'CALPNTCAL':
+                    name = line.split()[3]
+                    # Get start and stop time for this calibrator, as ephem-compatible strings
+                    if i == self.lastline-1:
+                        # Should never happen, but just in case the PHASECAL
+                        # is the last line of the schedule, assume 15 minutes duration
+                        trange = util.Time([mjd(line),mjd(line) + 15.*60./86400.],format='mjd')
+                    else:
+                        line2 = lines[i+1]
+                        trange = util.Time([mjd(line),mjd(line2)],format='mjd')
+                    if ctl_cmd == 'STARBURST':
+                        check_27m = True
+                        check_2m = False
+                    elif ctl_cmd == 'PHASECAL' or ctl_cmd == 'PHASECAL_LO' or ctl_cmd == 'CALPNTCAL':
+                        check_27m = True
+                        check_2m = True
+                    # Check visibility for source
+                    try:
+                        src=self.aa.cat[name]
+                        visible = scan_visible(src,self.aa,trange,check_27m,check_2m)
+                        if not visible:
+                            self.error = 'Warning, source '+name+' not visible at scheduled time: Schedule line '+str(i+1)
+                            print self.error
+                    except:
+                        self.error = 'Err: source '+name+' not found in catalog.  Not added to schedule!'
+
+        self.state=['']*len(lines)
+        self.status.configure(state = DISABLED)
+        if filename is None:
+            filenamelist = f.name.split('/')
+            self.filename = filenamelist[len(filenamelist)-1:][0]
+        else:
+            self.filename = filename
+        # Update the status file in /common/webplots for display on the status web page
+        self.update_status()
         
-        timeframe = Frame(self.root)
-        timeframe.pack()
+    #============================
+    def New(self):
+        # New option creates a new table with predetermined content.
+        if self.Toggle == 0:
+            # Schedule is running, so do nothing
+            return
+        self.status.configure( state = NORMAL)
+        t = util.Time.now()
+        scd = make_sched(t=t)
+        self.L.delete(0, END)
+        for line in scd:
+            self.L.insert(END,line)
+        self.curline = 0
+        self.lastline = len(scd)
+        self.status.configure( state = DISABLED)
+        self.filename = 'solar.scd'
+        
+    #============================
+    def Save(self):
+        ''' The Save button will save the file as a text file, in a folder
+            specified by the user. If the file exists, the program will ask
+            the user if he wants to replace the file.
+        '''
+        if self.Toggle == 0:
+            # Schedule is running, so do nothing
+            return
+        try:
+            #The Exception is to allow the user to cancel the save.
+            init_dir = os.getcwd()
+            fileout = asksaveasfile(initialdir = init_dir, 
+                                    initialfile = self.filename, mode = 'w',
+                                    filetypes = [('SCD Files','*.scd'),
+                                    ('all files','*.*')])
+            for i in range(self.lastline):
+                fileout.write(self.L.get(i)+'\n')
+            fileout.close()
+        except AttributeError:
+            pass
 
-        self.menu = Menu(self.root)
+class FormWidget(QtGui.QWidget):
+    def __init__(self, parent):
+        super(FormWidget,self).__init__(parent)
 
-        filemenu = Menu(self.menu, tearoff = 0)
-        self.menu.add_cascade(label = 'File', menu = filemenu)
-        filemenu.add_command(label = 'New', command = self.New)
-        filemenu.add_command(label = 'Save', command = self.Save)
-        filemenu.add_command(label = 'Open', command = self.Open)
-
-        self.root.config(menu = self.menu)
+        self.setGeometry(100,0,500,400)
+        
+        # H-box for Time widget
+        self.label = QtGui.QLabel('') #bg="yellow",font="Helvetica 16 bold"
+        timeframe = QtGui.QHBoxLayout()
+        timeframe.addWidget(self.label)
 
         self.error = ''   # Error string to be added to source on front panel
 
-        pageframe = Frame(self.root)
-        pageframe.pack(expand = 1, fill = BOTH)
-        # Attempt to add a tab
-        self.nb = ttk.Notebook(pageframe)
-        self.nb.pack(fill='both',expand='yes')
+        #pageframe = Frame(self.root)
+        #pageframe.pack(expand = 1, fill = BOTH)
 
-        fmain = Frame()
-        self.nb.add(fmain,text='Main')
+        # H-box for radio buttons
+        toolbar = QtGui.QHBoxLayout()
+        self.b1 = QtGui.QRadioButton("D")
+        self.b1.setChecked(True)
+        self.b_text = "D"
+        self.b1.toggled.connect(lambda:self.btnstate(self.b1))
+        toolbar.addWidget(self.b1)
+        self.b2 = QtGui.QRadioButton("H")
+        self.b2.toggled.connect(lambda:self.btnstate(self.b2))
+        toolbar.addWidget(self.b2)
+        self.b3 = QtGui.QRadioButton("M")
+        self.b3.toggled.connect(lambda:self.btnstate(self.b3))
+        toolbar.addWidget(self.b3)
+        self.b4 = QtGui.QRadioButton("S")
+        self.b4.toggled.connect(lambda:self.btnstate(self.b4))
+        toolbar.addWidget(self.b4)
 
-        toolbar = Frame(fmain)
-        
-        self.var = IntVar()
-        R0 = Radiobutton(toolbar, text='D', variable=self.var, value=0)
-        R0.pack(side = LEFT)
-
-        R1 = Radiobutton(toolbar, text='H', variable=self.var, value=1)
-        R1.pack(side = LEFT)
-
-        R2 = Radiobutton(toolbar, text='M', variable=self.var, value=2)
-        R2.pack(side = LEFT)
-
-        R3 = Radiobutton(toolbar, text='S', variable=self.var, value=3)
-        R3.pack(side = LEFT)
-        
-##        self.cmd_not = BooleanVar()
-##        self.CB = Checkbutton(toolbar, text="Disable Commands", variable=self.cmd_not)
-##        self.CB.pack(side=LEFT, expand=0, fill=BOTH)
-
+                
         # Widget for current source and phase tracking state
-        self.source = Label(toolbar,text='            Source: None        '+'Phase Tracking: False')
-        self.source.pack(side=LEFT)
-        toolbar.pack(side=TOP, fill=X)
+        self.source = QtGui.QLabel(" Source: None        "+"Phase Tracking: False")
+        toolbar.addWidget(self.source)
+        toolbar.addStretch(1)
 
-        self.label = Label(timeframe,text='',bg="yellow",font="Helvetica 16 bold")
-        self.label.pack()
-        #textframe = Frame(self.root)
-        textframe = Frame(fmain)
-        textframe.pack(expand = True, fill = BOTH)
+        vbox = QtGui.QVBoxLayout()
+        vbox.addLayout(timeframe)
+        vbox.addLayout(toolbar)
+        vbox.addStretch(1)
+
+        textframe = QtGui.QHBoxLayout()
 
         # Main Listbox widget for Macro commands
+        self.L = QtGui.QListWidget()
         Lframe = Frame(textframe)
         Lframe.pack(expand = False, fill=Y,side=LEFT)
         self.L = Listbox(Lframe,selectmode=EXTENDED,width=45,height=30)
@@ -1070,112 +1186,6 @@ class App():
         self.curline = 0
         self.status.configure( state = DISABLED)
 
-    #============================
-    def Open(self, filename=None):
-        ''' To open a new file, delete the contents of lines, and
-            the text widget. Then proceed to populate them again,
-            checking any PHASECAL lines to confirm that they will be visible.
-        '''
-        if self.Toggle == 0:
-            # Schedule is running, so do nothing
-            return
-        self.status.configure(state = NORMAL)
-        if filename is None:
-            init_dir = os.getcwd()
-            f = askopenfile(initialdir = init_dir, mode = 'r',
-                            filetypes = [('SCD Files','*.scd'),('all files','*.*')])
-            if f is None:
-                # User cancelled, so do nothing.
-                self.status.configure(state = DISABLED)
-                return        
-        else:
-            f = open(filename,'r')
-        try:    #takes care of an empty line, if there is one, in
-                #the file being read.
-            lines = f.readlines()
-        except AttributeError:
-            pass
-        else:
-            self.L.delete(0, END)
-            self.curline = 0
-            self.lastline = len(lines)
-            for i,line in enumerate(lines):
-                self.L.insert(END, line.rstrip('\n'))
-                ctl_cmd = line.split()[2]
-                if ctl_cmd == 'PHASECAL' or ctl_cmd == 'PHASECAL_LO' or ctl_cmd == 'STARBURST' or ctl_cmd == 'CALPNTCAL':
-                    name = line.split()[3]
-                    # Get start and stop time for this calibrator, as ephem-compatible strings
-                    if i == self.lastline-1:
-                        # Should never happen, but just in case the PHASECAL
-                        # is the last line of the schedule, assume 15 minutes duration
-                        trange = util.Time([mjd(line),mjd(line) + 15.*60./86400.],format='mjd')
-                    else:
-                        line2 = lines[i+1]
-                        trange = util.Time([mjd(line),mjd(line2)],format='mjd')
-                    if ctl_cmd == 'STARBURST':
-                        check_27m = True
-                        check_2m = False
-                    elif ctl_cmd == 'PHASECAL' or ctl_cmd == 'PHASECAL_LO' or ctl_cmd == 'CALPNTCAL':
-                        check_27m = True
-                        check_2m = True
-                    # Check visibility for source
-                    try:
-                        src=self.aa.cat[name]
-                        visible = scan_visible(src,self.aa,trange,check_27m,check_2m)
-                        if not visible:
-                            self.error = 'Warning, source '+name+' not visible at scheduled time: Schedule line '+str(i+1)
-                            print self.error
-                    except:
-                        self.error = 'Err: source '+name+' not found in catalog.  Not added to schedule!'
-
-        self.state=['']*len(lines)
-        self.status.configure(state = DISABLED)
-        if filename is None:
-            filenamelist = f.name.split('/')
-            self.filename = filenamelist[len(filenamelist)-1:][0]
-        else:
-            self.filename = filename
-        # Update the status file in /common/webplots for display on the status web page
-        self.update_status()
-        
-    #============================
-    def New(self):
-        # New option creates a new table with predetermined content.
-        if self.Toggle == 0:
-            # Schedule is running, so do nothing
-            return
-        self.status.configure( state = NORMAL)
-        t = util.Time.now()
-        scd = make_sched(t=t)
-        self.L.delete(0, END)
-        for line in scd:
-            self.L.insert(END,line)
-        self.curline = 0
-        self.lastline = len(scd)
-        self.status.configure( state = DISABLED)
-        self.filename = 'solar.scd'
-        
-    #============================
-    def Save(self):
-        ''' The Save button will save the file as a text file, in a folder
-            specified by the user. If the file exists, the program will ask
-            the user if he wants to replace the file.
-        '''
-        if self.Toggle == 0:
-            # Schedule is running, so do nothing
-            return
-        try:
-            #The Exception is to allow the user to cancel the save.
-            init_dir = os.getcwd()
-            fileout = asksaveasfile(initialdir = init_dir, 
-                                    initialfile = self.filename, mode = 'w',
-                                    filetypes = [('SCD Files','*.scd'),
-                                    ('all files','*.*')])
-            for i in range(self.lastline):
-                fileout.write(self.L.get(i)+'\n')
-            fileout.close()
-        except AttributeError:
-            pass
 
     #============================
     def adjust_selection(self,sel,delt):
@@ -1652,9 +1662,9 @@ class App():
         # First set the timer to wake us on the next second
         t = util.Time.now()
         tdif = int((t.datetime.microsecond)/1000.)
-        self.root.after(1000 - tdif, self.inc_time)
+        self.timer.singleShot(1000 - tdif, self.inc_time)
         # Update the clock
-        self.label.configure(text=t.iso[:19])
+        self.form_widget.label.setText(t.iso[:19])
 
         # Set an alarm for 15 seconds.  If the process hangs for more than that, we will send ourselves
         # a SIGINT via the Callback self.wake_up(), which should recover from sk_wait hang up
@@ -1711,7 +1721,7 @@ class App():
         set_uvw(self.aa,tsec,srcname)
         #sys.stdout.write('-')
         #sys.stdout.flush() # Flush stdout (/tmp/schedule.log or /tmp/schedule_[self.subarray_name].log) so we can see this '-'.
-        self.source.configure(text='    Source: '+(str(srcname)+'            ')[:12]
+        self.source.setText(text='    Source: '+(str(srcname)+'            ')[:12]
                                   +'Phase Tracking: '
                                   +str(bool(sf_dict['phase_tracking'])) + '    '+self.error)
         self.error = ''
@@ -1880,7 +1890,6 @@ class App():
                 # but make sure it returns, or there is some semaphore
                 # behavior with error checking
                 self.execute_cmds()
-                #t1 = FuncThread(execute_cmds,self)
             elif status == 'Running...':
                 if self.waitmode:
                     # If $WAIT is currently in force, decrement self.wait
@@ -1908,7 +1917,6 @@ class App():
                     # but make sure it returns, or there is some semaphore
                     # behavior with error checking
                     self.execute_cmds()
-                    #t1 = FuncThread(execute_cmds,self)
         self.status.configure(state=DISABLED)
         # Debug info, simply logs that we have exited this procedure
         #sys.stdout.write('-')
@@ -2748,9 +2756,9 @@ class App():
                         keywd = 'LIST:DWELL'
                         if line.find(keywd) == 0:
                             dwellseq = line[len(keywd):].split(',')
-#                            if len(dwellseq) != 35:
-#                                print 'FSEQ file',cmds[1],'DWELL line must have 35 entries.'
-#                                break
+                            if len(dwellseq) != 35:
+                                print 'FSEQ file',cmds[1],'DWELL line must have 35 entries.'
+                                break
                             # Find nearest-integer number of 0.02 s periods
                             nrpt = (numpy.array(dwellseq).astype('float')/0.02 + 0.5).astype('int')
                         keywd = 'LIST:SEQUENCE'
@@ -2762,7 +2770,7 @@ class App():
                             # Step through bands in fsequence and repeat them according to
                             # nrpt in order to form a 50-element sequence
                             for band in bands:
-                                for i in range(nrpt[band-1]):
+                                for i in range(nrpt[band]):
                                     fsequence += str(band)+','
                             break
                     if fsequence == '':

@@ -5,11 +5,23 @@
 #
 #  2017-08-29  DG
 #    First written, based on routine in read_idb.py
+#  2019-02-26  DG
+#    Added a second URL for GOES data, in case the first is unreachable.
+#    Also added a FITS argument to command line, for optional output of FITS file.
+#    FITS-ONLY means make a FITS file and stop.  FITS by itself means make a FITS file
+#    in addition to a plot.
 
 
 if __name__ == "__main__":
     import matplotlib
     matplotlib.use("Agg")
+    import os
+    try:
+        user_paths = os.environ['PYTHONPATH'].split(os.pathsep)
+    except:
+        user_paths = []
+    print user_paths
+
 
 import read_idb as ri
 from util import Time
@@ -35,44 +47,57 @@ def get_goes_data(t=None,sat_num=None):
         t = Time(Time.now().mjd - 1,format='mjd')
     yr = t.iso[:4]
     datstr = t.iso[:10].replace('-','')
-    if sat_num is None:
-        f = urllib2.urlopen('https://umbra.nascom.nasa.gov/goes/fits/'+yr)
-        lines = f.readlines()
-        sat_num = []
-        for line in lines:
-            idx = line.find(datstr)
-            if idx != -1:
-                sat_num.append(line[idx-2:idx])
-    if type(sat_num) is int:
-        sat_num = [str(sat_num)]
-    filenames = []
-    for sat in sat_num:
-        filename = 'go'+sat+datstr+'.fits'
-        url = 'https://umbra.nascom.nasa.gov/goes/fits/'+yr+'/'+filename
-        f = urllib2.urlopen(url)
-        with open(get_and_create_download_dir()+'/'+filename,'wb') as g:
-            shutil.copyfileobj(f,g)
-        filenames.append(get_and_create_download_dir()+'/'+filename)
-    pmerit = 0
-    for file in filenames:
-        gfits = fits.open(file)
-        data = gfits[2].data['FLUX'][0][:,0]
-        good, = np.where(data > 1.e-8)
-        tsecs = gfits[2].data['TIME'][0]
-        merit = len(good)
-        date_elements = gfits[0].header['DATE-OBS'].split('/')
-        if merit > pmerit:
-            print 'File:',file,'is best'
-            pmerit = merit
-            goes_data = data
-            goes_t = Time(date_elements[2]+'-'+date_elements[1]+'-'+date_elements[0]).plot_date + tsecs/86400.
     try:
-        return goes_t, goes_data
+        if sat_num is None:
+            try:
+                f = urllib2.urlopen('https://umbra.nascom.nasa.gov/goes/fits/'+yr, timeout=3)
+            except:
+                f = urllib2.urlopen('https://hesperia.gsfc.nasa.gov/goes/'+yr,timeout=3)
+            lines = f.readlines()
+            sat_num = []
+            for line in lines:
+                idx = line.find(datstr)
+                if idx != -1:
+                    sat_num.append(line[idx-2:idx])
+        if type(sat_num) is int:
+            sat_num = [str(sat_num)]
+        filenames = []
+        for sat in sat_num:
+            filename = 'go'+sat+datstr+'.fits'
+            try:
+                url = 'https://umbra.nascom.nasa.gov/goes/fits/'+yr+'/'+filename
+                f = urllib2.urlopen(url, timeout=3)
+            except:
+                url = 'https://hesperia.gsfc.nasa.gov/goes/'+yr+'/'+filename
+                f = urllib2.urlopen(url, timeout=3)
+            with open(get_and_create_download_dir()+'/'+filename,'wb') as g:
+                shutil.copyfileobj(f,g)
+            filenames.append(get_and_create_download_dir()+'/'+filename)
+        pmerit = 0
+        for file in filenames:
+            gfits = fits.open(file)
+            data = gfits[2].data['FLUX'][0][:,0]
+            good, = np.where(data > 1.e-8)
+            tsecs = gfits[2].data['TIME'][0]
+            merit = len(good)
+            date_elements = gfits[0].header['DATE-OBS'].split('/')
+            if merit > pmerit:
+                print 'File:',file,'is best'
+                pmerit = merit
+                goes_data = data
+                goes_t = Time(date_elements[2]+'-'+date_elements[1]+'-'+date_elements[0]).plot_date + tsecs/86400.
+        try:
+            return goes_t, goes_data
+        except:
+            print 'No good GOES data for',datstr
+            return None, None
     except:
-        print 'No good GOES data for',datstr
+        print 'GOES site unreachable?'
         return None, None
         
-def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=True):
+def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False, gain_corr=True):
+    if savfits:
+        import xspfits #jmm, 2018-01-05
     # Plots (and returns) UDB data for an entire day
     from flare_monitor import flare_monitor
     if t is None:
@@ -98,22 +123,29 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=True
         print 'No files found in /data1/eovsa/fits/UDB/ for',date
         return {}
     out = ri.read_idb(files,src='Sun')
+    if out.keys() == []:
+        print 'Read error, or no Sun data in',files
+        return {}
     if gain_corr:
         import gaincal2 as gc
         out = gc.apply_gain_corr(out)
     trange = Time(out['time'][[0,-1]], format = 'jd')
     fghz = out['fghz']
+    pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+    if savfits:
+        print "***************** PDATA OUTPUT *********"
+        print pdata.shape
+        xspfits.daily_xsp_writefits(out, pdata)
     if doplot:
         import matplotlib.pylab as plt
         from matplotlib.dates import DateFormatter
         f, ax = plt.subplots(1,1,figsize=(14,5))
-        pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
         X = np.sort(pdata.flatten())   # Sorted, flattened array
         # Set any time gaps to nan
         tdif = out['time'][1:] - out['time'][:-1]
         bad, = np.where(tdif > 120./86400)  # Time gaps > 2 minutes
         pdata[:,bad] = 0
-        vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        vmax = X[int(len(X)*0.85)]  # Clip at 15% of points
         im = ax.pcolormesh(Time(out['time'],format='jd').plot_date,out['fghz'],pdata,vmax=vmax)
         plt.colorbar(im,ax=ax,label='Amplitude [arb. units]')
         ax.xaxis_date()
@@ -247,17 +279,39 @@ if __name__ == "__main__":
     import glob, sys
     t = None
     t2 = None
-    if len(sys.argv) == 2:
+    # Default parameters
+    savfits = False
+    savfig = True
+    goes_plot = True
+    doplot=True
+    
+    argin = ''
+    if len(sys.argv) >= 2:
         try:
             t = Time(sys.argv[1])
+            print t.iso
+            if len(sys.argv) == 3:
+                argin = sys.argv[2].upper()
         except:
-            print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
-            exit()
+            argin = sys.argv[1].upper()  # Any following arguments are ignored
+    if argin == 'FITS-ONLY':
+        # Asking for FITS-ONLY means skip all other features.
+        savfits = True
+        savfig = False
+        goes_plot = False
+        doplot=False
+    elif argin == 'FITS':
+        # Asking for FITS means also do all other features.
+        savfits = True
+    elif argin != '':
+        print 'Cannot interpret',argin,'as valid time, or string FITS or FITS-ONLY.'
+        exit()
     if t is None:
         t = Time.now()   # Get today's date
         t2 = Time(t.mjd-2,format='mjd')   # Set t2 to day-before-yesterday
         t = Time(t.mjd-1,format='mjd')    # Set t to yesterday
     print t.iso[:19],': ',
-    blah = allday_udb(t=t, savfig=True)   # Process time t
-    if not t2 is None:
+    blah = allday_udb(t=t, doplot=doplot, goes_plot=goes_plot, savfig=savfig, savfits=savfits)   # Process time t
+    if goes_plot and not t2 is None:
+        # Do this second date only if goes_plot is True
         blah = allday_udb(t=t2, savfig=True)   # Process time t2

@@ -19,13 +19,20 @@
 #     Used correct default SK thresholds for 1792 samples, for flagging RFI
 #   2018-Jan-14  DG
 #     Set SK_MODE to 1, to enable automatic RFI flagging by dppxmp
+#   2018-Mar-14  DG
+#     Set SK_MODE back to 0, while we work on installing notch filters.
+#   2019-Feb-22  DG
+#     Import chan_util from new chan_util_52, which defines things for new
+#     IF filters, e.g. 52 channels of 325 MHz bandwidth.
+#   2019-Feb-23  DG
+#     Several other changes for 52-channel mode.
 #
 import struct,sys
 from sun_pos import *
 from math import pi
 import numpy as np
 import util
-import chan_util_bc as cu
+import chan_util_52 as cu
 from eovsa_array import *
 from eovsa_lst import *
 from ftplib import FTP
@@ -558,7 +565,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     fmt += 'I50d'
     buf = struct.pack('I',50)
     for n in fseqlist:
-        val = 0.45 + float(n)/2.0
+        val = 0.775 + float(n)*0.325
         buf += struct.pack('d',val)
     if nintval < 50:
         # Fewer than 50 values sent in, so zero-fill to 50
@@ -571,9 +578,9 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     xml.write('</Array>\n')
 
     # Subband channel width [GHz]
-    # This is fixed by the system to 0.6 GHz/4096.
-    # Default is 0.6/4096
-    item = sh_dict.get('subbw',0.6/4096)
+    # This is fixed by the system to 0.4 GHz/4096.
+    # Default is 0.4/4096
+    item = sh_dict.get('subbw',0.4/4096)
     fmt += 'd'
     buf = struct.pack('d',item)
     f.write(buf)
@@ -599,7 +606,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     item = sh_dict.get('fGHz')
     if item is None:
         item = []
-        for band in range(1,35):
+        for band in range(1,53):
             item += cu.start_freq(band)
     nchan = len(item)
     fmt += 'I511d'
@@ -621,7 +628,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     item = sh_dict.get('chan_widths')
     if item is None:
         item = []
-        for band in range(1,35):
+        for band in range(1,53):
             item += cu.sci_bw(band)
     nchan = len(item)
     fmt += 'I511d'
@@ -708,7 +715,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
 
     # Spectral kurtosis strategy (4-byte int) (Details TBD.)
     # Default 0 => Standard strategy
-    item = sh_dict.get('sk_mode',1)
+    item = sh_dict.get('sk_mode',0)
     fmt += 'I'
     buf = struct.pack('I',item)
     f.write(buf)

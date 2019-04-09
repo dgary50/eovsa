@@ -97,6 +97,11 @@
 #    Changed calpntanal() to require feed-rotation corrected data (it was not
 #    working well otherwise).  As part of this, an alternate directory can be
 #    provided in either calpntanal() or calpnt_multi().
+#   2018-Jun-14  DG
+#    Added skycal_anal() routine, which together with some code in solpntanal() will
+#    be used to allow fitting of lower frequencies, for which the current SOLPNTCAL
+#    uses too small a range of distances for fitting the large primary beam.  More
+#    to come.
 #
 
 if __name__ == "__main__":
@@ -467,6 +472,8 @@ def solpntanal(t, udb=False, auto=False, find=True):
 #        sfile = '/common/tmp/txt/sfreq.txt'
 #    otp = solpnt.rd_tsys(xfile,sfile)
     fghz = otp['fghz']
+    # New code as of 2018-Jun-10, tries to read from SKYCALTEST and use it
+    # for a far off-Sun background measurement.
     xra,xdec,xrao,xdeco = solpnt.process_tsys(otp,proc,pol=0)
     x = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':xra,'decparms':xdec,'rao':xrao,'deco':xdeco}
 #    otp = solpnt.rd_tsys(yfile,sfile)
@@ -475,6 +482,28 @@ def solpntanal(t, udb=False, auto=False, find=True):
     qual = sp_check_qual(x,y)
     return x,y, qual
         
+def skycal_anal(trange):
+    from gaincal2 import get_fem_level
+    import read_idb as ri
+    lev = get_fem_level(trange,300)
+    levs = np.zeros((13,2), dtype=int)
+    levs[:,0] = lev['hlev'][:13,0]
+    levs[:,1] = lev['vlev'][:13,0]
+    fdb = dump_tsys.rd_fdb(trange[0])
+    gcidx, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
+    if len(gcidx) != 0:
+        file = '/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'+fdb['FILE'][gcidx][0]
+        out = ri.read_idb([file])
+        nf = len(out['fghz'])
+        osun = np.zeros((13,2,nf), dtype=float)
+        for i in range(13):
+            for j in range(2):
+                idx = 16 + 10*levs[i,j]
+                osun = np.median(out['p'][i,j,:,idx:idx+6],1)
+    else:
+        osun = None
+    return osun
+    
 def sp_get_calfac(x,y, do_plot=True):
     ''' Reads the RSTN/Penticton flux, fits to the observed frequencies, and applies
         them to the antenna solar response in input dictionaries x and y to return

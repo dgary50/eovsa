@@ -258,6 +258,7 @@ def get_chanmask(fsequence,t=None):
         # Transfers the 4096 values for band into the ith slot of chanmask
         chanmask[i,:] = copy.copy(bandmask[band,:])
         if ifbw == 400.:
+            #chanmask[i,:512] = 0  # Temporary--flag only lower 50 MHz (test for new IF filters)
             chanmask[i,:2148] = 0  # Temporary--flag all overlapped channels for 800 MHz clock
     chanmask.shape = (204800)
     # NB: This line overrides everything done above!  I.e. there are no masked channels.

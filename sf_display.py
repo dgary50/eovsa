@@ -63,6 +63,19 @@
 #     Also expanded space for FSeqFile display, to allow for longer FSEQ filenames
 #   2018-Jan-10  DG
 #     Added display of control room temperature, with red background if greater than 85 F
+#   2018-Aug-25  DG
+#     Added remaining antennas to temperature plot, and cleaned up the code.  Also added
+#     Cryo-temperature (second stage) to front page, and fixed color coding to be red only
+#     if temperature is out of range. Also changed startup page size and opened Temperature
+#     tab on startup.
+#   2018-Nov-17  DG
+#     Fixed some deprecated function calls to call the replacement routines
+#   2019-Jan-16  DG
+#     Added indication of solar power not updating.
+#   2019-Feb-23  DG
+#     Fixed some annoying string display problems that were not there for earlier version
+#     of Tkinter. Also finally killed the old "pcapture" tab, which had not been used in
+#     forever.
 #
 
 from Tkinter import *
@@ -70,7 +83,7 @@ from ttk import *
 from tkMessageBox import *
 import tkFileDialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, \
-                                              NavigationToolbar2TkAgg
+                                              NavigationToolbar2Tk
 import pylab as plt
 
 import time
@@ -102,7 +115,7 @@ class App():
             self.accini['sfport'] = int(sys.argv[2])
         print 'Setting host to ', self.accini['host']
         print 'Setting port to ', self.accini['sfport']
-
+        
         self.root = Tk()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.wm_title('Stateframe Display')
@@ -117,7 +130,7 @@ class App():
         self.CB.pack(side=LEFT, expand=0, fill=BOTH)
 
         toolbar.pack(side=TOP, fill=X)
-
+        
         style = Style()
         style.configure('BW.TLabel', foreground='black', background='yellow')
         style.configure('BG.TLabel', foreground='black', background='#8f8',
@@ -208,10 +221,22 @@ class App():
         self.nb.add(fplot, text='Temps')
         self.f2plot = Frame()
         self.nb.add(self.f2plot, text='Create')
-        fpng = Frame()
-        self.nb.add(fpng, text='PCapture')
+#        fpng = Frame()
+#        self.nb.add(fpng, text='PCapture')
         fcryo = Frame()
         self.nb.add(fcryo, text='CryoRX')
+
+#        # pngfile tab--create a figure named 'pcapture' so we can refer to
+#        # it later
+#        self.pngtime = time.time()
+#        self.pngplot = plt.figure('pcapture')
+#        self.canvas1 = FigureCanvasTkAgg(self.pngplot, fpng)
+#        print 'draw pcapture canvas'
+#        self.canvas1.draw()
+#        self.canvas1.get_tk_widget().pack(side=TOP, expand=1)
+#        toolbar0 = NavigationToolbar2Tk(self.canvas1, fpng)
+#        toolbar0.update()
+#        self.canvas1._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
         # plot tab
         self.prevtab = None
@@ -219,31 +244,22 @@ class App():
         self.sub_plot1 = self.plot1.add_subplot(111)
         self.sub_plot1.grid()
         self.canvas = FigureCanvasTkAgg(self.plot1, fplot)
-        self.canvas.show()
+        print 'draw temperature canvas'
+        self.canvas.draw()
+        print 'draw canvas done'
         self.canvas.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar1 = NavigationToolbar2TkAgg(self.canvas, fplot)
+        toolbar1 = NavigationToolbar2Tk(self.canvas, fplot)
         toolbar1.update()
         self.canvas._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
-
-        # pngfile tab--create a figure named 'pcapture' so we can refer to
-        # it later
-        self.pngtime = time.time()
-        self.pngplot = plt.figure('pcapture')
-        self.canvas1 = FigureCanvasTkAgg(self.pngplot, fpng)
-        self.canvas1.show()
-        self.canvas1.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar0 = NavigationToolbar2TkAgg(self.canvas1, fpng)
-        toolbar0.update()
-        self.canvas1._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
         # multi-plot tab
         self.plot2 = plt.figure(2)
         self.sub_plot2 = self.plot2.add_subplot(111)
         self.sub_plot2.grid()
         self.canvas2 = FigureCanvasTkAgg(self.plot2, self.f2plot)
-        self.canvas2.show()
+        self.canvas2.draw()
         self.canvas2.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar2 = NavigationToolbar2TkAgg(self.canvas2, self.f2plot)
+        toolbar2 = NavigationToolbar2Tk(self.canvas2, self.f2plot)
         toolbar2.update()
         self.canvas2._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -276,7 +292,7 @@ class App():
         # Add a clear button plot button
         clearbtn = Button(btnframe, text='Clear Graph', command=self.Clear)
         clearbtn.pack(side=RIGHT)
-
+        
         # Add delete last plot button
         self.DeleteBtn = Button(btnframe, text='Delete Selected Item',
                                 command=self.delete_selected)
@@ -296,11 +312,11 @@ class App():
         # Add dropdown hierarchy starting with position 1 (entire hierarchy)
         self.add_dropdown(1)
 
-        self.L3 = Listbox(fmain, selectmode=SINGLE, width=102, height=46,
+        self.L3 = Listbox(fmain, selectmode=SINGLE, width=102, height=60,
                           font=font2use)
         self.L3.bind('<<ListboxSelect>>', self.toggle_heading)
         self.L3.pack(side=LEFT, fill=BOTH, expand=0)
-        self.sectionDisplayState = [1, 0, 1, 0, 1, 0, 0]
+        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 0]
         self.colors = {'section0': '#757', 'section1': '#979',
                        'colhead': '#cfc', 'error': '#f88', 'warn': '#ff8',
                        'na': '#ddd', 'offsets': '#feb'}
@@ -309,8 +325,7 @@ class App():
                           font=font2use)
         #self.cryoLB.bind('<<ListboxSelect>>', self.toggle_heading)
         self.cryoLB.pack(side=LEFT, fill=BOTH, expand=0)
-               
-                       
+        
         t = Time.now()
         self.label.configure(text=t.iso)
         self.lst_label.configure(text='  Local Sidereal Time:  '+str(el.eovsa_lst())[:8])
@@ -397,7 +412,7 @@ class App():
                 self.saved_dict[key] = locator
             
         self.text2 = []
-
+        
         #if there are saved plots, create new tabs and plotting devices
         if os.listdir(self.path):
             self.f3plot = Frame()
@@ -406,9 +421,9 @@ class App():
             self.sub_plot3 = self.plot3.add_subplot(111)
             self.sub_plot3.grid()
             self.canvas3 = FigureCanvasTkAgg(self.plot3, self.f3plot)
-            self.canvas3.show()
+            self.canvas3.draw()
             self.canvas3.get_tk_widget().pack(side=TOP, expand=1)
-            toolbar3 = NavigationToolbar2TkAgg(self.canvas3, self.f3plot)
+            toolbar3 = NavigationToolbar2Tk(self.canvas3, self.f3plot)
             toolbar3.update()
             self.canvas3._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -428,7 +443,7 @@ class App():
 
             self.current_tab = None
             self.tab_change = self.nb.tab(self.nb.select(),'text')
-            
+
         # Start the clock ticking
         self.root.after(1000 - int((t.datetime.microsecond)/1000.),self.inc_time)
 
@@ -706,9 +721,9 @@ class App():
             self.sub_plot3 = self.plot3.add_subplot(111)
             self.sub_plot3.grid()
             self.canvas3 = FigureCanvasTkAgg(self.plot3, self.f3plot)
-            self.canvas3.show()
+            self.canvas3.draw()
             self.canvas3.get_tk_widget().pack(side=TOP, expand=1)
-            toolbar3 = NavigationToolbar2TkAgg(self.canvas3, self.f3plot)
+            toolbar3 = NavigationToolbar2Tk(self.canvas3, self.f3plot)
             toolbar3.update()
             self.canvas3._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -819,27 +834,27 @@ class App():
                 if self.prevtab != curtab: self.extra_plots[curtab][0].autoscale()
                 self.cur_tab = curtab
                 self.handle_Extra_plots()
-            elif curtab == 'PCapture':
-                # Case of PCapture tab showing
-                pngfile = '/common/tmp/dppcapture.png'
-                # Get creation/modification time of file, and display it
-                # if it is a new file (and the size of the file is > 100 kB).
-                (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime) = os.stat(pngfile)
-                if ctime > self.pngtime and size > 100000:
-                    t = time.time()
-                    self.pngtime = ctime+5.  # Make sure pngtime is > ctime
-                    pngdata = plt.imread(pngfile)
-                    # Set the figure and clear it (otherwise the plots build up and take longer
-                    # to redraw)
-                    plt.figure('pcapture')
-                    plt.clf()
-                    self.pngplot.set_size_inches(10,10,forward=True)
-                    ax = plt.Axes(self.pngplot,[0,0,1,1])
-                    ax.set_axis_off()
-                    self.pngplot.add_axes(ax)
-                    ax.imshow(pngdata,origin='upper')
-                    self.canvas1.draw()
-                    print 'Update took',time.time()-t,'seconds.'
+#            elif curtab == 'PCapture':
+#                # Case of PCapture tab showing
+#                pngfile = '/common/tmp/dppcapture.png'
+#                # Get creation/modification time of file, and display it
+#                # if it is a new file (and the size of the file is > 100 kB).
+#                (mode, ino, dev, nlink, uid, gid, size, atime, mtime, ctime) = os.stat(pngfile)
+#                if ctime > self.pngtime and size > 100000:
+#                    t = time.time()
+#                    self.pngtime = ctime+5.  # Make sure pngtime is > ctime
+#                    pngdata = plt.imread(pngfile)
+#                    # Set the figure and clear it (otherwise the plots build up and take longer
+#                    # to redraw)
+#                    plt.figure('pcapture')
+#                    plt.clf()
+#                    self.pngplot.set_size_inches(10,10,forward=True)
+#                    ax = plt.Axes(self.pngplot,[0,0,1,1])
+#                    ax.set_axis_off()
+#                    self.pngplot.add_axes(ax)
+#                    ax.imshow(pngdata,origin='upper')
+#                    self.canvas1.draw()
+#                    print 'Update took',time.time()-t,'seconds.'
             else:
                 if version != 0.0:
                     self.update_display(data)
@@ -1022,7 +1037,7 @@ class App():
         mjd = t.mjd
         version = stf.extract(data,sf['Version'])
         line = 'SF v'+str(version)+' Time: '+t.iso
-        task = stf.extract(data,sf['Schedule']['Task']).strip('\x00')
+        task = stf.extract(data,sf['Schedule']['Task']).strip('\x00').replace('\t',' ')
         if task == '':
             task = self.last_task
         else:
@@ -1055,11 +1070,23 @@ class App():
         solpwr12 = sf['Schedule']['Data']['SolarPower'][0]
         solpwr13 = sf['Schedule']['Data']['SolarPower'][1]
         new_line = 'SolPwr12>>'
-        charge12 = stf.extract(data,solpwr12['Charge'])
-        new_line += ' Charge: ' + str(charge12)+'%  Volts:'+str(stf.extract(data,solpwr12['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr12['Amps']))[:4]+'A'
+        sptime = Time(stf.extract(data, solpwr12['Timestamp']),format='lv')
+        nsec = (t - sptime).value*86400
+        if nsec > 120.0:
+            new_line += 'Last read '+sptime.iso[:19]+', '+str(int(nsec))+'s'
+            charge12 = 0.0
+        else:
+            charge12 = stf.extract(data,solpwr12['Charge'])
+            new_line += ' Charge: ' + str(charge12)+'%  Volts:'+str(stf.extract(data,solpwr12['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr12['Amps']))[:4]+'A'
         new_line += '  SolPwr13>>'
-        charge13 = stf.extract(data,solpwr13['Charge'])
-        new_line += ' Charge: ' + str(charge13)+'%  Volts:'+str(stf.extract(data,solpwr13['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr13['Amps']))[:4]+'A'
+        sptime = Time(stf.extract(data, solpwr13['Timestamp']),format='lv')
+        nsec = (t - sptime).value*86400
+        if nsec > 120.0:
+            new_line += 'Last read '+sptime.iso[:19]+', '+str(int(nsec))+'s'
+            charge13 = 0.0
+        else:
+            charge13 = stf.extract(data,solpwr13['Charge'])
+            new_line += ' Charge: ' + str(charge13)+'%  Volts:'+str(stf.extract(data,solpwr13['Volts']))[:4]+'VDC  Amps:'+str(stf.extract(data,solpwr13['Amps']))[:4]+'A'
         self.L3.insert(END,new_line)
         if charge12 == 0.0 or charge13 == 0.0:
             self.L3.itemconfig(END,bg=self.colors['error'])
@@ -1260,7 +1287,7 @@ class App():
             errmsg = errvals[0]
         stat = stf.extract(data,sf['LODM']['LO1A']['SweepStatus'])
         statdict = {0:'Stopped',8:'Sweeping',32:'Wait4Trg'}
-        fseqfile = stf.extract(data,sf['LODM']['LO1A']['FSeqFile'])
+        fseqfile = stf.extract(data,sf['LODM']['LO1A']['FSeqFile']).strip('\x00')
         try:
             status = statdict[stat]
         except KeyError:
@@ -1421,17 +1448,22 @@ class App():
             self.L3.insert(END,head)
             self.L3.itemconfig(END,bg=self.colors['colhead'])
             for i in antindex:
-                laird = sf['Antenna'][i]['Frontend']['TEC']
-                lairdtemp = stf.extract(data,laird['Temperature'])
                 fe = sf['Antenna'][i]['Frontend']['FEM']
                 fetemp = stf.extract(data,fe['Temperature'])
+                laird = sf['Antenna'][i]['Frontend']['TEC']
+                lairdtemp = stf.extract(data,laird['Temperature'])
                 line = '{:2d}     {:6.3f}       {:6.3f}     {:6.3f}   {:8.3f}  {:7.3f}  {:6.3f}   {:3d}     {:3d}     {:3d}'.format(i+1,
                     fetemp,lairdtemp,stf.extract(data,laird['TReference']),
                     stf.extract(data,laird['DutyFactor']),stf.extract(data,laird['InputVoltage']),
                     stf.extract(data,laird['MainCurrent']),stf.extract(data,laird['Alarm']),
                     stf.extract(data,laird['Error']),stf.extract(data,laird['ErrorHistory']))
+                if i == 13:
+                    lairdtemp = stf.extract(data,sf['FEMA']['Thermal']['SecondStageTemp'])
+                    line = '{:2d}     {:6.3f}       {:6.3f} K     --         --       --       --     ---     ---     ---'.format(i+1,fetemp,lairdtemp)
                 self.L3.insert(END,line)
-                if  lairdtemp < 24 or lairdtemp > 26:
+                if i == 13 and (lairdtemp < 10 or lairdtemp > 50):
+                    self.L3.itemconfig(END,bg=self.colors['error'])
+                if i < 13 and (lairdtemp < 24 or lairdtemp > 26):
                     self.L3.itemconfig(END,bg=self.colors['error'])
                 if fetemp < 20 or fetemp > 30:
                     self.L3.itemconfig(END,bg=self.colors['error'])
@@ -1502,7 +1534,7 @@ class App():
 
         for i in antindex:
             parser = sf['Antenna'][i]['Parser']
-            self.L3.insert(END,'Ant'+str(i+1)+' Last Command:'+stf.extract(data,parser['Command'])+' '+str(stf.extract(data,parser['CommErr'])))
+            self.L3.insert(END,'Ant'+str(i+1)+' Last Command:'+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
 
     def cryo_display(self,data):
         ''' Creates the CryoRX page to display Cryo Receiver information
@@ -1784,83 +1816,33 @@ class App():
         ''' Just a simple routine to see if I can plot something once a second...
         '''
         sf = self.accini['sf']
-        laird1 = sf['Antenna'][0]['Frontend']['TEC']
-        laird2 = sf['Antenna'][1]['Frontend']['TEC']
-        laird3 = sf['Antenna'][2]['Frontend']['TEC']
-        laird4 = sf['Antenna'][3]['Frontend']['TEC']
-        laird5 = sf['Antenna'][4]['Frontend']['TEC']
-        laird7 = sf['Antenna'][6]['Frontend']['TEC']
-        laird8 = sf['Antenna'][7]['Frontend']['TEC']
-        laird12 = sf['Antenna'][11]['Frontend']['TEC']
-        fe1 = sf['Antenna'][0]['Frontend']['FEM']
-        fe2 = sf['Antenna'][1]['Frontend']['FEM']
-        fe3 = sf['Antenna'][2]['Frontend']['FEM']
-        fe4 = sf['Antenna'][3]['Frontend']['FEM']
-        fe5 = sf['Antenna'][4]['Frontend']['FEM']
-        fe7 = sf['Antenna'][6]['Frontend']['FEM']
-        fe8 = sf['Antenna'][7]['Frontend']['FEM']
-        fe12 = sf['Antenna'][11]['Frontend']['FEM']
+        laird = []
+        fe = []
+        for i in range(13):
+            laird.append(sf['Antenna'][i]['Frontend']['TEC'])
+            fe.append(sf['Antenna'][i]['Frontend']['FEM'])
+        fe.append(sf['Antenna'][13]['Frontend']['FEM'])  # Ant 14 ambient temperature
+        laird.append(sf['FEMA']['Thermal']['SecondStageTemp'])   # Ant 14 cyro temperature
         windkey = sf['Schedule']['Data']['Weather']['AvgWind']
         npts = len(self.que)
 #        daydif = (datetime.datetime(1901,1,1)-datetime.datetime(1,1,1)).days
-        tm = np.zeros(npts,'float')
-        am = np.zeros(npts,'float')
-        t1 = np.zeros(npts,'float')
-        t2 = np.zeros(npts,'float')
-        t3 = np.zeros(npts,'float')
-        t4 = np.zeros(npts,'float')
-        t5 = np.zeros(npts,'float')
-        t7 = np.zeros(npts,'float')
-        t8 = np.zeros(npts,'float')
-        t12 = np.zeros(npts,'float')
-        f1 = np.zeros(npts,'float')
-        f2 = np.zeros(npts,'float')
-        f3 = np.zeros(npts,'float')
-        f4 = np.zeros(npts,'float')
-        f5 = np.zeros(npts,'float')
-        f7 = np.zeros(npts,'float')
-        f8 = np.zeros(npts,'float')
-        f12 = np.zeros(npts,'float')
-        wind = np.zeros(npts,'float')
+        temps = np.zeros((npts,14,2),dtype=np.float)
+        tm = np.zeros(npts,dtype=np.float)   # Timestamp
+        amb = np.zeros(npts,dtype=np.float)
+        wind = np.zeros(npts,dtype=np.float)
         for i in range(npts):
-            am[i] = stf.extract(self.que[i],sf['Schedule']['Data']['Weather']['Temperature'])
+            amb[i] = stf.extract(self.que[i],sf['Schedule']['Data']['Weather']['Temperature'])
             tm[i] = stf.extract(self.que[i],sf['Timestamp'])
-            t1[i] = stf.extract(self.que[i],laird1['Temperature'])
-            t2[i] = stf.extract(self.que[i],laird2['Temperature'])
-            t3[i] = stf.extract(self.que[i],laird3['Temperature'])
-            t4[i] = stf.extract(self.que[i],laird4['Temperature'])
-            t5[i] = stf.extract(self.que[i],laird5['Temperature'])
-            t7[i] = stf.extract(self.que[i],laird7['Temperature'])
-            t8[i] = stf.extract(self.que[i],laird8['Temperature'])
-            t12[i] = stf.extract(self.que[i],laird12['Temperature'])
-            f1[i] = stf.extract(self.que[i],fe1['Temperature'])
-            f2[i] = stf.extract(self.que[i],fe2['Temperature'])
-            f3[i] = stf.extract(self.que[i],fe3['Temperature'])
-            f4[i] = stf.extract(self.que[i],fe4['Temperature'])
-            f5[i] = stf.extract(self.que[i],fe5['Temperature'])
-            f7[i] = stf.extract(self.que[i],fe7['Temperature'])
-            f8[i] = stf.extract(self.que[i],fe8['Temperature'])
-            f12[i] = stf.extract(self.que[i],fe12['Temperature'])
+            for j in range(13):
+                temps[i,j,0] = stf.extract(self.que[i],laird[j]['Temperature'])
+                temps[i,j,1] = stf.extract(self.que[i],fe[j]['Temperature'])
+            temps[i,13,0] = stf.extract(self.que[i],laird[13])
+            temps[i,13,1] = stf.extract(self.que[i],fe[13]['Temperature'])
             wind[i] = stf.extract(self.que[i],windkey)
         # Exactly zero temperatures mean missing data (except ambient on rare cold days!), so flag with NaN
-        am[np.where(am == 0.0)[0]] = np.NaN
-        am = (am-32)*5./9   # Convert ambient to Celcius temperature
-        t1[np.where(t1 == 0.0)[0]] = np.NaN
-        t2[np.where(t2 == 0.0)[0]] = np.NaN
-        t3[np.where(t3 == 0.0)[0]] = np.NaN
-        t4[np.where(t4 == 0.0)[0]] = np.NaN
-        t5[np.where(t5 == 0.0)[0]] = np.NaN
-        t7[np.where(t7 == 0.0)[0]] = np.NaN
-        t8[np.where(t8 == 0.0)[0]] = np.NaN
-        t12[np.where(t12 == 0.0)[0]] = np.NaN
-        f1[np.where(f1 == 0.0)[0]] = np.NaN
-        f2[np.where(f2 == 0.0)[0]] = np.NaN
-        f3[np.where(f3 == 0.0)[0]] = np.NaN
-        f4[np.where(f4 == 0.0)[0]] = np.NaN
-        f5[np.where(f5 == 0.0)[0]] = np.NaN
-        f7[np.where(f7 == 0.0)[0]] = np.NaN
-        f8[np.where(f8 == 0.0)[0]] = np.NaN
-        f12[np.where(f12 == 0.0)[0]] = np.NaN
+        amb[np.where(amb == 0.0)[0]] = np.NaN
+        amb = (amb-32)*5./9   # Convert ambient to Celcius temperature
+        temps[np.where(temps == 0.0)] = np.NaN
         wind[np.where(wind == 0.0)[0]] = np.NaN
         # Get current axis extent
         extent = self.sub_plot1.axis()
@@ -1869,24 +1851,14 @@ class App():
         self.sub_plot1.cla()
         # Add all of the temperatures to the plot
         tim = Time(tm,format='lv').plot_date
+        for i in range(13):
+            self.sub_plot1.plot_date(tim,temps[:,i,0],label='Laird A'+str(i+1),marker=None,linestyle='-')
+            self.sub_plot1.plot_date(tim,temps[:,i,1],label='FEM A'+str(i+1),marker='.',markersize=0.5)
+        # Plot Ant 14 temperatures in RED to highlight them somewhat
+        self.sub_plot1.plot_date(tim,temps[:,13,0],label='A14 Cryo [K]',marker=None,color='red',linestyle='-')
+        self.sub_plot1.plot_date(tim,temps[:,13,1],label='A14 FE Box'+str(i+1),marker='.',color='red',markersize=0.5)
+        self.sub_plot1.plot_date(tim,amb,label='Ambient',marker=None,color='magenta',linestyle='-',linewidth=2)
         self.sub_plot1.plot_date(tim,wind,label='AvgWind',marker=None,color='gray',linestyle='-',linewidth=2)
-        self.sub_plot1.plot_date(tim,t1,label='Laird A1',marker=None,color='blue',linestyle='-')
-        self.sub_plot1.plot_date(tim,t2,label='Laird A2',marker=None,color='blue',linestyle='--')
-        self.sub_plot1.plot_date(tim,t3,label='Laird A3',marker=None,color='blue',linestyle=':')
-        self.sub_plot1.plot_date(tim,t4,label='Laird A4',marker=None,color='blue',linestyle='-.')
-        self.sub_plot1.plot_date(tim,t5,label='Laird A5',marker=None,color='red',linestyle='-')
-        self.sub_plot1.plot_date(tim,t7,label='Laird A7',marker=None,color='red',linestyle='--')
-        self.sub_plot1.plot_date(tim,t8,label='Laird A8',marker=None,color='red',linestyle=':')
-        self.sub_plot1.plot_date(tim,t12,label='Laird A12',marker=None,color='red',linestyle='-.')
-        self.sub_plot1.plot_date(tim,f1,label='FEM A1',marker=None,color='orange',linestyle='-')
-        self.sub_plot1.plot_date(tim,f2,label='FEM A2',marker=None,color='orange',linestyle='--')
-        self.sub_plot1.plot_date(tim,f3,label='FEM A3',marker=None,color='orange',linestyle=':')
-        self.sub_plot1.plot_date(tim,f4,label='FEM A4',marker=None,color='orange',linestyle='-.')
-        self.sub_plot1.plot_date(tim,f5,label='FEM A5',marker=None,color='green',linestyle='-')
-        self.sub_plot1.plot_date(tim,f7,label='FEM A7',marker=None,color='green',linestyle='--')
-        self.sub_plot1.plot_date(tim,f8,label='FEM A8',marker=None,color='green',linestyle=':')
-        self.sub_plot1.plot_date(tim,f12,label='FEM A12',marker=None,color='green',linestyle='-.')
-        self.sub_plot1.plot_date(tim,am,label='Ambient',marker=None,color='magenta',linestyle='-',linewidth=2)
         # Set appropriate titles, legend, etc.
         self.sub_plot1.set_title('Laird Controller and FEM Temp')
         self.sub_plot1.set_ylabel('Temperature [C]')
@@ -2162,7 +2134,7 @@ def plot_creator(frame,name,number):
     canvas = FigureCanvasTkAgg(name, frame)
     #canvas.show()
     #canvas.get_tk_widget().pack(side=TOP, expand=1)
-    toolbar = NavigationToolbar2TkAgg(canvas, frame)
+    toolbar = NavigationToolbar2Tk(canvas, frame)
     #toolbar.update()
     #canvas._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 

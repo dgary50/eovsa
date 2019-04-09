@@ -17,6 +17,11 @@
 #    Added Venus
 #  2016-Dec-14 BC
 #    Changed the method for locating the calibrator source files in load_sidereal_cats()
+#  2019-Feb-26  DG
+#    Added GPS satellites, now that we have L band!
+#  2019-Apr-06  DG
+#    Apparently I had the wrong GPS elements text file.  It should
+#    have been https://celestrak.com/NORAD/elements/gps-ops.txt.  Now fixed.
 
 import aipy, ephem, numpy
 from math import cos, sin
@@ -79,6 +84,32 @@ def load_geosats():
             print 'Error in ephem.readtle: Geosat', lines[i].strip(), 'not added to source catalog.'
     return satlist
     
+def load_gpssats():
+    ''' Read the list of global positioning satellites from the Celestrak site and create a list
+        of RadioGeosat objects containing all satellites. (List contains 31 sats as of 2/26/2019.)
+    '''
+    # Retrieve TLE file for geostationary satellites from Celestrak site.
+    f = urllib2.urlopen('https://celestrak.com/NORAD/elements/gps-ops.txt')
+    lines = f.readlines()
+    f.close()
+    nlines = len(lines)
+    
+    # use every 3 lines to create another RadioGeosat object
+    satlist = []
+    for i in range(0,nlines,3):
+        if lines[i+2][9:16] == ' 0.0000':
+            # aa.compute() hangs for a satellite with zero inclination!
+            # Change to 0.0001 degrees, and do not forget to change the checksum.
+            chksum = str(int(lines[i+2][-4:]) + 1)
+            lines[i+2] = lines[i+2][:9]+' 0.0001'+lines[i+2][16:-4]+chksum
+        try:
+            geosat_body = ephem.readtle(lines[i], lines[i+1], lines[i+2])
+            src = RadioGeosat(geosat_body) # convert from an ephem Body object to a RadioGeosat object
+            satlist.append(src)
+        except:
+            print 'Error in ephem.readtle: Geosat', lines[i].strip(), 'not added to source catalog.'
+    return satlist
+
 def load_o3bsats():
     ''' Read the list of ob3 satellites from the Celestrak site and create a list
         of RadioGeosat objects containing all satellites.  
@@ -166,7 +197,7 @@ def load_cat():
         Note: this function does not run compute yet - the catalog returned is generic to all
         Observer locations.
     '''
-    srclist = load_VLAcals() + load_geosats() + load_sidereal_cats() + load_o3bsats()
+    srclist = load_VLAcals() + load_geosats() + load_sidereal_cats() + load_o3bsats() + load_gpssats()
     
     # append Sun and Moon
     # use aipy.amp RadioSpecial objects and SrcCatalog object - they are extensions

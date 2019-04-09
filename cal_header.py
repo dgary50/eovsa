@@ -88,6 +88,8 @@
 #      refcal_sp2xml()
 #   2018-02-23  DG
 #      Added delete_cal() routine for deleting SQL records of a given type for a given time.
+#   2019-02-22  DG
+#      Updated DCM Master table to version 2.0, increasing from 34 to 52 bands to reflect new IF Filters
 #
 import struct, util
 import stateframe as sf
@@ -106,7 +108,7 @@ def cal_types():
         number, given as the last element of each type.        
     '''
     return {1: ['Prototype total power calibration (output of SOLPNTCAL)', 'proto_tpcal2xml', 1.0],
-            2: ['DCM master base attenuation table [units=dB]', 'dcm_master_table2xml', 1.0],
+            2: ['DCM master base attenuation table [units=dB]', 'dcm_master_table2xml', 2.0],  # Version 2.0 (2019-02-22)
             3: ['DCM base attenuation table [units=dB]', 'dcm_table2xml', 1.0],
             4: ['Delay centers [units=ns]', 'dlacen2xml', 1.0],
             5: ['Equalizer gains', 'eq_gain2xml', 1.0],
@@ -399,18 +401,18 @@ def dcm_master_table2xml():
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
 
-    # List of bands (34), with band number (1-34) if used, 0 if not.
+    # List of bands (52), with band number (1-52) if used, 0 if not.
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Bands</Name>')
-    buf += str2bin('<Dimsize>34</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
+    buf += str2bin('<Dimsize>52</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
     buf += str2bin('</Array>')
 
-    # Array of base attenuations [dB] (34 x 30).  Attenuations for unmeasured
+    # Array of base attenuations [dB] (52 x 30).  Attenuations for unmeasured
     # antennas and/or bands are set to nominal value of 10 dB.  Values are
     # ordered as Ant1x, Ant1y, Ant2x, Ant2y, ..., Ant15x, Ant15y
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Attenuation</Name>')
-    buf += str2bin('<Dimsize>30</Dimsize><Dimsize>34</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
+    buf += str2bin('<Dimsize>30</Dimsize><Dimsize>52</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -1615,8 +1617,8 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
             if type(filename) is list:
                 lines = filename
             # Read file of attenuations (34 non-comment lines with band + 30 attns)
-            bands = np.zeros(34, 'int')
-            attn = np.zeros((34, 30), 'float')
+            bands = np.zeros(52, 'int')
+            attn = np.zeros((52, 30), 'float')
             for line in lines:
                 if line[0] != '#':
                     band, rline = line.strip().split(':')
@@ -1627,18 +1629,18 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
             return False
     else:
         # Standard table was input, so interpret as output from adc_cal.set_dcm_attn()
-        bands = np.linspace(1, 34, 34).astype(int)
+        bands = np.linspace(1, 52, 52).astype(int)
         attn = tbl[:, :30]
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
-    buf += struct.pack('I', 34)
-    buf += struct.pack('34H', *bands)
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', 52)
+    buf += struct.pack('52H', *bands)
+    buf += struct.pack('I', 52)
     buf += struct.pack('I', 30)
-    for i in range(34):
+    for i in range(52):
         buf += struct.pack('30H', *attn[i])
     return write_cal(typedef, buf, t)
 

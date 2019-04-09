@@ -23,6 +23,11 @@
 #      delays.  These delays are written into the Ant 15 slot by the
 #      cal_header.dla_update2sql() routine.  Note that delays for other
 #      antennas are not updated, even if they are non-zero (a warning is given).
+#   2018-Jun-08  DG
+#      Relatively important change to display antenna phases with respect to
+#      ant 1, except for ant 1 itself, which displays baseline 1-14. This
+#      turns out to be a relatively minor change.  Also add a checkbox to
+#      allow the user to mark missing antennas.
 
 from Tkinter import *
 from tkFileDialog import askopenfile
@@ -130,6 +135,14 @@ class App():
         self.xydladnbtn = Button(xydlaupdown, text=u'\u25BC', command=self.xydowndla, borderwidth=0, pady=0)
         self.xydladnbtn.pack(padx=1,pady=0)
 
+        var = IntVar()
+        leftckbox = Frame(fleft)
+        leftckbox.pack()
+        self.chkbox = Checkbutton(leftckbox, text="Mark Ant as Missing", variable=var, command=self.cb)
+        self.chkbox.var = var
+        self.chkbox.pack(side=LEFT)
+        self.missing = np.zeros(13,dtype=int) # None of the antennas are missing
+
         fright = Frame(line2)
         fright.pack()
         
@@ -173,8 +186,14 @@ class App():
             self.ph[:,2,k] = 2*np.pi*fghz*(tauy14 - taux) + df[:,2,k] # XY
             self.ph[:,3,k] = 2*np.pi*fghz*(taux14 - tauy) + df[:,3,k] # YX
         self.doplot(ant=1)
+
+    def cb(self):
+        # Handle the checkbox widget
+        ant_str = self.ant.get()  # Current antenna showing
+        ant = int(ant_str)
+        self.missing[ant-1] = self.chkbox.var.get()  # List indicating missing ant (if 1)
         
-    def fetch(self,e):
+    def fetch(self, e):
         ant_str = self.ant.get()
         ant = int(ant_str)
         if e.widget == self.dla:
@@ -191,12 +210,9 @@ class App():
         delays_str = '   '
         xydelays_str = '   '
         delays = np.append(self.delays[0] - self.delays,self.delays[0])
-        # Do not change delays where both delays and xydelays are zero
-        # which is taken as a missing antenna
-        bad, = np.where(self.delays == 0)
-        bad2, = np.where(self.xydelays == 0)
-        idx1,idx2 = common_val_idx(bad,bad2)
-        delays[bad[idx1]] = 0.0
+        # Do not change delays for a missing antenna
+        bad, = np.where(self.missing == 1)
+        delays[bad] = 0.0
         self.label1.configure(text='Ant    1,    2,    3,    4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14')
         fmt = '{:5.1f},'*14
         delays_str = fmt.format(*delays)
@@ -213,6 +229,11 @@ class App():
         else:
             ant = 13
         self.antvar.set(str(ant))
+        # Show current missing status
+        if self.missing[ant-1]:
+            self.chkbox.select()
+        else:
+            self.chkbox.deselect()
         dla = self.delays[ant-1]
         self.dlavar.set(str(dla))
         dla = self.xydelays[ant-1]
@@ -227,6 +248,11 @@ class App():
         else:
             ant = 1
         self.antvar.set(str(ant))
+        # Show current missing status
+        if self.missing[ant-1]:
+            self.chkbox.select()
+        else:
+            self.chkbox.deselect()
         dla = self.delays[ant-1]
         self.dlavar.set(str(dla))
         dla = self.xydelays[ant-1]
@@ -294,22 +320,32 @@ class App():
     def doplot(self,ant=1):
         dla = self.delays[ant-1]
         ydla = self.xydelays[ant-1]
+        # Also need delay settings for ant 1
+        dla1 = self.delays[0]
+        ydla1 = self.xydelays[0]
         ydla14 = np.float(self.dla14.get())
         for i,ax in enumerate(self.ax):
             if self.pol[i] == 0:
                 # XX => use only the ant X delay 
                 tau = dla
+                tau1 = dla1
             elif self.pol[i] == 1:
                 # YY => use the ant (X delay + Y-X delay) + Ant 14 Y-X delay
                 tau = dla + ydla + ydla14
+                tau1 = dla1 + ydla1 + ydla14
             elif self.pol[i] == 2:
                 # XY => use the ant X delay + Ant 14 Y-X delay
                 tau = dla + ydla14
+                tau1 = dla1 + ydla14
             else:
                 #YX => use the ant (X delay + Y-X delay)
                 tau = dla + ydla
+                tau1 = dla1 + ydla1
             ax.cla()
-            ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau),'.')
+            if ant == 1:
+                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau),'.')
+            else:
+                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - self.ph[0,self.pol[i]] - 2*np.pi*self.fghz*(tau-tau1)),'.')
             ax.set_ylim(-4,4)
         self.canvas.draw()
 
@@ -343,12 +379,9 @@ class App():
             delays = np.append(delays,self.delays[0])
             # Have to change the sign of Ant 14 Y-X delay, hence the minus sign
             xydelays = np.append(self.xydelays,-float(self.dla14.get()))
-            # Do not change delays where both delays and xydelays are zero
-            # which is taken as a missing antenna
-            bad, = np.where(self.delays == 0)
-            bad2, = np.where(self.xydelays == 0)
-            idx1,idx2 = common_val_idx(bad,bad2)
-            delays[bad[idx1]] = 0.0
+            # Do not change delays for a missing antenna
+            bad, = np.where(self.missing == 1)
+            delays[bad] = 0.0
             if askyesno("Write Delays",question):
                 # All Y-X delays need a sign flip, hence the minus sign
                 ch.dla_update2sql(delays,-xydelays)
@@ -369,12 +402,9 @@ class App():
             delays = np.append(delays,self.delays[0])
             # Have to change the sign of Ant 14 Y-X delay, hence the minus sign
             xydelays = np.append(self.xydelays,-float(self.dla14.get()))
-            # Do not change delays where both delays and xydelays are zero
-            # which is taken as a missing antenna
-            bad, = np.where(self.delays == 0)
-            bad2, = np.where(self.xydelays == 0)
-            idx1,idx2 = common_val_idx(bad,bad2)
-            delays[bad[idx1]] = 0.0
+            # Do not change delays for a missing antenna
+            bad, = np.where(self.missing == 1)
+            delays[bad] = 0.0
             # Check that the delays to all antennas except Ant 14 are zero, or give warning if not
             for i in range(13):
                 if delays[i] != 0.0:

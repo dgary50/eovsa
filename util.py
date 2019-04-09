@@ -25,6 +25,12 @@
 #  2017-Aug-08  DG
 #    Added precision keyword to common_val_idx()
 #    Also added code for calculating baseline order
+#  2019-Jan-03  DG
+#    Added lin_phase_fit() routine, which is a common need to find the
+#    phase slope of a phase spectrum.
+#  2019-Feb-18  DG
+#    Added sat_phase, which determines corrections for XY and YX phase based
+#    on a packet dump of an R/L polarized communications satellite (e.g. Ciel)
 # * 
 
 import StringUtil as su
@@ -1054,3 +1060,78 @@ def bl_list(nant=16):
     return bl2ord
     
 bl2ord = bl_list()
+
+def lin_phase_fit(f,pha, doplot=False):
+    ''' Given an array of frequencies and corresponding phases,
+        determine the best linear fit and return the parameters
+        and standard deviation of the fit.  Optionally plots the
+        phases and the fit, mainly for testing and evaluation
+        purposes.  
+        
+        Inputs:
+          f         Array of frequencies (does not need to be evenly spaced).
+                       Note, no Nans allowed.
+          pha       Array of phases, in radians, corresponding to array f. 
+                       Note, any phases to be ignored can be flagged with Nan.
+          doplot    Optional flag--if True, opens a new plot and plots the 
+                       phases and the fit.
+                       
+        Returns:
+          Numpy 3-element array of phase-offset, phase-slope, and 
+          standard deviation of the fit
+    '''
+    import numpy as np
+    if len(f) != len(pha):
+        print 'Error: arrays not of same size:',len(f),len(pha)
+        return None
+    dpdf = []
+    good = np.where(np.logical_not(np.isnan(pha)))
+    f_ = f[good]
+    pha_ = pha[good]
+    for i in range(len(f_)-1):
+        dpdf.append((pha_[i+1] - pha_[i])/(f_[i+1]-f_[i]))
+    dpdf = np.array(dpdf)
+    slp = np.median(dpdf)
+    p = np.polyfit(f_,np.unwrap((pha_-f_*slp)),1)
+    p[0] = p[0]+slp
+    stdev = np.std(lobe(pha-np.polyval(p,f_)))
+    if doplot:
+        import matplotlib.pylab as plt
+        plt.plot(f,pha,'.')
+        plt.plot(f,lobe(np.polyval(p,f)))
+    return np.array((p[1], p[0], stdev))
+
+def sat_phase(out,ant,doplot=False):
+    ''' Takes the autocorrelation read from a packet dump (PRT) file taken while the array is
+        observing an R/L polarized communications satellite (e.g. Ciel), for one time sample, and
+        corrects the XY and YX phase for phase slope (X-Y delay) and offset.  The correction
+        is done "in place," so nothing is returned, but the "out" array is corrected.  This
+        works only for one antenna at a time (specified by "ant"),  If doplot is True, it
+        also plots the corrected phase (mainly for debugging purposes).
+
+        Inputs:    
+        out     is out['a'][:,:,:,n], from pcapture2.rd_jspec(file), where n is the index of
+                   one time sample, and file is the name of a PRT (packet dump) file.
+        ant     index of the antenna for which to do the correction.           
+        
+        Optional parameters:
+        doplot  if True, plots the corrected phase vs. channel
+        
+        Ultimately, this routine should return the phase slope and offset, which could form
+        the basis of a calibration scheme, but this is still under investigation. It should
+        also correct and return the X vs. Y amplitude scaling.
+    '''        
+    import numpy as np
+    xy = out[ant,2,:]
+    yx = out[ant,3,:]
+    f = np.arange(len(out[0,0]))
+    phi = lobe(np.angle(xy)-np.angle(yx))
+    good = np.where(np.abs(xy) > np.median(np.abs(xy)))
+    poff, pslp, pstd = lin_phase_fit(f[good],phi[good])
+    if np.mean(lobe(np.angle(xy[1100:1300]) - (pslp*f[1100:1300] + poff + pi)/2.)) > 0: poff = poff + 2*np.pi
+    if doplot:
+        import matplotlib.pylab as plt
+        plt.plot(f,lobe(np.angle(xy) - (pslp*f + poff + np.pi)/2.),'.')
+        plt.plot(f,lobe(np.angle(yx) + (pslp*f + poff + np.pi)/2.),'.')
+    out[ant,2,:] *= np.exp(-1j*(pslp*f + poff + np.pi)/2.)
+    out[ant,3,:] *= np.exp(1j*(pslp*f + poff + np.pi)/2.)

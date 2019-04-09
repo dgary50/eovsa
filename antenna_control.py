@@ -11,7 +11,7 @@ def get_trip(tripcode):
             lines = f.readlines()
             f.close()
         except:
-            pass
+            return {'Trip':'CT_Trip_Info.txt not found','Tripcode':tripcode,'Description':'PYTHONPATH is'+os.environ['PYTHONPATH'],'Clues':[]}
     bl = []
     for i,line in enumerate(lines):
         if line.strip() == '':

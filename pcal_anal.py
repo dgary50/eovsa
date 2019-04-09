@@ -10,10 +10,12 @@
 #  2018-Jan-02 DG
 #    Added mv_pcal_files().  Also fixed a bug in graph(), to avoid
 #    a crash when a bad/short IDB file is analyzed. 
+#  2018-Jun-09 DG
+#    Change plot to plot phases of antennas other than ant1 relative to ant1
 #
 
 import numpy as np
-from util import Time
+from util import Time, lobe
 ten_minutes = 600./86400.
 one_minute = 60./86400.
 
@@ -177,7 +179,10 @@ def graph(f,navg=None,path=None):
     for k in range(13):
         for j in range(4):
             ax[j,k].cla()
-            ax[j,k].plot(out['fghz'],ph[ri.bl2ord[k,13],j],'.',color=color)
+            if k == 0:
+                ax[j,k].plot(out['fghz'],ph[ri.bl2ord[k,13],j],'.',color=color)
+            else:
+                ax[j,k].plot(out['fghz'],lobe(ph[ri.bl2ord[k,13],j]-ph[ri.bl2ord[0,13],j]),'.',color=color)                
             ax[j,k].set_ylim(-4, 4)
             ax[j,k].xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
             if k in range(1,13): ax[j,k].yaxis.set_visible(False)
