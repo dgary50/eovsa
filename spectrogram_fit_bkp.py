@@ -347,7 +347,7 @@ class Spectrogram():
         spectrum_ax.set_xlabel('Frequency [GHz]')
         # Set initial spectruma and lightcurve to correspond to mid-range
         # time and frequency
-        fghz = np.asarray(self.fghz[self.fidx[0]:self.fidx[1]])
+        fghz = self.fghz[self.fidx[0]:self.fidx[1]]
         t = self.time[self.tidx[0]:self.tidx[1]].plot_date
         midf = len(fghz)/2
         midt = len(t)/2
@@ -382,7 +382,6 @@ class Spectrogram():
             i, j = abs(t - event.xdata).argmin(), abs(fghz - event.ydata).argmin()
             #print 'indexes are t=%f, f=%f'%(i, j)
             spec.set_data(fghz,tsys[:,i])
-            fghz = np.asarray(self.fghz[self.fidx[0]:self.fidx[1]])
             p, ffit, sfit = tpfit(np.log(fghz),np.log(tsys[:,i]),sigma=dlogtsys[:,i])
             specfit.set_data(np.exp(ffit),np.exp(sfit))
             specpt.set_data(fghz[j],tsys[j,i])
@@ -417,8 +416,7 @@ class Spectrogram():
         self.pfit = np.zeros((4,nt))
         dlogtsys = stdtsys/tsys
         for i in range(nt):
-            fghz = np.asarray(self.fghz[self.fidx[0]:self.fidx[1]])
-            p, ffit, sfit = tpfit(np.log(fghz),np.log(tsys[:,i]),sigma=dlogtsys[:,i])
+            p, ffit, sfit = tpfit(np.log(self.fghz[self.fidx[0]:self.fidx[1]]),np.log(tsys[:,i]),sigma=dlogtsys[:,i])
             # Calculate and return physical parameters S_pk, f_pk, alpha and beta
             # Note that if the fit does not work, S_pk and f_pk are determined from the
             # data, not the fit, and the slopes are nan.

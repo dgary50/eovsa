@@ -32,6 +32,10 @@
 #   2019-01-20  DG
 #     Removed the above attenuation for Ant14, which is no longer in
 #     effect.  Also fixed a bug in updating table for missing antennas.
+#   2019-04-06  DG
+#     Changes were made in February to add DMC_calnew() routine to handle
+#     new 52-band gain tables, but not recorded here.  Today I also noted
+#     some code that had to be uncommented, which is now done.
 #
 
 import pcapture2 as p
@@ -124,10 +128,10 @@ def DCM_calnew(filename=None,fseqfile='solarnew.fsq',dcmattn=None,missing='ant15
             new_pwr[i] = np.median(pwr[idx],0)
     new_pwr.shape = (52,32)
     # Read table from the database.
-    #import cal_header
-    #import stateframe
-    #xml, buf = cal_header.read_cal(2)
-    #cur_table = stateframe.extract(buf,xml['Attenuation'])
+    import cal_header
+    import stateframe
+    xml, buf = cal_header.read_cal(2)
+    cur_table = stateframe.extract(buf,xml['Attenuation'])
     
     if dcmattn:
         # A DCM attenuation value was given, which presumes a constant value

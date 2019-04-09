@@ -19,6 +19,9 @@
 #    Changed the method for locating the calibrator source files in load_sidereal_cats()
 #  2019-Feb-26  DG
 #    Added GPS satellites, now that we have L band!
+#  2019-Apr-06  DG
+#    Apparently I had the wrong GPS elements text file.  It should
+#    have been https://celestrak.com/NORAD/elements/gps-ops.txt.  Now fixed.
 
 import aipy, ephem, numpy
 from math import cos, sin
@@ -86,7 +89,7 @@ def load_gpssats():
         of RadioGeosat objects containing all satellites. (List contains 31 sats as of 2/26/2019.)
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
-    f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/supplemental/gps.txt')
+    f = urllib2.urlopen('https://celestrak.com/NORAD/elements/gps-ops.txt')
     lines = f.readlines()
     f.close()
     nlines = len(lines)
