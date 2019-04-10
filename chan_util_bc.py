@@ -275,9 +275,20 @@ def freq2bdname(fghz):
     for b in range(34):
         bfreqs.append(start_freq(b+1)[0])
         efreqs.append(start_freq(b+1)[-1]+sci_bw(b+1)[-1])
-    bd, = np.where((np.array(bfreqs) < fghz) & (np.array(efreqs) > fghz))
-    if len(bd) == 1:
-        return bd[0]+1
+    if isinstance(fghz,list) or isinstance(fghz,np.ndarray):
+        bds = []
+        for fg in fghz:
+            bd, = np.where((np.array(bfreqs) < fg) & (np.array(efreqs) > fg))
+            if len(bd) == 1:
+                bds.append(bd[0]+1)
+            else:
+                print '{0:f} GHz is not found in any band'.format(fghz)
+                return -1
+        return bds
     else:
-        print '{0:f} GHz is not found in any band'.format(fghz)
-        return -1
+        bd, = np.where((np.array(bfreqs) < fghz) & (np.array(efreqs) > fghz))
+        if len(bd) == 1:
+            return bd[0]+1
+        else:
+            print '{0:f} GHz is not found in any band'.format(fghz)
+            return -1
