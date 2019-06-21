@@ -14,6 +14,8 @@
 #    Change plot to plot phases of antennas other than ant1 relative to ant1
 #  2019-May-04 DG
 #    Added mv_ptg_files().
+#  2019-Jun-21  DG
+#    Fixed a bug in filenames when running on pipeline.
 #
 
 import numpy as np
@@ -130,7 +132,10 @@ def findfile(trange):
         print 'Found',k,'scans in timerange.'
         for i in range(k):
             f1 = fdb['FILE'][np.where(fdb['SCANID'] == scans[m+i])].astype('str')
-            f2 = [fpath + f for f in f1]
+            if fpath == '/data1/eovsa/fits/IDB/':
+                f2 = [fpath + f[3:11] + '/' + f for f in f1]
+            else:
+                f2 = [fpath + f for f in f1]
             flist.append(f2)
             tstlist.append(tslist[m+i])
             ted = telist[m+i]
@@ -261,7 +266,7 @@ def pcal_anal(trange,path=None):
             f2 = glob.glob(path + 'pcT*'+tmarkp+'*.png')
             f3 = glob.glob(path + 'pcT*'+tmarkn+'*.png')
             if f1 == [] and f2 == [] and f3 == []:
-                print 'No files:',tmarkn,tmark,tmarkp,'found.'
+                #print 'No files:',tmarkn,tmark,tmarkp,'found.'
                 print 'Processing completed scan',i+1
                 graph(filelist[i],path=path)
             else:

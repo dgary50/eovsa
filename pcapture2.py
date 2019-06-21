@@ -565,18 +565,24 @@ def prt_dla(out, ref, doplot=False):
         pdiff = np.unwrap(np.angle(out['x'][bl2ord[0,i+1],0,:2048,35]) - np.angle(ref['x'][bl2ord[0,i+1],0,:2048,35]) 
                   - xax*ddiff)
         res = np.polyfit(xax, pdiff, 1)
-        steps = np.round(res[0])
-        resid = int(round(np.std(lobe(pdiff - res[1] - steps*xax)[300:])*180./np.pi))
+        #steps = np.round(res[0])
+        steps = res[0]
+        #resid = int(round(np.std(lobe(pdiff - res[1] - steps*xax)[300:])*180./np.pi))
+        resid = np.std(lobe(pdiff - np.polyval(res,xax)))*180./np.pi
+        #if resid > 10:
+        #    print '*Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
+        #else:
+        #    print ' Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
         if resid > 10:
-            print '*Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
+            print '*Ant: {:2d} Steps: {:7.1f}  stdev [deg]: {:7.1f}  Delay [ns]: {:7.3f}'.format(i+2,steps,resid,steps*1.25)
         else:
-            print ' Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
+            print ' Ant: {:2d} Steps: {:7.1f}  stdev [deg]: {:7.1f}  Delay [ns]: {:7.3f}'.format(i+2,steps,resid,steps*1.25)
         if doplot:
             ax[i].plot(lobe(np.polyval(res,xax)))
             ax[i].plot(lobe(pdiff),',')
-            ax[i].plot(lobe(pdiff - res[0]*xax),',')
+            ax[i].plot(lobe(pdiff - np.polyval(res,xax)),',')
             ax[i].text(100,3.3,'Ant '+str(i+2)+' relative to Ant 1')
-            ax[i].text(100,-3.9,'Delay '+str(steps*1.25)+' ns (steps='+str(int(steps))+')')
+            ax[i].text(100,-3.9,'Delay '+str(steps*1.25)[:5]+' ns (steps='+str(int(round(steps)))+')')
             ax[i].set_ylim(-4,4)
 
 

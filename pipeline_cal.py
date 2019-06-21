@@ -438,7 +438,7 @@ def unrot(data, azeldict=None):
     for i in range(13):
         for j in range(i + 1, 14):
             k = bl2ord[i, j]
-            if j == 14:                  # xi_rot was applied for all antennas, but this
+            if j == 13:                  # xi_rot was applied for all antennas, but this
                 xi = xi_rot[fidx2]       # is wrong.  Now it is only done for ant14.
             else:
                 xi = 0.0                 # xi_rot for other antennas is just zero.
