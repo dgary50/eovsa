@@ -12,6 +12,8 @@
 #    a crash when a bad/short IDB file is analyzed. 
 #  2018-Jun-09 DG
 #    Change plot to plot phases of antennas other than ant1 relative to ant1
+#  2019-May-04 DG
+#    Added mv_ptg_files().
 #
 
 import numpy as np
@@ -46,6 +48,29 @@ def mv_pcal_files():
             for f in files:
                 #print 'mv',f,directory+os.path.basename(f) 
                 os.rename(f,directory+os.path.basename(f))
+
+def mv_ptg_files():
+    ''' Moves (renames) files in the /common/webplots/PTG folder
+        into new folders according to date.  Leaves the last 20 PTG
+        files in the main folder.
+    '''
+    import glob, os
+    from time import sleep
+    files = glob.glob('/common/webplots/PTG/P*.png')
+    files.sort()
+    #datstr = ''
+    if len(files) > 20:
+        for file in files[:-20]:
+            #datstr_prev = datstr
+            datstr = file[26:30]
+            #if datstr != datstr_prev:
+            directory = file[:21]+file[24:30]+'/'
+            if not os.path.exists(directory):
+                #print 'mkdir',directory 
+                os.makedirs(directory)
+                sleep(0.1)
+            #print 'mv',file,directory+os.path.basename(file) 
+            os.rename(file,directory+os.path.basename(file))
 
 def findfile(trange):
 

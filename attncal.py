@@ -35,11 +35,13 @@ def get_attncal(trange, do_plot=False):
                            where nattn = 8, nant = 13, npol = 2, and nf is variable
            'rcvr':      The array of receiver noise level (raw units) of size 
                            (nant, npol, nf), where nant = 13, npol = 2, and nf is variable
+           'rcvr_auto': Same as rcvr, but for auto-correlation (hence it is complex)
                            
         N.B.: Ignores days with other than one GAINCALTEST measurement, e.g. 0 or 2,
               the first is obvious, while the second is because there is no way to
               tell which of the 2 are good.
     '''
+    import os
     if type(trange.mjd) == np.float:
         # Interpret single time as both start and end time
         mjd1 = int(trange.mjd)
@@ -66,9 +68,16 @@ def get_attncal(trange, do_plot=False):
         gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
         if len(gcidx) == 1:
             print fdb['FILE'][gcidx]
-            file =  '/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'+fdb['FILE'][gcidx][0]
+
+            datadir=os.getenv('EOVSADB')
+            if not datadir:
+                # go to default directory on pipeline
+                datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+
+            file = datadir+fdb['FILE'][gcidx][0]
             out = ri.read_idb([file])
             vx = np.mean(out['p'][:13,:,:,6:12],3)
+            va = np.mean(out['a'][:13,:2,:,6:12],3)
             val0 = np.median(out['p'][:13,:,:,16:22],3) - vx
             val1 = np.median(out['p'][:13,:,:,26:32],3) - vx
             val2 = np.median(out['p'][:13,:,:,36:42],3) - vx
@@ -91,7 +100,7 @@ def get_attncal(trange, do_plot=False):
                     for j in range(2):
                         ax[j,i].plot(out['fghz'],attn1[i,j],'.')
                         ax[j+2,i].plot(out['fghz'],attn2[i,j],'.')
-            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 'rcvr':vx,
+            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 'rcvr':vx, 'rcvr_auto':va,
                             'attn': np.array([attn1, attn2, attn3, attn4, attn5, attn6, attn7, attn8])})
     return outdict
     

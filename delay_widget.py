@@ -146,11 +146,12 @@ class App():
         fright = Frame(line2)
         fright.pack()
         
-        self.fig = plt.figure(1)
+        self.fig = plt.figure(1,(10,5))
         self.ax = []
-        for i in range(4):
-            self.ax.append(self.fig.add_subplot(220+i+1))
-            self.ax[i].grid()
+        loc = [231,232,234,235,133]
+        for i in loc:
+            self.ax.append(self.fig.add_subplot(i))
+            #self.ax[i].grid()
         self.canvas = FigureCanvasTkAgg(self.fig, fright)
         self.canvas.show()
         self.canvas.get_tk_widget().pack(side=TOP, expand=1)
@@ -324,7 +325,7 @@ class App():
         dla1 = self.delays[0]
         ydla1 = self.xydelays[0]
         ydla14 = np.float(self.dla14.get())
-        for i,ax in enumerate(self.ax):
+        for i,ax in enumerate(self.ax[:4]):
             if self.pol[i] == 0:
                 # XX => use only the ant X delay 
                 tau = dla
@@ -344,9 +345,20 @@ class App():
             ax.cla()
             if ant == 1:
                 ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau),'.')
+                if self.pol[i] == 0:
+                    pxx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
+                if self.pol[i] == 1:
+                    pyy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
             else:
                 ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - self.ph[0,self.pol[i]] - 2*np.pi*self.fghz*(tau-tau1)),'.')
+                if self.pol[i] == 0:
+                    pxx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
+                if self.pol[i] == 1:
+                    pyy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
             ax.set_ylim(-4,4)
+        self.ax[4].cla()
+        self.ax[4].plot(self.fghz,lobe(pyy - pxx),'.')
+        self.ax[4].set_ylim(-4,4)
         self.canvas.draw()
 
     def Opennpz(self):

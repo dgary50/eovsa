@@ -102,6 +102,14 @@
 #    be used to allow fitting of lower frequencies, for which the current SOLPNTCAL
 #    uses too small a range of distances for fitting the large primary beam.  More
 #    to come.
+#   2019-May-17  DG
+#    Changes to the case of running from the command line, since the routine runs
+#    fine from pipeline now.
+#   2019-May-21  DG
+#    Finally completed the skycal_anal() routine, which is now called in
+#    solpntanal() to improve fitting by adding pseudo-10-degree pointing offset.
+#    Also added code to give a "poor-man's" skycal when those are not available,
+#    by using the GAINCAL full attenuation setting.
 #
 
 if __name__ == "__main__":
@@ -437,6 +445,7 @@ def solpntanal(t, udb=False, auto=False, find=True):
         Added find parameter, which if False skips the find_solpnt() call, so
         the Time() object t must be an actual SOLPNTCAL scan time.
     '''
+    from copy import deepcopy
     
     def fname2mjd(filename):
         fstem = filename.split('/')[-1]
@@ -446,63 +455,144 @@ def solpntanal(t, udb=False, auto=False, find=True):
     pnt = solpnt.get_solpnt(t, find=find)
     proc = solpnt.process_solpnt(pnt)
     trange = Time([pnt['Timestamp'],pnt['Timestamp']+300.],format='lv')
+    skycal = None
     if trange[0].mjd < 57450:
         if auto: print "Warning: 'auto' keyword does nothing for older data.  Keyword ignored."
         otp = dump_tsys.rd_miriad_tsys(trange,udb=udb)
+    elif trange[0].mjd < 58623:
+        # The SKYCALTEST scans may have been taken, but they were not setting the DCM table correctly
+        # until 2019-05-20, so earlier dates just do this almost as good approach.
+        poor_skycal = skycal_anal(trange[0], do_plot=False)
+        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=poor_skycal)        
     else:
-        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0])
-#    if udb:
-#        fstr = t1.iso
-#        folder = '/data1/UDBTXT/'+fstr[:4]
-#        files = glob.glob(folder+'/UDB'+fstr.replace('-','').split()[0]+'*_xtsys.txt')
-#        files.sort()
-#        for filename in files:
-#            mjd = fname2mjd(filename)
-#            if mjd >= t1.mjd:
-#                xfile = filename
-#                yfile = filename.replace('xtsys','ytsys')
-#                sfile = filename.replace('xtsys','sfreq')
-#                break
-#    else:
-#        xfiles, yfiles = solpnt.dmp_tsys(t)
-#        # Give it some time for the files to be written and closed.
-#        time.sleep(5)
-#        xfile = xfiles[0]
-#        yfile = yfiles[0]
-#        sfile = '/common/tmp/txt/sfreq.txt'
-#    otp = solpnt.rd_tsys(xfile,sfile)
+        # New code as of 2019-May-21, tries to read from SKYCALTEST and use it
+        # for a far off-Sun background measurement.
+        skycal = skycal_anal(trange[0], do_plot=False, last=True)
+        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=skycal)
+    if skycal:
+        newskycal = deepcopy(skycal)
+        if auto:
+            # Modify the skycal to put the auto information into the standard location
+            newskycal['offsun'] = np.real(skycal['offsun_auto'])
+            newskycal['rcvr_bgd'] = np.real(skycal['rcvr_bgd_auto'])
+    else:
+        newskycal = None
     fghz = otp['fghz']
-    # New code as of 2018-Jun-10, tries to read from SKYCALTEST and use it
-    # for a far off-Sun background measurement.
-    xra,xdec,xrao,xdeco = solpnt.process_tsys(otp,proc,pol=0)
-    x = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':xra,'decparms':xdec,'rao':xrao,'deco':xdeco}
+    xra,xdec,xrao,xdeco = solpnt.process_tsys(otp,proc,pol=0,skycal=newskycal)
+    x = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':xra,'decparms':xdec,'rao':xrao,'deco':xdeco,'ra':proc['rao'],'dec':proc['deco']}
 #    otp = solpnt.rd_tsys(yfile,sfile)
-    yra,ydec,yrao,ydeco = solpnt.process_tsys(otp,proc,pol=1)
-    y = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':yra,'decparms':ydec,'rao':yrao,'deco':ydeco}
+    yra,ydec,yrao,ydeco = solpnt.process_tsys(otp,proc,pol=1,skycal=newskycal)
+    y = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':yra,'decparms':ydec,'rao':yrao,'deco':ydeco,'ra':proc['rao'],'dec':proc['deco']}
     qual = sp_check_qual(x,y)
     return x,y, qual
         
-def skycal_anal(trange):
+def skycal_anal(t=None, do_plot=False, last=False):
+    ''' Reads the daily SKYCALTEST data and returns the far "off Sun" background for use with
+        total power calibration.  The SKYCALTEST observation can double as a GAINCAL if needed,
+        but this has not yet been implemented.
+        Returns the receiver background power and the backend power (with 62 dB front-end attenuation
+        applied), for both total power and auto-correlation data.
+        
+        Inputs:
+          t        An optional Time() object with the date for which to return the SKYCAL data.  Uses
+                     today's date if omitted (or None)
+          do_plot  A flag requesting a summary plot of the results (default = True) 
+                     NB: Only total power is plotted, not auto-correlation
+          last     A flag specifying that the last SKYCALTEST scan should be used (normally only one
+                     per day is obtained, so this allows a second one to be processed).  Default is
+                     False, meaning only the first SKYCALTEST scan is used.  Note that if there is
+                     only one SKYCALTEST scan, first and last are the same and this flag has no effect.
+          
+        Returns:
+          Dictionary with keys (or None):
+          
+          'offsun'         Total power level on blank sky, with femattn level 0 (includes receiver noise)
+          'rcvr_bgd'       Total power level on blank sky, with femattn level 15 (receiver noise only)
+          'offsun_auto'    Auto correlation level on blank sky, with femattn level 0
+          'rcvr_bgd_auto'  Auto correlation level on blank sky, with femattn level 15
+          
+    '''
     from gaincal2 import get_fem_level
     import read_idb as ri
-    lev = get_fem_level(trange,300)
-    levs = np.zeros((13,2), dtype=int)
-    levs[:,0] = lev['hlev'][:13,0]
-    levs[:,1] = lev['vlev'][:13,0]
-    fdb = dump_tsys.rd_fdb(trange[0])
-    gcidx, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
-    if len(gcidx) != 0:
-        file = '/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'+fdb['FILE'][gcidx][0]
+    
+#    lev = get_fem_level(trange,300)
+#    levs = np.zeros((13,2), dtype=int)
+#    levs[:,0] = lev['hlev'][:13,0]
+#    levs[:,1] = lev['vlev'][:13,0]
+    if t is None:
+        t = Time.now()
+    if t.mjd < 58623: 
+        print 'SKYCAL_ANAL: No valid SKYCALTEST scans for dates prior to 2019-05-20'
+        # Do a "poor-man's" skycal background by using the gaincal 62 dB setting.
+        # This should be almost as good for receiver noise subtraction as a true SKYCAL
+        from attncal import get_attncal
+        outdict = get_attncal(t)
+        return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
+    fdb = dump_tsys.rd_fdb(t)
+    gcidxes, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
+    if len(gcidxes) != 0:
+        if last:
+            gcidx = gcidxes[-1]
+        else:
+            gcidx = gcidxes[0]
+
+        datadir=os.getenv('EOVSADB')
+        if not datadir:
+            # go to default directory on pipeline
+            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][3:11]+'/'
+
+        file = datadir+fdb['FILE'][gcidx]
         out = ri.read_idb([file])
-        nf = len(out['fghz'])
-        osun = np.zeros((13,2,nf), dtype=float)
-        for i in range(13):
-            for j in range(2):
-                idx = 16 + 10*levs[i,j]
-                osun = np.median(out['p'][i,j,:,idx:idx+6],1)
+        skytrange = Time(out['time'][[0,-1]],format='jd')
+        nant, npol, nf, nt = out['p'].shape
+        if nant > 13: nant = 13
+        offsun = np.zeros((nant,npol,nf), dtype=float)
+        rcvr = np.zeros((nant,npol,nf), dtype=float)
+        offsun_auto = np.zeros((nant,npol,nf), dtype=complex)
+        rcvr_auto = np.zeros((nant,npol,nf), dtype=complex)
+        # Get the SKYCALTEST fem level vs. time and use it to define
+        # the range of times for femattn 15 (62 dB) and femattn 0 (0 dB)
+        hvlev = ['hlev','vlev']
+        lev = get_fem_level(skytrange)
+        for i in range(nant):
+            for j in range(npol):
+                idx0, = np.where(lev[hvlev[j]][i] == 0)   # 0 dB
+                idx15, = np.where(lev[hvlev[j]][i] == 15) # 62 dB
+                # NB: time and frequency indexes are reordered for some reason.
+                # The next two lines are a median over times, despite what it seems.
+                offsun[i,j] = np.median(out['p'][i,j,:,idx0],0)
+                rcvr[i,j] = np.median(out['p'][i,j,:,idx15],0)
+                offsun_auto[i,j] = np.median(out['a'][i,j,:,idx0],0)
+                rcvr_auto[i,j] = np.median(out['a'][i,j,:,idx15],0)
+        if do_plot:
+            nrow = 2
+            ncol = (nant+1)/2
+            f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
+            f.set_size_inches(2*nant,7,forward=True)
+            f.suptitle('HPol Receiver and Sky Noise for SKYCAL scan at '+skytrange[0].iso[:19]+' UT',fontsize=18)
+            for ant in range(nant):
+                ax[ant % nrow, ant/nrow].set_title('Ant '+str(ant+1)+' Noise')
+                if ant % ncol == 0:
+                    ax[ant/ncol,0].set_ylabel('Arbitrary Units')
+                if ant >= nant/nrow:
+                    ax[1,ant - nant/nrow].set_xlabel('Frequency [GHz]')
+                ax[ant % nrow, ant/nrow].plot(offsun[ant,0])
+                ax[ant % nrow, ant/nrow].plot(rcvr[ant,0])
+            f, ax = plt.subplots(nrow, ncol, sharex='col', sharey='row')
+            f.set_size_inches(2*nant,7,forward=True)
+            f.suptitle('VPol Receiver and Sky Noise for SKYCAL scan at '+skytrange[0].iso[:19]+' UT',fontsize=18)
+            for ant in range(nant):
+                ax[ant % nrow, ant/nrow].set_title('Ant '+str(ant+1)+' Noise')
+                if ant % ncol == 0:
+                    ax[ant/ncol,0].set_ylabel('Arbitrary Units')
+                if ant >= nant/nrow:
+                    ax[1,ant - nant/nrow].set_xlabel('Frequency [GHz]')
+                ax[ant % nrow, ant/nrow].plot(offsun[ant,1])
+                ax[ant % nrow, ant/nrow].plot(rcvr[ant,1])
     else:
-        osun = None
-    return osun
+        print 'SKYCAL_ANAL: No SKYCALTEST scan for this date'
+        return None
+    return {'offsun': offsun, 'rcvr_bgd': rcvr, 'offsun_auto': offsun_auto, 'rcvr_bgd_auto': rcvr_auto}
     
 def sp_get_calfac(x,y, do_plot=True):
     ''' Reads the RSTN/Penticton flux, fits to the observed frequencies, and applies
@@ -746,14 +836,16 @@ def sp_bsize(x,y):
     t1 = Time(x['ut_mjd'][0],format='mjd')
     f.suptitle('X-feed Beam Widths for SOLPNT scan at '+t1.iso[:19]+' UT',fontsize=18)
     fout,a,aout = disk_conv()
-    fgood = np.where(x['fghz'] > 2.48)[0]
+    #fgood = np.where(x['fghz'] > 2.48)[0]
+    fgood = np.where(x['fghz'] > 1.10)[0]
+    print len(fgood)
     for ant in range(nant):
         ax[ant % nrow, ant/nrow].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
         if ant % ncol == 0:
             ax[ant/ncol,0].set_ylabel('Beam FWHM [deg]')
         if ant >= ncol:
             ax[1,ant - ncol].set_xlabel('Frequency [GHz]')
-        ax[ant % nrow, ant/nrow].set_ylim(0.5,5)
+        ax[ant % nrow, ant/nrow].set_ylim(0.5,20)
         ax[ant % nrow, ant/nrow].set_xlim(1,20)
         ax[ant % nrow, ant/nrow].set_yscale('log')
         ax[ant % nrow, ant/nrow].set_xscale('log')
@@ -771,7 +863,7 @@ def sp_bsize(x,y):
             ax[ant/ncol,0].set_ylabel('Beam FWHM [deg]')
         if ant >= ncol:
             ax[1,ant - ncol].set_xlabel('Frequency [GHz]')
-        ax[ant % nrow, ant/nrow].set_ylim(0.5,5)
+        ax[ant % nrow, ant/nrow].set_ylim(0.5,20)
         ax[ant % nrow, ant/nrow].set_xlim(1,20)
         ax[ant % nrow, ant/nrow].set_yscale('log')
         ax[ant % nrow, ant/nrow].set_xscale('log')
@@ -793,7 +885,8 @@ def sp_offsets(x,y,save_plot=False):
     f.suptitle('X-feed Offsets for SOLPNT scan at '+t1.iso[:19]+' UT',fontsize=18)
     user2rad = np.pi/10000./180.
     cosdec = np.cos(x['dec0'])
-    fgood = np.where(x['fghz'] > 2.48)[0]
+    #fgood = np.where(x['fghz'] > 2.48)[0]
+    fgood = np.where(x['fghz'] > 1.10)[0]
     xelx = []
     elx = []
     for ant in range(nant):
@@ -1096,30 +1189,30 @@ if __name__ == "__main__":
     # Wait 30 s to ensure scan is done.
     time.sleep(30)
     t = Time(times[igt5[-1]],format='lv')
-    if socket.gethostname() == 'pipeline':
-        x, y, qual = solpntanal(t,udb=True)
-    elif socket.gethostname() == 'dpp':
-        x, y, qual = solpntanal(t,udb=False)
-        xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
-    else:
-        print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
-        exit()
+ #   if socket.gethostname() == 'pipeline':
+ #       x, y, qual = solpntanal(t,udb=True)
+ #   elif socket.gethostname() == 'dpp':
+    x, y, qual = solpntanal(t,udb=False)
+    xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
+ #   else:
+ #       print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
+ #       exit()
     percent_good = check_qual(x, qual)
     if percent_good > 50:
-        if socket.gethostname() == 'dpp':
-            # If this is the DPP, write the results to the SQL database automatically.
-            solpnt2sql(t,prompt=False)
-        else:
-            # This is the old way of writing results to a disk file--should be removed...
-            calfac, offsun = sp_get_calfac(x,y)
-            # If another file for today's date already exists, this will overwrite it
-            sp_write_calfac(x,y,calfac,offsun)
-            print 'Calibration file successfully written'
-            if t.iso[:10] == Time.now().iso[:10]:
-               # The calibration file is for today, so rewrite as tomorrow's file also
-               x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
-               sp_write_calfac(x,y,calfac,offsun)
-               print "Also wrote tomorrow's file"
+#        if socket.gethostname() == 'dpp':
+#            # If this is the DPP, write the results to the SQL database automatically.
+        solpnt2sql(t,prompt=False)
+#        else:
+#            # This is the old way of writing results to a disk file--should be removed...
+#            calfac, offsun = sp_get_calfac(x,y)
+#            # If another file for today's date already exists, this will overwrite it
+#            sp_write_calfac(x,y,calfac,offsun)
+#            print 'Calibration file successfully written'
+#            if t.iso[:10] == Time.now().iso[:10]:
+#               # The calibration file is for today, so rewrite as tomorrow's file also
+#               x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
+#               sp_write_calfac(x,y,calfac,offsun)
+#               print "Also wrote tomorrow's file"
     else:
         print 'Calibration file not written--too many bad values.'
     exit()  

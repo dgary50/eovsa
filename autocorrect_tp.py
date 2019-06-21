@@ -27,7 +27,9 @@ def autocorrect(out,ant_str='ant1-13',brange=[0,300]):
                 for i in range(len(idx-1)):
                     if idx[i] in jidx or idx[i] in jidx-1:
                         out['p'][ant,pol,freq,idx[i]+1:] /= (1-pfac1[ant,pol,freq,idx[i]])
-    calfac = pc.get_calfac(trange[0])
+    # Time of total power calibration is 20 UT on the date given
+    tptime = Time(np.floor(trange[0].mjd) + 20./24.,format='mjd')
+    calfac = pc.get_calfac(tptime)
     tpcalfac = calfac['tpcalfac']
     tpoffsun = calfac['tpoffsun']
     hlev = src_lev['hlev'][:13,0]
@@ -43,16 +45,17 @@ def autocorrect(out,ant_str='ant1-13',brange=[0,300]):
     for i in range(nt):
         out['p'][:13,:,:,i] = (out['p'][:13,:,:,i]*attnfac - tpoffsun)*tpcalfac 
     antlist = ant_str2list(ant_str)
+    bg = np.zeros_like(out['p'])
     # Subtract background for each antenna/polarization
     for ant in antlist:
         for pol in range(2):
-            bg = np.median(out['p'][ant,pol,:,brange[0]:brange[1]],1).repeat(nt).reshape(nf,nt)
-            out['p'][ant,pol] -= bg
+            bg[ant,pol] = np.median(out['p'][ant,pol,:,brange[0]:brange[1]],1).repeat(nt).reshape(nf,nt)
+            #out['p'][ant,pol] -= bg
     # Form median over antennas/pols
-    med = np.mean(np.median(out['p'][antlist],0),0)
+    med = np.mean(np.median((out['p']-bg)[antlist],0),0)
     # Do background subtraction once more for good measure
-    bg = np.median(med[:,0:300],1).repeat(nt).reshape(nf,nt)
-    med -= bg
+    bgd = np.median(med[:,brange[0]:brange[1]],1).repeat(nt).reshape(nf,nt)
+    med -= bgd
     pdata = np.log10(med)
     f, ax = plt.subplots(1,1)
     vmax = np.median(np.nanmax(pdata,1))
@@ -64,4 +67,47 @@ def autocorrect(out,ant_str='ant1-13',brange=[0,300]):
     ax.set_ylim(out['fghz'][0], out['fghz'][-1])
     ax.set_xlabel('Time [UT]')
     ax.set_ylabel('Frequency [GHz]')
-    return out, med
+    return {'caldata':out, 'med_sub':med, 'bgd':bg}
+    
+def tp_bgnd(tpdata):
+    ''' Create time-variable background from ROACH inlet temperature
+        This may be a crude correction, but it has been seen to work.
+        
+        Inputs:
+          tpdata   dictionary returned by read_idb()  NB: tpdata is not changed.
+          
+        Returns:
+          bgnd     The background fluctuation array of size (nf,nt) to be 
+                     subtracted from any antenna's total power (or mean of
+                     antenna total powers)
+    '''
+    import dbutil as db
+    import read_idb as ri
+    from util import Time
+    outfghz = tpdata['fghz']
+    outtime = tpdata['time']
+    trange = Time(outtime[[0,-1]],format='jd')
+    tstr = trange.lv.astype(int).astype(str)
+    nt = len(outtime)
+    nf = len(outfghz)
+    outpd = Time(outtime,format='jd').plot_date
+    cursor = db.get_cursor()
+    query = 'select * from fV66_vD8 where (Timestamp between '+tstr[0]+' and '+tstr[1]+')'
+    data, msg = db.do_query(cursor, query)
+    pd = Time(data['Timestamp'][::8].astype(int),format='lv').plot_date
+    inlet = data['Sche_Data_Roac_TempInlet'].reshape(len(pd),8)   # Inlet temperature variation
+    sinlet = np.sum(inlet.astype(float),1)
+    sint = np.interp(outpd,pd,sinlet)
+    sint = np.roll(sint,-90)  # Shift phase of variation by 90 s earlier
+    sint -= np.mean(sint)     # Remove offset, to provide zero-mean fluctuation
+    bgnd = np.zeros((nf, nt), float)
+    for i in range(nf):
+        if 13.5 < outfghz[i] < 14.0:
+            bgnd[i] = sint*2
+        elif 14.0 < outfghz[i] < 15.0:
+            bgnd[i] = sint*5        
+        elif outfghz[i] > 15.0:
+            bgnd[i] = sint*3
+    return bgnd
+
+

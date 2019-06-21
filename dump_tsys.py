@@ -48,6 +48,8 @@
 #  2018-Jan-26  DG
 #    Changed to call gc.apply_fem_level() instead of gc.apply_gain_corr(), since
 #    this uses frequency-dependent attenuations.
+#  2019-May-21  DG
+#    Added skycal keyword to rd_miriad_tsys_16()
 #
 
 import subprocess, time, sys, glob
@@ -236,20 +238,23 @@ def rd_miriad_tsys(trange, udb=False):
     return {'source': src, 'fghz': fghz, 'ut_mjd': utd, 'tsys': tsys}
 
 
-def rd_miriad_tsys_16(trange, udb=False, auto=False, tref=None):
+def rd_miriad_tsys_16(trange, udb=False, auto=False, tref=None, skycal=None):
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by trange.  This version works only for 16-ant correlator
         Simply calls read_idb and returns a subset of the data with new dictionary keys.
         
         2018-01-26  Changed to call gc.apply_fem_level() instead of gc.apply_gain_corr().
+        2019-05-21  Added skycal keyword, simply for passing through to apply_fem_level().
     '''
     import gaincal2 as gc
     import read_idb
+    import calibration as cal
     out = read_idb.read_idb(trange)
     #cout = gc.apply_gain_corr(out, tref=tref)
     try:
-        cout = gc.apply_fem_level(out)
+        cout = gc.apply_fem_level(out, skycal=skycal)
     except:
+        print 'RD_MIRIAD_TSYS_16: Error applying FEM level correction. No correction applied'
         cout = out
     if auto:
         return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 'tsys':np.real(cout['a'][:,:2])}

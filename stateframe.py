@@ -74,6 +74,10 @@
 #   2019-Feb-12  DG
 #      Discovered a bug in reading the solar power temperatures, when FET temp
 #      was less than 10 C.  Fixed by reading either two or one digit.
+#   2019-Apr-27  DG
+#      Timeout of control_room_temp() was throwing an error and crashing.
+#      This is now fixed by putting readlines() call inside the try: except:
+#      clause.
 #
 
 import struct, sys
@@ -97,12 +101,12 @@ def control_room_temp():
     '''
     try:
         f = urllib2.urlopen('http://192.168.24.233/state.xml',timeout=0.4)
+        lines = f.readlines()
+        f.close()
     except:
         # Timeout error
         print Time.now().iso,'Control room temperature connection timed out'
         return -99.0
-    lines = f.readlines()
-    f.close()
     try:
         return int((float(lines[3][13:17]) - 32)*50/9.)/10.
     except:

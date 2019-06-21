@@ -42,11 +42,27 @@
 #    Added code to get_sql_info() and unrot() to determine which 27-m
 #    receiver is in use, and correct baselines with Ant 14 accordingly.
 #    The X vs. Y delay is in general very different for the two receivers.
+#  2019-04-28  DG
+#    I discovered a major screw up in applying xi_rot when unrotating
+#    phases.  The xi_rot term should only apply to ant14, never to any
+#    other antennas.  So now xi_rot is set to zero for all except ant14.
+#  2019-05-22  DG
+#    Updated apply_fem_level to subtract receiver noise before scaling,
+#    if a skycal or gaincal is available.  The call to skycal_anal()
+#    occurs in udb_corr()
+#  2019-06-02  DG
+#    Important change to apply_cal, which now does offsun subtraction and
+#    zeroes-out the power-squared since it is no longer valid after calibration
+#  2019-06-20  DG
+#    Another change to apply_cal, which now does auto-correlation offsun
+#    subtraction.  Note that this only works for XX and YY, and XY and YX
+#    are left with no subtraction.  Also added subtraction of auto-correlation
+#    receiver noise in apply_fem_level().
 #
 
 import dbutil as db
 import numpy as np
-from util import Time, nearest_val_idx, common_val_idx, lobe
+from util import Time, nearest_val_idx, common_val_idx, lobe, bl2ord
 import stateframe
 import cal_header as ch
 
@@ -77,36 +93,21 @@ def get_sql_info(trange):
     return azeldict
 
 
-def get_bl_order():
-    """Return the order of baseline data output by a CASPER correlator
-    X engine."""
-    n_ants = 16
-    order1, order2 = [], []
-    for i in range(n_ants):
-        for j in range(int(n_ants / 2), -1, -1):
-            k = (i - j) % n_ants
-            if i >= k:
-                order1.append((k, i))
-            else:
-                order2.append((i, k))
-    order2 = [o for o in order2 if o not in order1]
-    return tuple([o for o in order1 + order2])
-
-
-def apply_fem_level(data, gctime=None):
+def apply_fem_level(data, gctime=None, skycal=None):
     ''' Applys the FEM level corrections to the given data dictionary.
         
         Inputs:
-          data     A dictionary such as that returned by read_idb().
+          data     A dictionary such as that returned by readXdata().
           gctime   A Time() object whose date specifies which GAINCALTEST
                      measurements to use.  If omitted, the date of the data
                      is used.
+          skycal   Optional array of receiver noise from SKYCAL or GAINCAL
+                     calibration.  Only the receiver noise is applied (subtracted)
 
         Output:
           cdata    A dictionary with the level-corrected data.  The keys
                      p, x, p2, and a are all updated.
     '''
-    from util import common_val_idx, nearest_val_idx, bl2ord
     import attncal as ac
     from gaincal2 import get_fem_level
     import copy
@@ -130,12 +131,14 @@ def apply_fem_level(data, gctime=None):
     # Currently, GAINCALTEST measures 8 levels of attenuation (16 dB).  I assumed this would be enough,
     # but the flare of 2017-09-10 actually went to 10 levels (20 dB), so we have no choice but to extend
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
-    # extends to the maximum 14 levels.
-    a = np.zeros((14, 13, 2, nf), float)  # Extend attenuation to 14 levels
-    a[:8, :, :, idx1] = attn['attn'][:, :13, :, idx2]  # Use GAINCALTEST results in the first 8 levels
-    for i in range(7, 13):
-        # Extend to levels 9-14 by adding 2 dB to each previous level
+    # extends to the maximum 16 levels.
+    a = np.zeros((16, 13, 2, nf), float)  # Extend attenuation to 14 levels
+    a[1:9, :, :, idx1] = attn['attn'][:, :13, :, idx2]  # Use GAINCALTEST results in levels 1-9 (bottom level is 0dB)
+    for i in range(8, 15):
+        # Extend to levels 9-15 by adding 2 dB to each previous level
         a[i + 1] = a[i] + 2.
+    a[15] = 62.  # Level 15 means 62 dB have been inserted.
+    #print 'Attn list (dB) for ant 1, pol xx, lowest frequency:',a[:,0,0,0]
     for i in range(13):
         for k, j in enumerate(idx1):
             antgain[i, 0, j] = a[src_lev['hlev'][i], i, 0, j]
@@ -157,11 +160,32 @@ def apply_fem_level(data, gctime=None):
 
     idx = nearest_val_idx(data['time'], src_lev['times'].jd)
     nt = len(idx)  # New number of times
+    # If a skycal dictionary exists, subtract auto-correlation receiver noise before scaling (clip to 0)
+    if skycal:
+        sna, snp, snf = skycal['rcvr_bgd_auto'].shape
+        bgd = skycal['rcvr_bgd_auto'].repeat(nt).reshape((sna,snp,snf,nt))
+        # Reorder axes
+        bgd = np.swapaxes(bgd,0,2)
+        bslice = bgd[:,:,:,idx]
+        for i in range(13):
+            cdata['x'][:, bl2ord[i,i], 0] = np.clip(cdata['x'][:, bl2ord[i,i], 0] - bslice[:,0,i],0,None)
+            cdata['x'][:, bl2ord[i,i], 1] = np.clip(cdata['x'][:, bl2ord[i,i], 1] - bslice[:,1,i],0,None)
     # Correct the auto- and cross-correlation data
     cdata['x'] *= blgain[:, :, :, idx]
     # Reshape px and py arrays
     cdata['px'].shape = (nf, 16, 3, nt)
     cdata['py'].shape = (nf, 16, 3, nt)
+    # If a skycal dictionary exists, subtract total power receiver noise before scaling (clip to 0)
+    # NB: This will break SK!
+    if skycal:
+        sna, snp, snf = skycal['rcvr_bgd'].shape
+        bgd = skycal['rcvr_bgd'].repeat(nt).reshape((sna,snp,snf,nt))
+        # Reorder axes
+        bgd = np.swapaxes(bgd,0,2)
+        bslice = bgd[:,:,:,idx]
+        bgnd = np.rollaxis(bslice,3)
+        cdata['px'][:, :13, 0] = np.clip(cdata['px'][:, :13, 0] - bslice[:,0],0,None)
+        cdata['py'][:, :13, 0] = np.clip(cdata['py'][:, :13, 0] - bslice[:,1],0,None)
     # Correct the power
     cdata['px'][:, :15, 0] *= antgainf[:, :, 0, idx]
     cdata['py'][:, :15, 0] *= antgainf[:, :, 1, idx]
@@ -174,8 +198,10 @@ def apply_fem_level(data, gctime=None):
     return cdata
 
 
-def apply_attn_corr(data, tref=None, flags=None):
-    ''' Applys the attenuator state corrections to the given data dictionary,
+def apply_attn_corr(data, tref=None):
+    ''' NB: This routine has been superseded by apply_fem_level()
+    
+        Applies nominal attenuator state corrections to the given data dictionary,
         corrected to the gain-state at time given by Time() object tref.
         
         Inputs:
@@ -183,6 +209,8 @@ def apply_attn_corr(data, tref=None, flags=None):
           tref     A Time() object with the reference time, or if None,
                      the gain state of the nearest earlier REFCAL is 
                      used.
+          skycal   Optional array of receiver noise from SKYCAL or GAINCAL
+                     calibration.  Only the receiver noise is applied (subtracted)
 
         Output:
           cdata    A dictionary with the gain-corrected data.  The keys
@@ -193,7 +221,6 @@ def apply_attn_corr(data, tref=None, flags=None):
         readXdata() routine.
     '''
     from gaincal2 import get_gain_state
-    from util import common_val_idx, nearest_val_idx, bl2ord
     import copy
     if tref is None:
         # No reference time specified, so get nearest earlier REFCAL
@@ -306,14 +333,9 @@ def apply_calfac(data, calfac):
         Output:
             cdata   The calibrated data
             
-        N.B.:  The offsun level needs to be subtracted to calibrate power and 
-               auto-correlation, but this is not done here.  Instead, one must
-               later read the calfac dictionary using get_calfac(), and then
-               subtract tpoffsun*tpcalfac from power, and acoffsun*accalfac from 
-               auto-correlation.
+        N.B.:  Spectral Kurtosis is no longer valid after applying calibration
     '''
     import copy
-    from util import common_val_idx, bl2ord
     fghz = data['fghz']
     nfin = len(fghz)
     # Find common frequencies
@@ -322,33 +344,41 @@ def apply_calfac(data, calfac):
     missing = np.setdiff1d(np.arange(len(fghz)), idx1)
     nant = 16
     nblant = nant * (nant - 1) / 2 + nant
-    blfac = np.ones((nf, nblant, 4), float)  # Factors for missing antennas/frequencies are set to unity
+    blfac =  np.ones((nf, nblant, 4), float)  # Factors for missing antennas/frequencies are set to unity
+    bloff = np.zeros((nf, nblant, 4), float)  # Offsun values (will be zero except for auto-correlations)
     fac = calfac['accalfac'][:, :, idx2]  # Extract only common frequencies
+    acoffsun = calfac['acoffsun'][:, :, idx2]  # Extract only common frequencies
     for i in range(13):
         for j in range(i, 13):
             blfac[idx1, bl2ord[i, j], 0] = np.sqrt(fac[i, 0] * fac[j, 0])
             blfac[idx1, bl2ord[i, j], 1] = np.sqrt(fac[i, 1] * fac[j, 1])
             blfac[idx1, bl2ord[i, j], 2] = np.sqrt(fac[i, 0] * fac[j, 1])
             blfac[idx1, bl2ord[i, j], 3] = np.sqrt(fac[i, 1] * fac[j, 0])
+            if i == j:
+                bloff[idx1, bl2ord[i, j], 0] = acoffsun[j, 0]
+                bloff[idx1, bl2ord[i, j], 1] = acoffsun[j, 1]
     antfac = np.ones((nf, nant, 2), float)  # Factors for missing antennas/frequencies are set to unity
+    offsun = np.zeros((nf, nant, 2), float) # Offsun for missing antennas/frequencies are set to zero
     for i in range(13):
         for j in range(2):
             antfac[idx1, i, j] = calfac['tpcalfac'][i, j, idx2]
+            offsun[idx1, i, j] = calfac['tpoffsun'][i, j, idx2]
     cdata = copy.deepcopy(data)
     nt = len(data['time'])
     # Calibrate the auto- and cross-correlation data
+    # Note that bloff is non-zero only for the real part of auto-correlations
     for i in range(nt):
-        cdata['x'][idx1, :, :, i] *= blfac
+        cdata['x'][idx1, :, :, i] = (cdata['x'][idx1, :, :, i]-bloff)*blfac
     # Reshape px and py arrays
     cdata['px'].shape = (nfin, 16, 3, nt)
     cdata['py'].shape = (nfin, 16, 3, nt)
     for i in range(nt):
         # Correct the power
-        cdata['px'][idx1, :, 0, i] *= antfac[:, :, 0]
-        cdata['py'][idx1, :, 0, i] *= antfac[:, :, 1]
-        # Correct the power-squared
-        cdata['px'][idx1, :, 1, i] *= antfac[:, :, 0] ** 2
-        cdata['py'][idx1, :, 1, i] *= antfac[:, :, 1] ** 2
+        cdata['px'][idx1, :, 0, i] = (cdata['px'][idx1, :, 0, i] - offsun[:, :, 0])*antfac[:, :, 0]
+        cdata['py'][idx1, :, 0, i] = (cdata['py'][idx1, :, 0, i] - offsun[:, :, 1])*antfac[:, :, 1]
+        # Zero-out the power-squared, since SK is no longer valid after applying calibration
+        cdata['px'][idx1, :, 1, i] = 0.0
+        cdata['py'][idx1, :, 1, i] = 0.0
     # Reshape px and py arrays back to original
     cdata['px'].shape = (nfin * 16 * 3, nt)
     cdata['py'].shape = (nfin * 16 * 3, nt)
@@ -372,7 +402,6 @@ def unrot(data, azeldict=None):
                      x is updated.
     '''
     import copy
-    from util import lobe, bl2ord
     trange = Time(data['time'][[0, -1]], format='jd')
 
     if azeldict is None:
@@ -409,9 +438,13 @@ def unrot(data, azeldict=None):
     for i in range(13):
         for j in range(i + 1, 14):
             k = bl2ord[i, j]
+            if j == 14:                  # xi_rot was applied for all antennas, but this
+                xi = xi_rot[fidx2]       # is wrong.  Now it is only done for ant14.
+            else:
+                xi = 0.0                 # xi_rot for other antennas is just zero.
             a1 = lobe(dph[i, fidx2] - dph[j, fidx2])
-            a2 = -dph[j, fidx2] - xi_rot[fidx2]
-            a3 = dph[i, fidx2] - xi_rot[fidx2] + np.pi
+            a2 = -dph[j, fidx2] - xi
+            a3 = dph[i, fidx2] - xi + np.pi
             data['x'][fidx1, k, 1] *= np.repeat(np.exp(1j * a1), nt).reshape(nf, nt)
             data['x'][fidx1, k, 2] *= np.repeat(np.exp(1j * a2), nt).reshape(nf, nt)
             data['x'][fidx1, k, 3] *= np.repeat(np.exp(1j * a3), nt).reshape(nf, nt)
@@ -468,6 +501,7 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
     import udb_util as uu
     import time
     from pathlib2 import Path
+    from copy import deepcopy
     if type(filelist) is str or type(filelist) is np.string_:
         # Convert input filename to list if not already a list
         filelist = [filelist]
@@ -480,6 +514,14 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
     for filename in filelist:
         t1 = time.time()
         out = uu.readXdata(filename)
+        # temp
+        nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
+        out['px'].shape = (nf, 16, 3, nt)
+        f = open('pctemp.dat','ab')
+        f.write(deepcopy(out['px'][:,0,0,25]))
+        out['px'].shape = (nf*16*3,nt)
+        f.close()
+        ## end temp
         print 'Reading file took', time.time() - t1, 's'
         sys.stdout.flush()
         trange = Time(out['time'][[0, -1]], format='jd')
@@ -487,15 +529,26 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
         azeldict = get_sql_info(trange)
         print 'Reading SQL info took', time.time() - t1, 's'
         sys.stdout.flush()
-        # Correct data for attenuation changes
+        ## Correct data for attenuation changes
         if attncal:
+            from calibration import skycal_anal
             t1 = time.time()
+            skycal = skycal_anal(t=trange[0],do_plot=False)
             if new:
-                cout = apply_fem_level(out, gctime)
+                # Subtract receiver noise, then correct for front end attenuation
+                cout = apply_fem_level(out, gctime, skycal=skycal)
             else:
                 cout = apply_attn_corr(out)
             print 'Applying attn correction took', time.time() - t1, 's'
             sys.stdout.flush()
+            ## temp
+            nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
+            cout['px'].shape = (nf, 16, 3, nt)
+            f = open('pctemp.dat','ab')
+            f.write(deepcopy(cout['px'][:,0,0,25]))
+            cout['px'].shape = (nf*16*3,nt)
+            f.close()
+            ## end temp
             t1 = time.time()
         else:
             cout = out
@@ -516,6 +569,14 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
             calfac = get_calfac(Time(mjd, format='mjd'))
             if Time(calfac['sqltime'], format='lv').mjd == mjd:
                 coutu = apply_calfac(coutu, calfac)
+                ## temp
+                nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
+                coutu['px'].shape = (nf, 16, 3, nt)
+                f = open('pctemp.dat','ab')
+                f.write(deepcopy(coutu['px'][:,0,0,25]))
+                coutu['px'].shape = (nf*16*3,nt)
+                f.close()
+                ## end temp
                 print 'Applying calibration took', time.time() - t1, 's'
             else:
                 print 'Error: no TP calibration for this date.  Skipping calibration.'

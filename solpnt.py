@@ -64,6 +64,12 @@
 #      Added find parameter to get_solpnt() call.
 #   2018-Jan-07  DG
 #      Tried to make find_solpnt() output more uniform by returning array, not list
+#   2019-May-21  DG
+#      Big change to process_tsys(), to apply SKYCAL offsun data if provided, as
+#      pseudo-10-degree offsets.
+#   2019-Jun-20  DG
+#      Forgot to subtract SKYCAL receiver noise from offsun before applying as
+#      10-degree offsets.  Now corrected.
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -550,14 +556,19 @@ def rd_tsys(tsysfile,sfreqfile):
     otp = {'ut_mjd':util.Time(tstamp[:j+1],format='lv').mjd,'fghz':sfreq[:nf],'tsys':np.swapaxes(out[:j+1,:nf,:],0,2),'header':header}
     return otp
 
-def process_tsys(otp, proc, pol=None):
+def process_tsys(otp, proc, pol=None, skycal=None):
     ''' OTP contains tsys, of size [nant, npol, nf, nt], ut_mjd of size [nt], fghz of size [nf]
-             and a 4-line ascii header.  nant is 4 for prototype
+            and a 4-line ascii header.  nant is 4 for prototype
         This only operates on one polarization at a time.  If npol = 2, use pol=0 and pol=1 in
             two subsequent calls to do both polarizations.
         PROC contains mask of size [nant', nt', npnt], and an array of timestamps,
-             to be compared with OTP['ut'] to synchronize them.  nant' is the number of
-             ants in the subarray.  This assumes the first four ants are the prototype ants.
+            to be compared with OTP['ut'] to synchronize them.  nant' is the number of
+            ants in the subarray.  This assumes the first four ants are the prototype ants.
+        skycal is an optional dictionary of SKYCALTEST results.  If provided (not None),
+            the data in the 'offsun' key will be used to create pseudo-10-degree pointing
+            offset data for the fitting.  This only works if SKYCALTEST and SOLPNTCAL
+            scans use the same frequencies and antennas, which should always be the case.
+             
     '''
     tsec1 = proc['tstamps']
     # The otp times, if from miriad, are slightly off from exact times, so round to the ms
@@ -591,13 +602,28 @@ def process_tsys(otp, proc, pol=None):
             else:
                 # Set values to median of good-tracking period
                 hpol[:,ipnt,iant] = np.median(tsys[antlist[iant],:,good],0)
+    raopts = proc['rao']
+    decopts = proc['deco']
     # At this stage, hpol is of size [nf, npnt, nant]
     rao = hpol[:,:13,:]   # First 13 pointings are RAO
     deco = hpol[:,13:,:]  # Second 13 pointings are DECO
+    # Handle skycal offsun modification, provided the number of frequencies
+    # and number of antennas in skycal and solpnt match (they should!).  Otherwise, skip it.
+    if (not pol is None) and skycal:
+        skynant, skynpol, skynf = skycal['offsun'].shape
+        if nf == skynf and nant == skynant:
+            # Insert 10-degree offsets before and after actual offsets
+            raopts = np.array([-100000.]+proc['rao'].tolist()+[100000.])
+            decopts = np.array([-100000.]+proc['deco'].tolist()+[100000.])
+            faroff = np.swapaxes(skycal['offsun'][:,pol,:]-skycal['rcvr_bgd'][:,pol,:],0,1)
+            faroff.shape = (nf,1,nant)
+            # Insert faroff values corresponding to 10-degree offsets
+            rao = np.concatenate((faroff,hpol[:,:13,:],faroff),1)
+            deco = np.concatenate((faroff,hpol[:,13:,:],faroff),1)
     for iant in range(nant):
         for ifreq in range(nf):
-            pra[:,ifreq,iant], x, y = gausfit(proc['rao'],rao[ifreq,:,iant])
-            pdec[:,ifreq,iant], x, y = gausfit(proc['deco'],deco[ifreq,:,iant])
+            pra[:,ifreq,iant], x, y = gausfit(raopts,rao[ifreq,:,iant])
+            pdec[:,ifreq,iant], x, y = gausfit(decopts,deco[ifreq,:,iant])
     return pra, pdec, rao, deco
         
 def common_val_idx(array1,array2):

@@ -73,6 +73,11 @@
 #      Added packet delay output to rd_jspec(), mainly for diagnostics
 #   2017-May-26  DG
 #      Added Quantizer Clipping Count (QClip) to header output.
+#   2019-Jun-21  DG
+#      Added time (as Time() object) returned from rd_jspec(). This is obtained from the
+#      PRT filename, which must have PRTyyyymmddhhmmss... form.  Also added the routine
+#      prt_dla(), to determine delay differences between two PRT captures on the CIEL-2
+#      geosynchronous satellite.
 
 import numpy as np
 import pdb
@@ -412,6 +417,17 @@ def rd_spec(filename,ptype='P',boardID=0,nboards=2,verbose=False):
     outarr.shape = (sout[0]*sout[1],sout[2],sout[3])
     return outarr
 
+def fname2time(filename):
+    ''' Parses standard filename string for date and returns it as Time() object
+    '''
+    from util import Time
+    fstem = filename.split('/')[-1]
+    fstr = fstem[3:7] + '-' + fstem[7:9] + '-' + fstem[9:11] + ' ' + fstem[11:13] + ':' + fstem[
+                                                                                          13:15] + ':' + fstem[
+                                                                                                         15:17]
+    t = Time(fstr)
+    return t
+
 def rd_jspec(filename):
     ''' Read all spectra in a Jim McT capture file
     
@@ -427,6 +443,7 @@ def rd_jspec(filename):
                   and overflow state.
     '''
     import struct, os
+    t = fname2time(filename)
     bl_order = get_bl_order(16)
     iauto = []
     icross = np.zeros((16,16),dtype='I')
@@ -514,8 +531,54 @@ def rd_jspec(filename):
             else:
                 # Some unknown packet?
                 pass
-        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr,'delays':outdla}
+        out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr,'delays':outdla, 'time': t}
     return out
+
+def prt_dla(out, ref, doplot=False):
+    ''' Print (and optionally plot) the delay differences between a PRT file from one correlator state
+        (the reference PRT file) and those in another correlator state after the correlator has been rebooted.
+        The procedure is to point the antennas at the geosynchronous satellite CIEL-2 and do a $capture-1s,
+        when the correlator is in the reference state, and then again after a reboot.  Note that sometimes
+        a glitch occurs to create very large delay differences on some antennas, in which case
+        it is best to simply reboot the correlator a second time.
+        
+            out    The structure returned from the rd_jspec() routine (in pcapture2.py), corresponding to the
+                     new correlator state.
+            ref    The structure returned from the rd_jspec() routine (in pcapture2.py), corresponding to the
+                     reference correlator state.
+            doplot An optional keyword.  If True, a plot is created to visually compare the results
+        
+        The results are printed to the terminal.  The purpose of this routine is as a sanity check for
+        possible glitches as described above, and as an aid to setting the delay centers using delay_widget.py.
+    '''
+    from util import bl2ord,lobe
+    if doplot:
+        import matplotlib.pylab as plt
+        f, ax = plt.subplots(3,4)
+        f.set_size_inches(12,7)
+        f.suptitle('Geosat Phase Diff for '+out['time'].iso[:19]+'UT (Ref Time: '+ref['time'].iso[:19]+' UT)',fontsize=16)
+        ax.shape = (12,)
+    dladiff = out['delays'][:,:,35]-ref['delays'][:,:,35]  # Difference in delay settings-
+    for i in range(12):
+        ddiff = dladiff[i+1,0] - dladiff[0,0]  # Difference in delay settings relative to Ant 1
+        xax = np.arange(2048)*0.2/2048. * 2*np.pi * 1.25
+        pdiff = np.unwrap(np.angle(out['x'][bl2ord[0,i+1],0,:2048,35]) - np.angle(ref['x'][bl2ord[0,i+1],0,:2048,35]) 
+                  - xax*ddiff)
+        res = np.polyfit(xax, pdiff, 1)
+        steps = np.round(res[0])
+        resid = int(round(np.std(lobe(pdiff - res[1] - steps*xax)[300:])*180./np.pi))
+        if resid > 10:
+            print '*Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
+        else:
+            print ' Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
+        if doplot:
+            ax[i].plot(lobe(np.polyval(res,xax)))
+            ax[i].plot(lobe(pdiff),',')
+            ax[i].plot(lobe(pdiff - res[0]*xax),',')
+            ax[i].text(100,3.3,'Ant '+str(i+2)+' relative to Ant 1')
+            ax[i].text(100,-3.9,'Delay '+str(steps*1.25)+' ns (steps='+str(int(steps))+')')
+            ax[i].set_ylim(-4,4)
+
 
 def get_bl_order(n_ants):
     """Return the order of baseline data output by a CASPER correlator

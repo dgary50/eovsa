@@ -180,6 +180,8 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
                     goes_data = 2* (np.log10(goes_data + 1.e-9)) + 26
                     ax.plot_date(goes_t, goes_data,'-',color='yellow')
                     ytext = np.median(goes_data) - 1
+                else:
+                    ytext = None
                 if not goes_t2 is None:
                     goes_data2 = 2* (np.log10(goes_data2 + 1.e-9)) + 26
                     ax.plot_date(goes_t2, goes_data2,'-',color='yellow')
@@ -266,6 +268,75 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
                 plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/XSP'+date+'.png',bbox_inches='tight')
     return out
 
+def cal_qual(t=None, savfig=False):
+    ''' Check the quality of the total power and gain calibrations for a given date
+    '''
+    import cal_header as ch
+    from stateframe import extract
+    import dump_tsys as dt
+    import pipeline_cal as pc
+    import matplotlib.pylab as plt
+    import os, rstn
+    
+    if t is None:
+        t = Time.now()
+    mjd = t.mjd
+    # First check whether the total power calibration is current
+    caltype = 10
+    xml, buf = ch.read_cal(caltype,t=t)
+    tp_mjd = Time(extract(buf,xml['SQL_timestamp']),format='lv').mjd
+    if mjd - tp_mjd > 0.5:
+        print 'CAL_QUAL: Warning, TP Calibration not (yet) available for this date.'
+    # Find GCAL scan for this date
+    fdb = dt.rd_fdb(Time(mjd,format='mjd'))
+    gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
+    if len(gcidx) == 1:
+        datadir=os.getenv('EOVSADB')
+        if not datadir:
+            # go to default directory on pipeline
+            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+        # List of GCAL files
+        gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
+    else:
+        print 'CAL_QUAL: Error, no GAINCALTEST scan for this date.'
+        return
+    # Find SOLPNTCAL scan for this date
+    fdb = dt.rd_fdb(Time(mjd,format='mjd'))
+    gcidx, = np.where(fdb['PROJECTID'] == 'SOLPNTCAL')
+    if len(gcidx) > 0:
+        datadir=os.getenv('EOVSADB')
+        if not datadir:
+            # go to default directory on pipeline
+            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+        # List of SOLPNTCAL files
+        solpntfile = [datadir+i for i in fdb['FILE'][gcidx]]
+    else:
+        print 'CAL_QUAL: Error, no SOLPNTCAL scan(s) for this date.'
+        return
+    files = gcalfile+solpntfile
+    outname = pc.udb_corr(files, calibrate=True, attncal=True)
+    out = ri.read_idb([outname])
+    nt = len(out['time'])
+    nf = len(out['fghz'])
+    f, ax = plt.subplots(4,7)
+    f.set_size_inches(16,7,forward=True)
+    f.tight_layout(rect=[0.0,0.0,1,0.95])
+    ax.shape = (2, 14)
+    for i in range(13):
+        for j in range(2):
+            ax[j,i].imshow(out['p'][i,j],aspect='auto',origin='lower',vmax=500,vmin=0)
+            ax[j,i].set_title('Ant '+str(i+1)+[' X Pol',' Y Pol'][j],fontsize=10)
+    frq, flux = rstn.rd_rstnflux(t)
+    s = rstn.rstn2ant(frq, flux, out['fghz']*1000., t)
+    fluximg = s.repeat(nt).reshape(nf,nt)
+    for j in range(2): 
+        ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=500,vmin=0)
+        ax[j,13].set_title('RSTN Flux',fontsize=10)
+    f.suptitle('Calibration Quality for '+t.iso[:10])
+    date = t.iso[:10].replace('-','')
+    if savfig:
+        plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/CAL'+date+'.png')
+    
 
 if __name__ == "__main__":
     ''' For non-interactive use, use a backend that does not require a display

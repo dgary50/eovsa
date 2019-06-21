@@ -359,11 +359,14 @@ def get_gain_state(trange, dt=None):
     cursor.close()
     return {'times':times,'h1':h1,'v1':v1,'h2':h2,'v2':v2,'dcmattn':dcmattn,'dcmoff':dcm_off}
 
-def apply_fem_level(data,gctime=None):
+def apply_fem_level(data, skycal=None, gctime=None):
     ''' Applys the FEM level corrections to the given data dictionary.
         
         Inputs:
           data     A dictionary such as that returned by read_idb().
+          skycal   A dictionary returned by skycal_anal() in calibration.py.  This is
+                     used to subtract a small "receiver background" before scaling for
+                     fem level, and then adding it back.
           gctime   A Time() object whose date specifies which GAINCALTEST
                      measurements to use.  If omitted, the date of the data
                      is used.
@@ -390,12 +393,24 @@ def apply_fem_level(data,gctime=None):
     # First attempt to read from the SQL database.  If that fails, read from the IDB file itself
     try:
         attn = ac.read_attncal(gctime)[0]   # Attn from SQL
+        if (gctime.mjd - attn['time'].mjd) > 1:
+            # SQL entry is too old, so analyze the GAINCALTEST
+            attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)            
     except:
         attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
     antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
     idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
-    a = attn['attn']
+    # Currently, GAINCALTEST measures 8 levels of attenuation (16 dB).  I assumed this would be enough,
+    # but the flare of 2017-09-10 actually went to 10 levels (20 dB), so we have no choice but to extend
+    # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
+    # extends to the maximum 16 levels.
+    a = np.zeros((16, 13, 2, nf), float)  # Extend attenuation to 14 levels
+    a[1:9, :, :, idx1] = attn['attn'][:, :13, :, idx2]  # Use GAINCALTEST results in levels 1-9 (bottom level is 0dB)
+    for i in range(8, 15):
+        # Extend to levels 9-15 by adding 2 dB to each previous level
+        a[i + 1] = a[i] + 2.
+    a[15] = 62.  # Level 15 means 62 dB have been inserted.
     for i in range(13):
         for k,j in enumerate(idx1):
             antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
@@ -415,10 +430,22 @@ def apply_fem_level(data,gctime=None):
     # Apply corrections (some times may be eliminated from the data)
     # Correct the cross-correlation data
     cdata['x'] *= blgain[:,:,:,idx]
-    # Correct the power
+    # If a skycal dictionary exists, subtract receiver noise before scaling
+    # NB: This will break SK!
+    if skycal:
+        sna, snp, snf = skycal['rcvr_bgd'].shape
+        bgd = skycal['rcvr_bgd'].repeat(nt).reshape((sna,snp,snf,nt))
+        bgd_auto = skycal['rcvr_bgd_auto'].repeat(nt).reshape((sna,snp,snf,nt))
+        cdata['p'][:13] -= bgd[:,:,:,idx]
+        cdata['a'][:13,:2] -= bgd_auto[:,:,:,idx]
+    # Correct the power,
     cdata['p'][:15] *= antgainf[:,:,:,idx]
     # Correct the autocorrelation
     cdata['a'][:15,:2] *= antgainf[:,:,:,idx]
+    # If a skycal dictionary exists, add back the receiver noise
+    #if skycal:
+    #    cdata['p'][:13] += bgd[:,:,:,idx]
+    #    cdata['a'][:13,:2] += bgd_auto[:,:,:,idx]
     cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
     cdata['a'][:15,2] *= cross_fac[:,:,idx]
     cdata['a'][:15,3] *= cross_fac[:,:,idx]
@@ -457,6 +484,9 @@ def apply_gain_corr(data, tref=None):
             tref = Time(trange[0].iso[:10]+' 13:30')
         else:
             tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+        if trange[0].mjd - tref.mjd > 2:
+            # Reference calibration is too old, so just use an early time as reference
+            tref = Time(trange[0].iso[:10]+' 13:30')
     # Get the gain state at the reference time (actually median over 1 minute)
     trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
     ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s

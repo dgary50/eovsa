@@ -116,7 +116,6 @@ def tp_writefits(out, med):
        from it, and creates a FITS file.  Output is the filename.
     '''
 
-    import os
     file_out = ''
     if out == None or len(out) == 0:
         print 'tp_writefits: No data input'

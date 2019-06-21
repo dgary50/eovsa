@@ -11,6 +11,8 @@
 #    A bug occurred on some dates due to source not being within 0.1 degree of
 #    10 degrees altitude.  Introduced a for loop and test in both whenup() and
 #    make_sched() to use a wider window.
+#  2019-05-20  DG
+#    Added a 1-min PHASECAL with sequence solar.fsq just before the SKYCALTEST.
 
 import os
 from util import Time
@@ -368,7 +370,8 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         pc2start = min(pc2start,pc2set-caldur/1440.)
         lines.append('{:} {:} {:}'.format(Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'))
-        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
+        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
+        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
         lines.append('{:} {:}'.format(Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'))
         lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'))
@@ -382,7 +385,8 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         if verbose:
             print Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]
             print Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'
-            print Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
+            print Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
+            print Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
             print Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'
             print Time(imjd + (18.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'
@@ -418,7 +422,8 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
 
         lines.append('{:} {:} {:}'.format(Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'))
-        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
+        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
+        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
         lines.append('{:} {:}'.format(Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:}'.format(Time(imjd + (17.*60. + 00.)/1440.,format='mjd').iso[:19],'GAINCALTEST'))
         lines.append('{:} {:}'.format(Time(imjd + (17.*60. + 03.)/1440.,format='mjd').iso[:19],'SUN'))
@@ -435,7 +440,8 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         if verbose:
             print Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]
             print Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'
-            print Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
+            print Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
+            print Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
             print Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + (17.*60. + 00.)/1440.,format='mjd').iso[:19],'GAINCALTEST'          
             print Time(imjd + (17.*60. + 03.)/1440.,format='mjd').iso[:19],'SUN'

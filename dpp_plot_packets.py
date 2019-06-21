@@ -1,3 +1,10 @@
+# History
+# 2019-04-10  DG
+#   Several changes to dpp_fix_packets() to that it never exits (CTRL-C to kill it),
+#   and to fix a bug so that the timeout is honored correctly.  Also, the procstat()
+#   routine is no longer called during a timeout.  Since the interfaces only need 
+#   resetting every 15 minutes, the timeout is increased to 10 minutes.
+
 import numpy as np
 import time
 from util import Time
@@ -65,39 +72,35 @@ def fix_packets(cpu=[22,23]):
         it sends a command to reset the interfaces.
     '''
     import  subprocess
-    n = 86400  # Number of seconds in one day
     time.sleep(1 - (time.time() % 1))
     val0 = procstat(cpu[0],cpu[1])
     time.sleep(1 - (time.time() % 1))
     t0 = time.time()
     tiso = Time.now().iso
-    z = np.zeros(n,dtype=float)
-    ld1 = z*np.nan
-    ld2 = z*np.nan
-    t = np.zeros(n+1,dtype=float)
-    t[0] = -1.0
     i = 0
     timeout = 5   # Leave a 5-s window to avoid resetting too often
     print Time.now().iso, 'Started...'
-    while t[i] < n:
-        try:
-            t[i+1] = time.time() - t0
-        except:
-            print 'All done.'
-            return
-        val = procstat(cpu[0],cpu[1])
-        if1 = (val-val0)[0]/(t[i+1]-t[i])
-        if2 = (val-val0)[1]/(t[i+1]-t[i])
-        if timeout == 0 and (100000 < if1 < 130000) or (100000 < if2 < 130000):
-            print Time.now().iso,'Packet loss detected!', np.round(if1), np.round(if2), 'Resetting interfaces'
-            command = ['sudo','/usr/sbin/netplan','apply']
-            proc = subprocess.Popen(command)
-            timeout = 5   # Leave a 5-s window to avoid resetting too often
+    tpre = -1
+    while 1:
+        t = time.time() - t0
+        if timeout == 0:
+            val = procstat(cpu[0],cpu[1])
+            if1 = (val-val0)[0]/(t-tpre)
+            if2 = (val-val0)[1]/(t-tpre)
+            val0 = val
+            tpre = t
+            if (100000 < if1 < 130000) or (100000 < if2 < 130000):
+                print Time.now().iso,'Packet loss detected!', np.round(if1), np.round(if2), 'Resetting interfaces'
+                command = ['sudo','/usr/sbin/netplan','apply']
+                proc = subprocess.Popen(command)
+                timeout = 600   # Leave a 10-min window to avoid resetting too often
         else:
             timeout = max(timeout - 1, 0)
-        if int(round(t[i]) % 60) == 0:
-            print Time.now().iso, np.round(if1), np.round(if2)
-        val0 = val
-        i += 1
+        if int(round(t) % 60) == 0:
+            if timeout == 0:
+                print Time.now().iso, np.round(if1), np.round(if2)
+            else:
+                print Time.now().iso, 'Waiting for end of timeout, now',timeout
+            
         time.sleep(1 - (time.time() % 1))
     
