@@ -96,11 +96,15 @@
 #  2019-Feb-20  DG
 #    Fix long-standing error mode, where an empty datalist in read_idb() would cause a 
 #    crash.  Now returns an empty dictionary.
+#  2019-Jun-22  DG
+#    Fix bandname list to work with either 34 or 52 band data, depending on date.  Dates
+#    prior to 2019-Feb-22 use 34 bands.  Also, added allow_pickle=True in np.load() call
+#    in read_npz().  Looks like a new security "feature" of Python.
 #
 
 import aipy
 import os
-from util import Time, nearest_val_idx, bl2ord, ant_str2list
+from util import Time, nearest_val_idx, bl2ord, ant_str2list, common_val_idx, lobe
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -110,6 +114,7 @@ from matplotlib.dates import DateFormatter
 import eovsa_lst as el
 import copy
 import chan_util_bc as cu
+import chan_util_52 as cu52
 
 #bl2ord = p.bl_list()
 
@@ -372,11 +377,11 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     ha[np.where(ha > np.pi)] -= 2*np.pi
     ha[np.where(ha < -np.pi)] += 2*np.pi
     # Find out band name for each frequency
-    bd = (freq*2 - 1).astype(np.int)
-    #bd=[]
-    #for f in freq:
-    #    bd.append(cu.freq2bdname(f))
-    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'band':np.array(bd),'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
+    if Time(timearray[0],format='jd').mjd > 58536:
+        bd = np.array(cu52.freq2bdname(freq))
+    else:
+        bd = np.array(cu.freq2bdname(freq))
+    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'band':bd,'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
     return out
 
 def readXdatmp(filename):
@@ -1009,7 +1014,7 @@ def read_npz(files):
     ha = []
     for file in files:
         f = open(file,'rb')
-        data = np.load(f)
+        data = np.load(f, allow_pickle=True)
         if file == files[0]:
             out = data[data.keys()[0]].item()
         outp.append(data[data.keys()[0]].item()['p'])
@@ -1180,736 +1185,92 @@ def get_trange_files(trange):
             # else:
                 # print 'please choose valid plot type'
 
-def unrot(data,params=[1.,0.,0.],reverse=False):
-    ''' params gives non-ideal behavior of second ant, as a, d, chi0,
-        where a is gain factor Y/X, d is cross-talk as fraction of X,
-        and chi0 is feed rotation in degrees.
+def unrot(data, azeldict=None):
+    ''' Apply the correction to differential feed rotation to data, and return
+        the corrected data.  This also applies flags to data whose antennas are
+        not tracking.
+
+        Inputs:
+          data     A dictionary returned by read_idb.py's readXdata().
+          azeldict The dictionary returned from get_sql_info(), or if None, the appropriate
+                     get_sql_info() call is done internally.
+
+        Output:
+          cdata    A dictionary with the phase-corrected data.  Only the key
+                     x is updated.
     '''
-    import feed_rot_simulation as frs
-    import dbutil as db
-    nant = 14
-    trange = Time([data['time'][0],data['time'][-1]],format='jd')
-    times, chi = db.get_chi(trange)
-    nt, = times.shape
-    nf, = data['fghz'].shape
-    # Find only "good" chi values, i.e. those not too close
-    # to zero, since missing values are zero.
-    good = []
-    for i in range(nant):
-        good.append(np.where(np.abs(chi[:,i]) > 0.001)[0])
-        if len(good[i]) == 0:
-            # This antenna must be offline, so go ahead and use all times.
-            # They will be ignored anyway
-            good[i] = np.arange(nt)
-    # Set chi = 0 for equatorial antennas
-    eq = np.array([8,9,10,12,13])
-    chi = chi.astype(np.float)
-    chi[:,eq] = 0.0
-    chigood = np.zeros((nant,len(data['time'])),np.float)
-    # Use only times corresponding to good values of chi, to find
-    # nearest times to the data for each antenna
-    for i in range(nant):
-        idx = nearest_val_idx(data['time'],times[good[i]].jd)
-        chigood[i] = chi[good[i][idx],i]
-    outdata = np.zeros_like(data['x'])
-    pol = np.array([0,2,3,1])  # Reorder polarizations to XX, XY, YX, YY
-    for i in range(0,nant-1):
-        for j in range(i+1,nant):
-            for ifghz in range(nf):
-                indict = {'data':data['x'][bl2ord[i,j],pol,ifghz],'chi1':chigood[i]+params[2],'chi2':chigood[j],'a1':1,'a2':params[0],'d1':0,'d2':params[1],'unrot': (not reverse)}
-                outdata[bl2ord[i,j],:,ifghz] = frs.rot_sim(indict)
-    return outdata
-    
-def unrot_miriad(filename,timeit=False,post=''):
-    ''' Given a Miriad UV filename, read the parallactic angle information 
-        from the stateframe database and unrotate the correlated data on
-        each baseline.
-    '''
-    if timeit:
-        import time
-        ts = time.time()
-    # Open existing Miriad file
-    try:
-        uvi = aipy.miriad.UV(filename)
-    except:
-        print 'Error opening Miriad file',filename
-        return
-    # Create new file in current directory (this will have to be changed to
-    # something more rational after testing...)
-    try:
-        outfile = os.path.basename(filename)+post
-        uvo = aipy.miriad.UV(outfile, status='new',corrmode='j')
-        uvo.init_from_uv(uvi)
-    except:
-        print 'Could not open new Miriad file in current directory',outfile
-        return
-    # Do some sanity checks on this Miriad file
-    npol = uvi['npol']
-    if npol != 4:
-        print 'Expecting four polarizations in this Miriad file, but got',npol
-        return
-    # Do test read of file to find out how many good frequencies:
-    preamble, data = uvi.read()
-    ifgood, = data.nonzero()
-    uvi.rewind()
-    nant = uvi['nants']
-    nbl = nant*(nant-1)/2
-    nbla = nbl + nant
-    # Read the stateframe database and get the parallactic angle array
-    # Clean up by removing any near-zero values
-    import dbutil as db
-    # Convert filename string to Julian Date
-    jd = fname2mjd(filename) + 2400000.5
-    # Set a timerange based on filename, ending 10 minutes after file start
-    trange = Time([jd,jd+10./60./24.],format='jd')
-    # Get parallactic angle for this timerange from SQL database
-    times, chi = db.get_chi(trange)
-    jd = times.jd
-    nt, = times.shape
-    fghz = uvi['sfreq']
-    nf = len(fghz)
-    nfg = len(ifgood)
-    # Find only "good" chi values, i.e. those not too close
-    # to zero, to eliminate missing values.
-    good = []
-    for i in range(nant):
-        good.append(np.where(np.abs(chi[:,i]) > 0.001)[0])
-        if len(good[i]) == 0:
-            # This antenna must be offline, so go ahead and use all times.
-            # They will be ignored anyway
-            good[i] = np.arange(nt)
-    # Set chi = 0 for equatorial antennas (and for non-existent ants 15 & 16)
-    eq = np.array([8,9,10,12,13,14,15])
-    chiant = chi.astype(np.float)
-    chiant[:,eq] = 0.0
-    # Next open the information on non-ideal feed behavior (these are constants for each
-    # feed).  For now, just create an array with nominal values in place. This will become
-    # a table, probably in the SQL database.  The values for each antenna are:
-    #    a = Y feed amplitude, relative to X  [default is 1.0]
-    #    d = proportion of cross-talk of Y relative to X (assumed symmetric) [default is 0.0]
-    #    chi_0 = angle [degrees] of X and Y feeds relative to that of Ant 14 [default is 0]
-    #    t = Y feed delay [ns], relative to X [default is 0.0]
-    # Jones matrices for each antenna are the product of:
-    #    A = [ 1      d     ]       R = [ cos(chi-chi_0)   sin(chi-chi_0]
-    #        [-d  a*exp(iwt)]           [-sin(chi-chi_0)   cos(chi-chi_0]
-    antdata = np.array([[1., 0., 0., 0.134],   # Ant 1
-                        [1., 0., 0., 0.592],   # Ant 2
-                        [1., 0., 0., 0.449],   # Ant 3
-                        [1., 0., 0., 0.443],   # Ant 4
-                        [1., 0., 0., 0.318],   # Ant 5
-                        [1., 0., 0., -0.675],   # Ant 6
-                        [1., 0., 0., 0.000],   # Ant 7
-                        [1., 0., 0., 0.438],   # Ant 8
-                        [1., 0., 0., 0.0],   # Ant 9
-                        [1., 0., 0., 0.0],   # Ant 10
-                        [1., 0., 0., 0.0],   # Ant 11
-                        [1., 0., 0., -0.121],   # Ant 12
-                        [1., 0., 0., 0.0],   # Ant 13
-                        [1., 0., 0., 0.0],   # Ant 14
-                        [1., 0., 0., 0.],   # Ant 15
-                        [1., 0., 0., 0.]])   # Ant 16
-    antdata[:,3] = 0.0  # ********Temporary override of delays, for test of effect of delay on results.
-    # Create an array of matrices for each baseline, frequency and time
-    M = np.zeros((nbl,4,4,nfg,nt),np.complex)
-    nact = 14  # Actual number of antennas
-    for i in range(0,nact-1):
-        for j in range(i,nact):
-            ai, di, chi_0i, ti = antdata[i]
-            argi = 2*np.pi*ti*fghz
-            aj, dj, chi_0j, tj = antdata[j]
-            argj = 2*np.pi*tj*fghz
-            # Calculate the feed angle difference for this baseline (for all times)
-            Dchi = chiant[:,j] - chi_0j - (chiant[:,i] - chi_0i)
-            # R has shape (2,2,nt)
-            R = np.array([[np.cos(Dchi), -np.sin(Dchi)],[np.sin(Dchi), np.cos(Dchi)]])
-            ai *= np.cos(argi)+1j*np.sin(argi)
-            aj *= np.cos(argj)+1j*np.sin(argj)
-            for k in range(nfg):
-                Ai = np.array([[1,di],[-di,ai[k]]])
-                # Jones matrix for first antenna of pair, with rotation and delay applied, shape (2,2,nt)
-                JA = np.dot(Ai,R)
-                # Jones matrix for second antenna of pair, with delay applied, shape (2,2)
-                JB = np.array([[1,dj],[-dj,aj[k]]])
-                for n in range(nt):
-                     M[bl2ord[i,j],:,:,k,n] = np.kron(JA[:,:,n],np.conj(JB))
+    import copy
+    from pipeline_cal import get_sql_info
+    import cal_header as ch
+    from stateframe import extract
 
-    if timeit:
-        print 'Matrix complete after',time.time() - ts,'s'
-    # Read a block of data for the current time, which consists of NBLA data samples
-    # for each of 4 polarizations
-    tprev = 0  # Indicates a time change, so that time lookup only happens then
-    # Lists of premable-data pairs, one for each polarization
-    XX = []
-    YY = []
-    XY = []
-    YX = []
-    cnt_in = -1
-    cnt_out = 0
-    for pd in uvi.all():
-        cnt_in += 1
-        if pd[0][1] != tprev:
-            # Got a new time, so process current data and write it out
-            if tprev != 0:
-                # Find time index in M nearest to this time
-                idx, = nearest_val_idx([tprev],jd)
-                for ibl in range(len(XX)):
-                    # Step through baselines, rotating the data according to the matrix
-                    i0, j0 =  XX[ibl][0][2]
-                    if i0 == j0:
-                        # This is an auto-correlation, so nothing to do
-                        pass
-                    elif i0 >= nact or j0 >= nact:
-                        # Skip over baselines with non-existent antennas
-                        pass
-                    else:
-                        # Loop over non-zero frequencies, applying rotation matrix to each
-                        for j,k in enumerate(XX[ibl][1].nonzero()[0]):
-                            # Data vector for this baseline and frequency
-                            data = np.array([XX[ibl][1][k],XY[ibl][1][k],YX[ibl][1][k],YY[ibl][1][k]])
-                            try:
-                                iM = np.linalg.inv(M[bl2ord[i0,j0],:,:,j,idx])
-                                XX[ibl][1][k], XY[ibl][1][k], YX[ibl][1][k], YY[ibl][1][k] = np.dot(iM,data)
-                                #if i0 == 0 and j0 == 13 and k == XX[ibl][1].nonzero()[0][0]:
-                                #    print_calc(iM,data,tprev)
-                            except:
-                                # Case of singular matrix, generally because it is all zero
-                                break
-                uvo['pol'] = -5
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(XX[ibl][0],XX[ibl][1])
-                uvo['pol'] = -6
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(YY[ibl][0],YY[ibl][1])
-                uvo['pol'] = -7
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(XY[ibl][0],XY[ibl][1])
-                uvo['pol'] = -8
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(YX[ibl][0],YX[ibl][1])
-                #print '.',
-                #if (cnt_out % (136*4*50)) == 0:
-                #    print ' '
-                XX = []
-                YY = []
-                XY = []
-                YX = []
-                # Things to do on getting a new time--update variables:
-                uvo['ut'] = uvi['ut']
-                if 'lst' in uvi.vartable:
-                    uvo['lst'] = uvi['lst']
-                else:
-                    uvo['lst'] = 0.0
-                uvo['xsampler'] = uvi['xsampler']
-                uvo['ut'] = uvi['ut']
-                uvo['ysampler'] = uvi['ysampler']
-                uvo['delay'] = uvi['delay']
-            tprev = pd[0][1]
-            # Find nearest index in parallactic angles array, for this new time
-            idx = nearest_val_idx([tprev],jd)
-        # Separate data into the four polarizations
-        if uvi['pol'] == -5:
-            XX.append(pd)
-        elif uvi['pol'] == -6:
-            YY.append(pd)
-        elif uvi['pol'] == -7:
-            XY.append(pd)
-        elif uvi['pol'] == -8:
-            YX.append(pd)
-        else:
-            print 'Error-unrecognized polarization.'
-            return
-    # Don't forget to write out the last time sample
-    # Find time index in M nearest to this time
-    idx, = nearest_val_idx([tprev],jd)
-    for ibl in range(len(XX)):
-        # Step through baselines, rotating the data according to the matrix
-        i0, j0 =  XX[ibl][0][2]
-        if i0 == j0:
-            # This is an auto-correlation, so nothing to do
-            pass
-        elif i0 >= nact or j0 >= nact:
-            # Skip over baselines with non-existent antennas
-            pass
-        else:
-            # Loop over non-zero frequencies, applying rotation matrix to each
-            for j,k in enumerate(XX[ibl][1].nonzero()[0]):
-                # Data vector for this baseline and frequency
-                data = np.array([XX[ibl][1][k],XY[ibl][1][k],YX[ibl][1][k],YY[ibl][1][k]])
-                try:
-                    iM = np.linalg.inv(M[bl2ord[i0,j0],:,:,j,idx])
-                    XX[ibl][1][k], XY[ibl][1][k], YX[ibl][1][k], YY[ibl][1][k] = np.dot(iM,data)
-                    #if i0 == 0 and j0 == 13 and k == XX[ibl][1].nonzero()[0][0]:
-                    #    print_calc(iM,data,tprev)
-                except:
-                    # Case of singular matrix, generally because it is all zero
-                    break
-    uvo['pol'] = -5
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(XX[ibl][0],XX[ibl][1])
-    uvo['pol'] = -6
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(YY[ibl][0],YY[ibl][1])
-    uvo['pol'] = -7
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(XY[ibl][0],XY[ibl][1])
-    uvo['pol'] = -8
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(YX[ibl][0],YX[ibl][1])
-    if timeit:
-        print 'Done after',time.time() - ts,'s'
-    return
-  
-def print_calc(M,data,t):
-    res = np.dot(M,data)
-    dat = data
-    print Time(t,format='jd').iso[:19], '[',('{:6.3f} '*4).format(*M[0]),'] [ {:6.3f} ]   [ {:6.3f} ]'.format(dat[0],res[0])
-    print '                    [',('{:6.3f} '*4).format(*M[1]),'] [ {:6.3f} ] = [ {:6.3f} ]'.format(dat[1],res[1])
-    print '                    [',('{:6.3f} '*4).format(*M[2]),'] [ {:6.3f} ]   [ {:6.3f} ]'.format(dat[2],res[2])
-    print '                    [',('{:6.3f} '*4).format(*M[3]),'] [ {:6.3f} ]   [ {:6.3f} ]'.format(dat[3],res[3])
+    trange = Time(data['time'][[0, -1]], format='jd')
 
-def funrot_miriad(filename,timeit=False,post=''):
-    ''' Given a Miriad UV filename, read the parallactic angle information 
-        from the stateframe database and unrotate the correlated data on
-        each baseline.  This is supposed to be the "fast" version that
-        does this without doing delays, hence does not need to be done
-        separately for each frequency.
-    '''
-    if timeit:
-        import time
-        ts = time.time()
-    # Open existing Miriad file
-    try:
-        uvi = aipy.miriad.UV(filename)
-    except:
-        print 'Error opening Miriad file',filename
-        return
-    # Create new file in current directory (this will have to be changed to
-    # something more rational after testing...)
-    try:
-        outfile = os.path.basename(filename)+post
-        uvo = aipy.miriad.UV(outfile, status='new',corrmode='j')
-        uvo.init_from_uv(uvi)
-    except:
-        print 'Could not open new Miriad file in current directory',outfile
-        return
-    # Do some sanity checks on this Miriad file
-    npol = uvi['npol']
-    if npol != 4:
-        print 'Expecting four polarizations in this Miriad file, but got',npol
-        return
-    # Do test read of file to find out how many good frequencies:
-    preamble, data = uvi.read()
-    ifgood, = data.nonzero()
-    uvi.rewind()
-    nant = uvi['nants']
-    nbl = nant*(nant-1)/2
-    nbla = nbl + nant
-    # Read the stateframe database and get the parallactic angle array
-    # Clean up by removing any near-zero values
-    import dbutil as db
-    # Convert filename string to Julian Date
-    jd = fname2mjd(filename) + 2400000.5
-    # Set a timerange based on filename, ending 10 minutes after file start
-    trange = Time([jd,jd+10./60./24.],format='jd')
-    # Get parallactic angle for this timerange from SQL database
-    times, chi = db.get_chi(trange)
-    jd = times.jd
-    nt, = times.shape
-    fghz = uvi['sfreq']
-    nf = len(fghz)
-    nfg = len(ifgood)
-    # Find only "good" chi values, i.e. those not too close
-    # to zero, to eliminate missing values.
-    good = []
-    for i in range(nant):
-        good.append(np.where(np.abs(chi[:,i]) > 0.001)[0])
-        if len(good[i]) == 0:
-            # This antenna must be offline, so go ahead and use all times.
-            # They will be ignored anyway
-            good[i] = np.arange(nt)
-    # Set chi = 0 for equatorial antennas (and for non-existent ants 15 & 16)
-    eq = np.array([8,9,10,12,13,14,15])
-    chiant = chi.astype(np.float)
-    #chiant = -chi.astype(np.float)  # Test reversing sign of chi...
-    chiant[:,eq] = 0.0
-    # Next open the information on non-ideal feed behavior (these are constants for each
-    # feed).  For now, just create an array with nominal values in place. This will become
-    # a table, probably in the SQL database.  The values for each antenna are:
-    #    a = Y feed amplitude, relative to X  [default is 1.0]
-    #    d = proportion of cross-talk of Y relative to X (assumed symmetric) [default is 0.0]
-    #    chi_0 = angle [degrees] of X and Y feeds relative to that of Ant 14 [default is 0]
-    # Jones matrices for each antenna are the product of:
-    #    A = [ 1      d     ]       R = [ cos(chi-chi_0)   sin(chi-chi_0]
-    #        [-d      a     ]           [-sin(chi-chi_0)   cos(chi-chi_0]
-    antdata = np.array([[1., 0., 0.],   # Ant 1
-                        [1., 0., 0.],   # Ant 2
-                        [1., 0., 0.],   # Ant 3
-                        [1., 0., 0.],   # Ant 4
-                        [1., 0., 0.],   # Ant 5
-                        [1., 0., 0.],   # Ant 6
-                        [1., 0., 0.],   # Ant 7
-                        [1., 0., 0.],   # Ant 8
-                        [1., 0., 0.],   # Ant 9
-                        [1., 0., 0.],   # Ant 10
-                        [1., 0., 0.],   # Ant 11
-                        [1., 0., 0.],   # Ant 12
-                        [1., 0., 0.],   # Ant 13
-                        [1., 0., 0.],   # Ant 14
-                        [1., 0., 0.],   # Ant 15
-                        [1., 0., 0.]])   # Ant 16
-    # Create an array of matrices for each baseline, frequency and time
-    iM = np.zeros((nbl,4,4,nt),np.complex)
-    nact = 14  # Actual number of antennas
-    for i in range(0,nact-1):
-        for j in range(i,nact):
-            ai, di, chi_0i = antdata[i]
-            aj, dj, chi_0j = antdata[j]
-            # Calculate the feed angle difference for this baseline (for all times)
-            Dchi = chiant[:,j] - chi_0j - (chiant[:,i] - chi_0i)
-            # R has shape (2,2,nt)
-            R = np.array([[np.cos(Dchi), -np.sin(Dchi)],[np.sin(Dchi), np.cos(Dchi)]])
-            Ai = np.array([[1,di],[-di,ai]])
-            # Jones matrix for first antenna of pair, with rotation and delay applied, shape (2,2,nt)
-            JA = np.dot(Ai,R)
-            # Jones matrix for second antenna of pair, with delay applied, shape (2,2)
-            JB = np.array([[1,dj],[-dj,aj]])
-            for n in range(nt):
-                try:
-                    iM[bl2ord[i,j],:,:,n] = np.linalg.inv(np.kron(JA[:,:,n],np.conj(JB)))
-                except:
-                    iM[bl2ord[i,j],:,:,n] = np.array([[1,0],[0,1]])
+    if azeldict is None:
+        azeldict = get_sql_info(trange)
+    chi = azeldict['ParallacticAngle'] * np.pi / 180.  # (nt, nant)
+    # Correct parallactic angle for equatorial mounts, relative to Ant14
+    chi[:, [8, 9, 10, 12, 13]] = 0  # Currently 0, but can be measured and updated
 
-    if timeit:
-        print 'Matrix complete after',time.time() - ts,'s'
-    # Read a block of data for the current time, which consists of NBLA data samples
-    # for each of 4 polarizations
-    tprev = 0  # Indicates a time change, so that time lookup only happens then
-    # Lists of premable-data pairs, one for each polarization
-    XX = []
-    YY = []
-    XY = []
-    YX = []
-    cnt_in = -1
-    cnt_out = 0
-    for pd in uvi.all():
-        cnt_in += 1
-        if pd[0][1] != tprev:
-            # Got a new time, so process current data and write it out
-            if tprev != 0:
-                # Find time index in M nearest to this time
-                idx, = nearest_val_idx([tprev],jd)
-                for ibl in range(len(XX)):
-                    # Step through baselines, rotating the data according to the matrix
-                    i0, j0 =  XX[ibl][0][2]
-                    if i0 == j0:
-                        # This is an auto-correlation, so nothing to do
-                        pass
-                    elif i0 >= nact or j0 >= nact:
-                        # Skip over baselines with non-existent antennas
-                        pass
-                    else:
-                        # try:
-                            # iM = np.linalg.inv(M[bl2ord[i0,j0],:,:,idx])
-                        # except:
-                            # # In case of singular matrix, just use the identity matrix
-                            # iM = np.array([[1,0],[0,1]])
-                        # Loop over non-zero frequencies, applying rotation matrix to each
-                        for k in XX[ibl][1].nonzero()[0]:
-                            # Data vector for this baseline and frequency
-                            data = np.array([XX[ibl][1][k],XY[ibl][1][k],YX[ibl][1][k],YY[ibl][1][k]])
-                            XX[ibl][1][k], XY[ibl][1][k], YX[ibl][1][k], YY[ibl][1][k] = np.dot(iM[bl2ord[i0,j0],:,:,idx],data)
-                            #if i0 == 0 and j0 == 13 and k == XX[ibl][1].nonzero()[0][0]:
-                            #    print_calc(iM,data,tprev)
-                uvo['pol'] = -5
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(XX[ibl][0],XX[ibl][1])
-                uvo['pol'] = -6
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(YY[ibl][0],YY[ibl][1])
-                uvo['pol'] = -7
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(XY[ibl][0],XY[ibl][1])
-                uvo['pol'] = -8
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(YX[ibl][0],YX[ibl][1])
-                #print '.',
-                #if (cnt_out % (136*4*50)) == 0:
-                #    print ' '
-                XX = []
-                YY = []
-                XY = []
-                YX = []
-                # Things to do on getting a new time--update variables:
-                uvo['ut'] = uvi['ut']
-                if 'lst' in uvi.vartable:
-                    uvo['lst'] = uvi['lst']
-                else:
-                    uvo['lst'] = 0.0
-                uvo['xsampler'] = uvi['xsampler']
-                uvo['ut'] = uvi['ut']
-                uvo['ysampler'] = uvi['ysampler']
-                uvo['delay'] = uvi['delay']
-            tprev = pd[0][1]
-            # Find nearest index in parallactic angles array, for this new time
-            idx = nearest_val_idx([tprev],jd)
-        # Separate data into the four polarizations
-        if uvi['pol'] == -5:
-            XX.append(pd)
-        elif uvi['pol'] == -6:
-            YY.append(pd)
-        elif uvi['pol'] == -7:
-            XY.append(pd)
-        elif uvi['pol'] == -8:
-            YX.append(pd)
-        else:
-            print 'Error-unrecognized polarization.'
-            return
-    # Don't forget to write out the last time sample
-    # Find time index in M nearest to this time
-    idx, = nearest_val_idx([tprev],jd)
-    for ibl in range(len(XX)):
-        # Step through baselines, rotating the data according to the matrix
-        i0, j0 =  XX[ibl][0][2]
-        if i0 == j0:
-            # This is an auto-correlation, so nothing to do
-            pass
-        elif i0 >= nact or j0 >= nact:
-            # Skip over baselines with non-existent antennas
-            pass
-        else:
-            # try:
-                # iM = np.linalg.inv(M[bl2ord[i0,j0],:,:,idx])
-            # except:
-                # # In case of singular matrix, just use the identity matrix
-                # iM = np.array([[1,0],[0,1]])
-            # Loop over non-zero frequencies, applying rotation matrix to each
-            for k in XX[ibl][1].nonzero()[0]:
-                # Data vector for this baseline and frequency
-                data = np.array([XX[ibl][1][k],XY[ibl][1][k],YX[ibl][1][k],YY[ibl][1][k]])
-                XX[ibl][1][k], XY[ibl][1][k], YX[ibl][1][k], YY[ibl][1][k] = np.dot(iM[bl2ord[i0,j0],:,:,idx],data)
-    uvo['pol'] = -5
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(XX[ibl][0],XX[ibl][1])
-    uvo['pol'] = -6
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(YY[ibl][0],YY[ibl][1])
-    uvo['pol'] = -7
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(XY[ibl][0],XY[ibl][1])
-    uvo['pol'] = -8
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(YX[ibl][0],YX[ibl][1])
-    if timeit:
-        print 'Done after',time.time() - ts,'s'
-    return
+    # Which antennas are tracking
+    track = azeldict['TrackFlag']  # True if tracking
 
-def applycal_miriad(filename,tcal=None,timeit=False):
-    ''' Given a Miriad UV filename, and a Time() object corresponding to
-        a reference calibration time, read the gain state of the refcal
-        and the gain state for the period of the file, and apply the gain
-        differences on each baseline, and write out a new file.
-    '''
-    import gaincal2 as gc
-    one_minute = 60./86400.  # 1 minute, expressed in days
-    if timeit:
-        import time
-        ts = time.time()
-    # Get the gain state of the refcal
-    trange = Time([tcal.iso,Time(tcal.lv+61,format='lv').iso])
-    rc_gs =  gc.get_gain_state(trange)  # refcal gain state for 60 s
-    # Get median of refcal gain state (which should be constant anyway)
-    rc_gs['h1'] = np.median(rc_gs['h1'],1)
-    rc_gs['h2'] = np.median(rc_gs['h2'],1)
-    rc_gs['v1'] = np.median(rc_gs['v1'],1)
-    rc_gs['v2'] = np.median(rc_gs['v2'],1)
-    tsun = fname2mjd(filename)
-    # Read ample timerange to ensure coverage
-    trange = Time([tsun-2./86400.,tsun+602./86400.],format='mjd')
-    sc_gs = gc.get_gain_state(trange)   # solar gain state for timerange of file
-    # Open existing Miriad file
-    try:
-        uvi = aipy.miriad.UV(filename)
-    except:
-        print 'Error opening Miriad file',filename
-        return
-    # Create giant array of gains, translated to baselines and frequencies
-    nt = len(sc_gs['times'])
-    jd = Time(sc_gs['times'],format='lv').jd
-    fghz = uvi['sfreq']
-    nf = len(fghz)
-    blist = (fghz*2 - 1).astype(int) - 1
-    nact = 13  # Actual number of antennas to use
-    antgain = np.zeros((nact,2,34,nt),float)   # Antenna-based gains vs. band
-    gain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
-    for i in range(nact):
-        for j in range(34):
-            antgain[i,0,j] = sc_gs['h1'][i] + sc_gs['h2'][i] - rc_gs['h1'][i] - rc_gs['h2'][i] + sc_gs['dcmattn'][i,0,j] - rc_gs['dcmattn'][i,0,j]
-            antgain[i,1,j] = sc_gs['v1'][i] + sc_gs['v2'][i] - rc_gs['v1'][i] - rc_gs['v2'][i] + sc_gs['dcmattn'][i,1,j] - rc_gs['dcmattn'][i,1,j]
-    for i in range(nact-1):
-        for j in range(i+1,nact):
-             gain[bl2ord[i,j],0] = 10**((antgain[i,0,blist] + antgain[j,0,blist])/20.)
-             gain[bl2ord[i,j],1] = 10**((antgain[i,1,blist] + antgain[j,1,blist])/20.)
-             gain[bl2ord[i,j],2] = 10**((antgain[i,0,blist] + antgain[j,1,blist])/20.)
-             gain[bl2ord[i,j],3] = 10**((antgain[i,1,blist] + antgain[j,0,blist])/20.)
-             
-    # Create new file in current directory (this will have to be changed to
-    # something more rational after testing...)
-    try:
-        outfile = os.path.basename(filename)
-        uvo = aipy.miriad.UV(outfile, status='new',corrmode='j')
-        uvo.init_from_uv(uvi)
-    except:
-        print 'Could not open new Miriad file in current directory',outfile
-        return
-    # Do some sanity checks on this Miriad file
-    npol = uvi['npol']
-    if npol != 4:
-        print 'Expecting four polarizations in this Miriad file, but got',npol
-        return
-    # Do test read of file to find out how many good frequencies:
-    preamble, data = uvi.read()
-    ifgood, = data.nonzero()
-    uvi.rewind()
-    nant = uvi['nants']
-    nbl = nant*(nant-1)/2
-    nbla = nbl + nant
+    # Ensure that nearest valid parallactic angle is used for times in the data
+    good = np.where(azeldict['ActualAzimuth'] != 0)
+    tidx = []  # List of arrays of indexes for each antenna
+    for i in range(14):
+        gd = good[0][np.where(good[1] == i)]
+        tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd].jd))
 
-    if timeit:
-        print 'Gain states have been calculated.',time.time() - ts,'s'
-    # Read a block of data for the current time, which consists of NBLA data samples
-    # for each of 4 polarizations
-    tprev = 0  # Indicates a time change, so that time lookup only happens then
-    # Lists of premable-data pairs, one for each polarization
-    XX = []
-    YY = []
-    XY = []
-    YX = []
-    cnt_in = -1
-    cnt_out = 0
-    for pd in uvi.all():
-        cnt_in += 1
-        if pd[0][1] != tprev:
-            # Got a new time, so process current data and write it out
-            if tprev != 0:
-                # Find time index in gain array nearest to this time
-                idx, = nearest_val_idx([tprev],jd)
-                for ibl in range(len(XX)):
-                    # Step through baselines, rotating the data according to the matrix
-                    i0, j0 =  XX[ibl][0][2]
-                    if i0 == j0:
-                        # This is an auto-correlation, so nothing to do
-                        pass
-                    elif i0 >= nact or j0 >= nact:
-                        # Skip over baselines with non-existent antennas
-                        pass
-                    else:
-                        # Loop over non-zero frequencies, applying gain factor to each
-                        k = XX[ibl][1].nonzero()[0]
-                        # Data vector for this baseline and frequency
-                        XX[ibl][1][k] *= gain[bl2ord[i0,j0],0,k,idx]
-                        YY[ibl][1][k] *= gain[bl2ord[i0,j0],1,k,idx]
-                        XY[ibl][1][k] *= gain[bl2ord[i0,j0],2,k,idx]
-                        YX[ibl][1][k] *= gain[bl2ord[i0,j0],3,k,idx]
-                uvo['pol'] = -5
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(XX[ibl][0],XX[ibl][1])
-                uvo['pol'] = -6
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(YY[ibl][0],YY[ibl][1])
-                uvo['pol'] = -7
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(XY[ibl][0],XY[ibl][1])
-                uvo['pol'] = -8
-                for ibl in range(nbla):
-                    cnt_out += 1
-                    uvo.write(YX[ibl][0],YX[ibl][1])
-                #print '.',
-                #if (cnt_out % (136*4*50)) == 0:
-                #    print ' '
-                XX = []
-                YY = []
-                XY = []
-                YX = []
-                # Things to do on getting a new time--update variables:
-                uvo['ut'] = uvi['ut']
-                if 'lst' in uvi.vartable:
-                    uvo['lst'] = uvi['lst']
-                else:
-                    uvo['lst'] = 0.0
-                uvo['xsampler'] = uvi['xsampler']
-                uvo['ut'] = uvi['ut']
-                uvo['ysampler'] = uvi['ysampler']
-                uvo['delay'] = uvi['delay']
-            tprev = pd[0][1]
-            # Find nearest index in parallactic angles array, for this new time
-            idx = nearest_val_idx([tprev],jd)
-        # Separate data into the four polarizations
-        if uvi['pol'] == -5:
-            XX.append(pd)
-        elif uvi['pol'] == -6:
-            YY.append(pd)
-        elif uvi['pol'] == -7:
-            XY.append(pd)
-        elif uvi['pol'] == -8:
-            YX.append(pd)
-        else:
-            print 'Error-unrecognized polarization.'
-            return
-    # Don't forget to write out the last time sample
-    # Find time index in gain array nearest to this time
-    idx, = nearest_val_idx([tprev],jd)
-    for ibl in range(len(XX)):
-        # Step through baselines, rotating the data according to the matrix
-        i0, j0 =  XX[ibl][0][2]
-        if i0 == j0:
-            # This is an auto-correlation, so nothing to do
-            pass
-        elif i0 >= nact or j0 >= nact:
-            # Skip over baselines with non-existent antennas
-            pass
-        else:
-            # Loop over non-zero frequencies, applying gain factor to each
-            k = XX[ibl][1].nonzero()[0]
-            # Data vector for this baseline and frequency
-            XX[ibl][1][k] *= gain[bl2ord[i0,j0],0,k,idx]
-            YY[ibl][1][k] *= gain[bl2ord[i0,j0],1,k,idx]
-            XY[ibl][1][k] *= gain[bl2ord[i0,j0],2,k,idx]
-            YX[ibl][1][k] *= gain[bl2ord[i0,j0],3,k,idx]
-    uvo['pol'] = -5
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(XX[ibl][0],XX[ibl][1])
-    uvo['pol'] = -6
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(YY[ibl][0],YY[ibl][1])
-    uvo['pol'] = -7
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(XY[ibl][0],XY[ibl][1])
-    uvo['pol'] = -8
-    for ibl in range(nbla):
-        cnt_out += 1
-        uvo.write(YX[ibl][0],YX[ibl][1])
-    if timeit:
-        print 'Done after',time.time() - ts,'s'
-    return
+    # Read X-Y Delay phase from SQL database and get common frequencies
+    xml, buf = ch.read_cal(11, t=trange[0])
+    fghz = extract(buf, xml['FGHz'])
+    good, = np.where(fghz != 0.)
+    fghz = fghz[good]
+    dph = extract(buf, xml['XYphase'])
+    dph = dph[:, good]
+    xi_rot = extract(buf, xml['Xi_Rot'])
+    xi_rot = xi_rot[good]
+    fidx1, fidx2 = common_val_idx(data['fghz'], fghz, precision=4)
+    missing = np.setdiff1d(np.arange(len(data['fghz'])), fidx1)
+
+    nbl, npol, nf, nt = data['x'].shape
+    nf = len(fidx1)
+    # Correct data for X-Y delay phase
+    for i in range(13):
+        for j in range(i + 1, 14):
+            k = bl2ord[i, j]
+            if j == 13:                  # xi_rot was applied for all antennas, but this
+                xi = xi_rot[fidx2]       # is wrong.  Now it is only done for ant14.
+            else:
+                xi = 0.0                 # xi_rot for other antennas is just zero.
+            a1 = lobe(dph[i, fidx2] - dph[j, fidx2])
+            a2 = -dph[j, fidx2] - xi
+            a3 = dph[i, fidx2] - xi + np.pi
+            data['x'][k, 1, fidx1] *= np.repeat(np.exp(1j * a1), nt).reshape(nf, nt)
+            data['x'][k, 2, fidx1] *= np.repeat(np.exp(1j * a2), nt).reshape(nf, nt)
+            data['x'][k, 3, fidx1] *= np.repeat(np.exp(1j * a3), nt).reshape(nf, nt)
+
+    # Correct data for differential feed rotation
+    cdata = copy.deepcopy(data)
+    for n in range(nt):
+        for i in range(13):
+            for j in range(i + 1, 14):
+                k = bl2ord[i, j]
+                ti = tidx[i][n]
+                tj = tidx[j][n]
+#                if track[ti, i] and track[tj, j]:
+                dchi = chi[ti, i] - chi[tj, j]
+                cchi = np.cos(dchi)
+                schi = np.sin(dchi)
+                cdata['x'][k, 0, :, n] = data['x'][k, 0, :, n] * cchi + data['x'][k, 3, :, n] * schi
+                cdata['x'][k, 2, :, n] = data['x'][k, 2, :, n] * cchi + data['x'][k, 1, :, n] * schi
+                cdata['x'][k, 3, :, n] = data['x'][k, 3, :, n] * cchi - data['x'][k, 0, :, n] * schi
+                cdata['x'][k, 1, :, n] = data['x'][k, 1, :, n] * cchi - data['x'][k, 2, :, n] * schi
+#                else:
+#                    cdata['x'][k, :, :, n] = np.nan
+
+    # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
+    # cdata['x'][missing] = np.ma.masked
+    return cdata
+

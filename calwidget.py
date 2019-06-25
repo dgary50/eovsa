@@ -27,6 +27,8 @@
 #    a combined Refcal.  Also cleaned up the user interface.
 #  2019-01-06  DG
 #    Fixed a bug in writing Refcal back when read directly from SQL.
+#  2019-06-22  DG
+#    Start to make this work with new 52-band operations
 #
 
 import matplotlib
@@ -431,13 +433,6 @@ class App():
         self.refcalset_btn.configure(state=Tk.DISABLED)
         self.phacal_btn.configure(state=Tk.DISABLED)
         #self.pc_resultbox.delete(0,Tk.END)
-        # Erase flags image
-        fig, ax = self.ab_fig_info
-        im = ax.pcolormesh(np.arange(14),np.arange(35),np.zeros((34,13)))
-        self.ab_text.set_text('No scan selected')
-        ax.set_title('')
-        fig.suptitle('')
-        self.ab_fig_info[0].canvas.draw()
         self.pc_scanbox.delete(0,Tk.END)
         self.resultvar.set('No Scan Selected')
         self.ref_selected = None
@@ -462,6 +457,23 @@ class App():
 #            self.pc_scanbox.delete(0, Tk.END)
             self.pc_scanbox.insert(Tk.END, 'Error: Invalid Date.  Must be YYYY-MM=DD')
             return
+
+        # At this point, check how many bands we should have (this changed on 2019-Feb-22)
+        if mjd > 58536:
+            self.maxnbd = 52
+            from chan_util_52 import freq2bdname
+        else:
+            self.maxnbd = 34
+            from chan_util_bc import freq2bdname
+        self.freq2bdname = freq2bdname
+        # Erase flags image
+        fig, ax = self.ab_fig_info
+        im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.zeros((self.maxnbd,13)))
+        self.ab_text.set_text('No scan selected')
+        ax.set_title('')
+        fig.suptitle('')
+        self.ab_fig_info[0].canvas.draw()
+        
         trange = Time([mjd+0.25,mjd+1.25],format='mjd')
         self.scan_dict = findscans(trange)
         sd = self.scan_dict
@@ -608,7 +620,7 @@ class App():
                 good, = np.where(bands != -1)
                 # This is a refcal so act accordingly
                 flags = data['flags'][:13,:2]
-                im = ax.pcolormesh(np.arange(14),np.arange(35),np.transpose(np.sum(flags,1)))
+                im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
                 #for i in range(13):
                 #    ax.plot([i,i],[0,34],color='white',linewidth=0.2)
                 #for j in range(34):
@@ -652,7 +664,7 @@ class App():
                 bands = (data['fghz']*2 - 1).astype(np.int)
                 # This is a phacal so act accordingly
                 flags = data['flags'][:13,:2]
-                im = ax.pcolormesh(np.arange(14),np.arange(35),np.transpose(np.sum(flags,1)))
+                im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
                 #for i in range(13):
                 #    ax.plot([i,i],[0,34],color='white',linewidth=0.2)
                 #for j in range(34):
@@ -691,7 +703,7 @@ class App():
                 ax2[1,0].set_ylabel('YY Phase Diff (rad)')
             else:
                 ax = self.ab_fig_info[1]
-                im = ax.pcolormesh(np.arange(14),np.arange(35),np.zeros((34,13)))
+                im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.zeros((self.maxnbd,13)))
                 self.ab_text.set_text('Not yet analyzed')
 #                self.pc_resultbox.insert(Tk.END, 'Not yet analyzed.')
                 # Clear summary plots
@@ -887,26 +899,28 @@ class App():
         fghz = lodict['fghz']
         plo = np.angle(lodict['x'])
         phi = np.angle(hidict['x'])
-        # Simply replace bands 1-4 hidict values with lodict values, and copy flags. 
-        hidict['x'][:,:,:4] = lodict['x'][:,:,:4]
-        hidict['flags'][:,:,:4] = lodict['flags'][:,:,:4]
+        lobands, = np.where(fghz < 3.0)
+        overlap, = np.where(np.logical_and(fghz > 3.0,fghz < 6.0))
+        # Simply replace hidict values with lodict values for bands with frequency < 3 GHz, and copy flags. 
+        hidict['x'][:,:,lobands] = lodict['x'][:,:,lobands]
+        hidict['flags'][:,:,lobands] = lodict['flags'][:,:,lobands]
         #hidict['vis'][:,:,:4] = lodict['vis'][:,:,:4]
         #hidict['flag'][:,:,:4] = lodict['flag'][:,:,:4]
         # Now apply corrections (generally small) for the relevant ants 2-13 and pols XX and YY
         for i in range(12):
             for j in range(2):
                 # Calculate phase slope of difference between LO and HI receiver for common frequencies
-                pcal = lobe(plo[0,j,4:11] - phi[0,j,4:11])  # Ant 1 LO - HI phases (for calibration)
-                ph = lobe(plo[i+1,j,4:11] - phi[i+1,j,4:11] - pcal)  # Calibrated difference LO - HI
-                pout = lin_phase_fit(fghz[4:11],ph)  # Linear fit to phase difference
+                pcal = lobe(plo[0,j,overlap] - phi[0,j,overlap])  # Ant 1 LO - HI phases (for calibration)
+                ph = lobe(plo[i+1,j,overlap] - phi[i+1,j,overlap] - pcal)  # Calibrated difference LO - HI
+                pout = lin_phase_fit(fghz[overlap],ph)  # Linear fit to phase difference
                 # If standard deviation of fit is > 0.7 radians (40 degrees), skip the fit (no adjustment)
                 if pout[2] < 0.7:
                     # Standard deviation is low enough to apply phase slope correction
                     p = pout[[1,0]]  # Swap pout order for consistency with polyval
-                    pcor = np.polyval(p,fghz[:4])   # These are the phases to subtract from current LO receiver phases
-                    hidict['x'][i+1,j,:4] = lodict['x'][i+1,j,:4]*(np.cos(pcor)-1j*np.sin(pcor))
+                    pcor = np.polyval(p,fghz[lobands])   # These are the phases to subtract from current LO receiver phases
+                    hidict['x'][i+1,j,lobands] = lodict['x'][i+1,j,lobands]*(np.cos(pcor)-1j*np.sin(pcor))
                     # Loop over common frequencies
-                    for ibd in [4,5,6,7,8,9,10]:
+                    for ibd in overlap:
                         # Check for bad (flagged) HI receiver bands, and replace with LO
                         pcor = np.polyval(p,fghz[ibd])
                         if hidict['flags'][i+1,j,ibd]:
@@ -1064,7 +1078,6 @@ def rd_refcal(file, quackint=120., navg=3):
     '''
     from read_idb import read_idb, bl2ord
     from copy import deepcopy
-    import chan_util_bc as cu
     import dbutil as db
     
     out = read_idb([file], navg=navg, quackint=quackint)
@@ -1072,8 +1085,15 @@ def rd_refcal(file, quackint=120., navg=3):
     bds = np.unique(out['band'])
     nt = len(out['time'])
     nbd = len(bds)
-    vis = np.zeros((15, 4, 34, nt), dtype=complex)
-    fghz = np.zeros(34)
+    mjd = Time(out['time'][0],format='jd').mjd
+    if mjd > 58536:
+        maxnbd = 52
+        from chan_util_52 import freq2bdname
+    else:
+        maxnbd = 34
+        from chan_util_bc import freq2bdname
+    vis = np.zeros((15, 4, maxnbd, nt), dtype=complex)
+    fghz = np.zeros(maxnbd)
     # average over channels within each band
     o = out['x'][bl2ord[13,:13]]
     for bd in bds:
@@ -1086,16 +1106,15 @@ def rd_refcal(file, quackint=120., navg=3):
     xi_rot = extract(buf,xml['Xi_Rot'])
     freq = extract(buf,xml['FGHz'])
     freq = freq[np.where(freq != 0)]
-    band = []
-    for f in freq:
-        band.append(cu.freq2bdname(f))
+    
+    band = np.array(freq2bdname(freq))
     bds, sidx = np.unique(band, return_index=True)
     nbd = len(bds)
     eidx = np.append(sidx[1:], len(band))
-    dxy = np.zeros((14, 34), dtype=np.float)
-    xi = np.zeros(34, dtype=np.float)
-    fghz = np.zeros(34)
-    # average dph and xi_rot frequencies within each band, to convert to 34-band representation
+    dxy = np.zeros((14, maxnbd), dtype=np.float)
+    xi = np.zeros(maxnbd, dtype=np.float)
+    fghz = np.zeros(maxnbd)
+    # average dph and xi_rot frequencies within each band, to convert to band representation
     for b, bd in enumerate(bds):
         fghz[bd - 1] = np.nanmean(freq[sidx[b]:eidx[b]])
         xi[bd - 1] = np.nanmean(xi_rot[sidx[b]:eidx[b]])
@@ -1141,12 +1160,17 @@ def refcal_anal(out):
     vis = deepcopy(out['vis'])
     vis[np.where(out['flag'] == 1)] = np.nan
     times = out['times']
+    mjd = Time(out['times'][0],format='jd').mjd
+    if mjd > 58536:
+        maxnbd = 52
+    else:
+        maxnbd = 34
     # Apply tflags
     if 'tflags' in out.keys():
         tflags = out['tflags']
         # Apply time flags
         for i in range(13):
-            for j in range(34):
+            for j in range(maxnbd):
                 if tflags[i,j,1] != 0.0:
                     jdrange = Time(tflags[i,j],format='plot_date').jd
                     if jdrange[0] > jdrange[1]:
@@ -1156,7 +1180,7 @@ def refcal_anal(out):
                         vis[i,:,j,bad] = np.nan
     else:
         # If there was no tflags key, add one of all zeros.
-        out.update({'tflags':np.zeros((13,34,2),np.float)})
+        out.update({'tflags':np.zeros((13,maxnbd,2),np.float)})
     nt = len(times)
     # compute standard deviation of the visibilities
     sigma = np.nanstd(vis, axis=3)

@@ -37,6 +37,8 @@
 #   2017-May-14  BC
 #      Added a function freq2bdname() to figure out the band name (1-34) from a
 #      given frequency value in ghz.
+#   2019-Jun-26  DG
+#      Fix bug in freq2bdnames() when unknown frequency was given.
 
 import pdb
 import matplotlib.pyplot as plt
@@ -282,9 +284,9 @@ def freq2bdname(fghz):
             if len(bd) == 1:
                 bds.append(bd[0]+1)
             else:
-                print '{0:f} GHz is not found in any band'.format(fghz)
-                return -1
-        return bds
+                print '{0:f} GHz is not found in any band'.format(fg)
+                bds.append(-1)
+        return np.array(bds)
     else:
         bd, = np.where((np.array(bfreqs) < fghz) & (np.array(efreqs) > fghz))
         if len(bd) == 1:

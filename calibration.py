@@ -110,6 +110,11 @@
 #    solpntanal() to improve fitting by adding pseudo-10-degree pointing offset.
 #    Also added code to give a "poor-man's" skycal when those are not available,
 #    by using the GAINCAL full attenuation setting.
+#   2019-Jun-23  DG
+#    Change to calpntanal() to do feed rotation correction, and change to calpnt_multi() 
+#    to append '2m' to output filename if calpnt2m = True and outfile is not specified, 
+#    to avoid mixing 2-m and 27-m results in the same file.  Also fixed a bug in
+#    calpnt_multi() that occurred in ax array when nrows is 1.
 #
 
 if __name__ == "__main__":
@@ -135,8 +140,6 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
         Returns a list of dictionaries containing 
            Source name, Time, HA, Dec, RA offset and Dec offset
     '''
-    import read_idb
-
     fdb = dump_tsys.rd_fdb(trange[0])
     #calpnt2m = False   # Flag to indicate whether we are doing CALPNT2M analysis
     if calpnt2m:
@@ -157,7 +160,10 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
     idx = ant_str2list(ant_str)
     out = []
     if outfile is None:
-        outfile = '/common/tmp/Pointing/'+tlist[0].iso[:10].replace('-','')+'_calpnt.txt'
+        if calpnt2m:
+            outfile = '/common/tmp/Pointing/'+tlist[0].iso[:10].replace('-','')+'_calpnt2m.txt'
+        else:
+            outfile = '/common/tmp/Pointing/'+tlist[0].iso[:10].replace('-','')+'_calpnt27m.txt'
     k = -1
     # First find out how many pointings there will be
     npt = 0
@@ -190,7 +196,10 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
                             ax[k-1,j].xaxis.set_ticklabels([])
                             ax[k-1,j].set_xlabel('')
                 try:
-                    out.append(calpntanal(t, fdir=fdir, ant_str=ant_str, calpnt2m=calpnt2m, do_plot=do_plot, ax=ax[k]))
+                    if nrows == 1:
+                        out.append(calpntanal(t, fdir=fdir, ant_str=ant_str, calpnt2m=calpnt2m, do_plot=do_plot, ax=ax))
+                    else:
+                        out.append(calpntanal(t, fdir=fdir, ant_str=ant_str, calpnt2m=calpnt2m, do_plot=do_plot, ax=ax[k]))
                 except:
                     out.append({})
             else:
@@ -298,8 +307,11 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     tlist = Time(fdb['ST_TS'][scanidx[sidx]].astype(float).astype(int),format='lv')
     idx, = nearest_val_idx([t.jd],tlist.jd)
     filelist = [fdir+f for f in fdb['FILE'][np.where(fdb['SCANID'] == scans[idx])]]
+    #import pdb; pdb.set_trace()
     # Read pointing data (timerange t must be accurate)
-    out = read_idb.read_idb(filelist, navg=30)
+    outo = read_idb.read_idb(filelist, navg=30)
+    # Perform feed rotation correction
+    out = read_idb.unrot(outo)
     # Determine wanted baselines with ant 14 from ant_str
     idx = ant_str2list(ant_str)
     ##idx1 = idx[idx>7]  # Ants > 8

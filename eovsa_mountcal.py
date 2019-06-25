@@ -12,6 +12,9 @@
 #    it should be correct.
 #  2018-01-30  DG
 #    Added params2ants() function to send the new pointing parameters
+#  2019-06-24  DG
+#    Added Ant 14 broken pointing model (it was a very easy update to the
+#    EQ mount type).
 #
 from util import Time
 import numpy as np
@@ -173,7 +176,13 @@ def mntcal(indict):
             dec = indict['dec'][i]
             dha = -indict['dra'][i]   # Change sign for RA -> HA
             ddec = indict['ddec'][i]
-            x = np.array([1, -cos(lat)*sin(ha)/cos(dec), tan(dec), -1./cos(dec), sin(ha)*tan(dec), -cos(ha)*tan(dec), 0., 0.])
+            if indict['ant'] == 14:
+                # Special case for broken pointing model in Ant 14 [tan(ha) is calculated instead of tan(dec)]
+                x = np.array([1, -cos(lat)*sin(ha)/cos(dec), tan(ha), -1./cos(dec), 
+                              sin(ha)*tan(ha), -cos(ha)*tan(ha), 0., 0.])
+            else:
+                x = np.array([1, -cos(lat)*sin(ha)/cos(dec), tan(dec), -1./cos(dec), 
+                              sin(ha)*tan(dec), -cos(ha)*tan(dec), 0., 0.])
             a += np.asmatrix(x).T * np.asmatrix(x)
             b += dha * x
             x = np.array([0., 0., 0., 0., cos(ha), sin(ha), 1., -cos(lat)*cos(ha)*sin(dec) + sin(lat)*cos(dec)])
@@ -247,9 +256,13 @@ def checkfit(indict):
         for i in range(npt):
             dec  = indict['dec'][i]
             ha   = indict['ha'][i]
-            
-            dh = p[0] - p[1]*cos(lat)*sin(ha)/cos(dec) + p[2]*tan(dec) - p[3]/cos(dec) \
-                      + p[4]*sin(ha)*tan(dec) - p[5]*cos(ha)*tan(dec)
+            if indict['ant'] == 14:
+                # Special case for broken pointing model in Ant 14 [tan(ha) is calculated instead of tan(dec)]
+                dh = p[0] - p[1]*cos(lat)*sin(ha)/cos(dec) + p[2]*tan(ha) - p[3]/cos(dec) \
+                          + p[4]*sin(ha)*tan(ha) - p[5]*cos(ha)*tan(ha)
+            else:
+                dh = p[0] - p[1]*cos(lat)*sin(ha)/cos(dec) + p[2]*tan(dec) - p[3]/cos(dec) \
+                          + p[4]*sin(ha)*tan(dec) - p[5]*cos(ha)*tan(dec)
             fit_x.append(dh)
             dd = p[4]*cos(ha) + p[5]*sin(ha) + p[6] - p[7]*(cos(lat)*cos(ha)*sin(dec) - sin(lat)*cos(dec))
             fit_y.append(dd)
@@ -405,7 +418,7 @@ def checkfit(indict):
     plt.close()
     return indict
 
-def multi_mountcal(filename, ant_str='None'):
+def multi_mountcal(filename, ant_str=None):
     ''' Process an entire set of calpnt data
     '''
     import coord_conv as cc
@@ -419,7 +432,7 @@ def multi_mountcal(filename, ant_str='None'):
         antlist = outdict['antlist']
     for ant in antlist:
         #i = ant - 1
-        i, = np.where(outdict['antlist'] == ant)[0]  # Index in outdict for specified ant
+        i, = np.where(np.array(outdict['antlist']) == ant)[0]  # Index in outdict for specified ant
         if ant in [9, 10, 11, 13, 14]:
             # This is an equatorial mount
             mount = 'EQ'
@@ -483,5 +496,5 @@ def params2ants(indict_list):
             cmd = 'pointingcoefficient'+str(i+1)+' '+str(indict['params_new'][i])+' ant'+ant
             cal.send_cmds([cmd],acc)
         print 'Coefficients for ant',ant,'sent.'
-        if int(ant) in [1,2,3,4,5,6,7,8,12]:
+        if int(ant) in [1,2,3,4,5,6,7,8,12,14]:
             print 'Antenna',ant,'controller must be rebooted before parameters take effect.'
