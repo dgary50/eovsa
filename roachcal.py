@@ -106,6 +106,9 @@ def DCM_calnew(filename=None,fseqfile='solarnew.fsq',dcmattn=None,missing='ant15
     if filename is None:
         return 'Must specify ADC packet capture filename, e.g. "/dppdata1/PRT/PRT<yyyymmddhhmmss>adc.dat"'
 
+    if dcmattn is None:
+        print 'Warning: No dcmattn value given.  Will assume that current DCM table is in effect.'
+
     userpass = 'admin:observer@'
     fseq_handle = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+fseqfile,timeout=0.5)
     lines = fseq_handle.readlines()

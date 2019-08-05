@@ -31,6 +31,12 @@
 #  2019-Feb-18  DG
 #    Added sat_phase, which determines corrections for XY and YX phase based
 #    on a packet dump of an R/L polarized communications satellite (e.g. Ciel)
+#  2019-Jul-15  DG
+#    Added plot_sched_log() routine to plot the times and durations of non-standard
+#    durations in the /tmp/schedule.log file.
+#  2019-Jul-18  DG
+#    Added fname2mjd(), versions of which have been in several other modules.
+#    This version allows conversion of arrays or lists of filenames.
 # * 
 
 import StringUtil as su
@@ -1061,6 +1067,25 @@ def bl_list(nant=16):
     
 bl2ord = bl_list()
 
+def fname2mjd(filename):
+    ''' Get modified julian date from a standard IDB or UDB filename.
+    
+        Input can be a single string (filename) or a list or numpy array of filenames
+        Output is a single mjd or a numpy array of mjds.
+    '''
+    from numpy import ndarray
+    if type(filename) == ndarray or type(filename) == list:
+        fstr = []
+        for file in filename:
+            fstem = file.split('/')[-1]
+            fstr.append(fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17])
+        t = Time(fstr)
+    else:
+        fstem = filename.split('/')[-1]
+        fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
+        t = Time(fstr)
+    return t.mjd
+
 def lin_phase_fit(f,pha, doplot=False):
     ''' Given an array of frequencies and corresponding phases,
         determine the best linear fit and return the parameters
@@ -1135,3 +1160,38 @@ def sat_phase(out,ant,doplot=False):
         plt.plot(f,lobe(np.angle(yx) + (pslp*f + poff + np.pi)/2.),'.')
     out[ant,2,:] *= np.exp(-1j*(pslp*f + poff + np.pi)/2.)
     out[ant,3,:] *= np.exp(1j*(pslp*f + poff + np.pi)/2.)
+    
+def plot_sched_log(tail=None):
+    ''' Routine to read the schedule.log file on Helios and plot the lines giving
+        duration anomalies.  Normally inc_time in the schedule should be run every
+        second with a jitter of less than 10 ms.  Lines with non-standard delays
+        are written to the log file.  This routine simply plots that information,
+        to get an idea of when something is causing delays.
+        
+        keywords:
+        
+        tail    A number N that specifies that only the last N (or fewer) durations 
+                   should be plotted.  If omitted, all duration lines are plotted.
+        
+        Note: This routine MUST be run on Helios (since that is where the log file is).
+    '''
+    import matplotlib.pylab as plt
+    from util import Time
+    f = open('/tmp/schedule.log','r')
+    lines = f.readlines()
+    f.close()
+    pd_list = []
+    dur_list = []
+    for line in lines:
+        tok = line.strip().split()
+        if len(tok) == 3:
+            try:
+                t = Time(tok[0]+' '+tok[1]).plot_date
+                pd_list.append(t)
+                dur_list.append(float(tok[2]))
+            except:
+                pass
+    if tail is None:
+        plt.plot_date(pd_list,dur_list,'.')
+    else:
+        plt.plot_date(pd_list[-tail:],dur_list[-tail:],'.')

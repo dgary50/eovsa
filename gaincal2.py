@@ -31,6 +31,9 @@
 #  2019-02-25  DG
 #    Fixed the bugs where the number of bands was hardcoded as 34. Now the number of
 #    bands is determined from the arrays returned from the SQL database.
+#  2019-07-22  DG
+#    Initial writing of eq_anal(), which will ultimately be used to set the EQ
+#    coefficients of the correlator.
 #
 import dbutil as db
 import read_idb as ri
@@ -588,3 +591,24 @@ def get_gain_corr(trange, tref=None, fghz=None):
             antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
 
     return {'antgain': antgain, 'times': src_gs['times']}
+
+def eq_anal(out):
+    ''' Analyze 3 consecutive GAINCALTEST observations taken with EQ settings 8, 4 and 2, to
+        determine the best settings for each antenna/polarization/frequency.
+    '''
+    import chan_util_52 as cu
+    blah = cu.freq2bdname(out['fghz'])
+    nfpb = []
+    for i in range(1,53):
+        nfpb.append(len(where(blah == i)[0]))
+    nfb = (array(nfpb)[blah-1]/8.)
+    nf = len(out['fghz'])
+    ratio = np.zeros((3,13,2,nf))
+    idx = np.array([30,40])
+    for k in range(13):
+        for j in range(2):
+            ratio[0,k,j,:] = np.mean(out['p'][k,j,:,    idx]/np.abs(out['a'][k,j,:,    idx]),0)*8**2*nfb
+            ratio[1,k,j,:] = np.mean(out['p'][k,j,:,115+idx]/np.abs(out['a'][k,j,:,115+idx]),0)*4**2*nfb
+            ratio[2,k,j,:] = np.mean(out['p'][k,j,:,230+idx]/np.abs(out['a'][k,j,:,230+idx]),0)*2**2*nfb
+    foo = abs(ratio - 400).argmin(axis=0)
+    

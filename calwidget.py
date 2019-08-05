@@ -149,6 +149,7 @@ class App():
                 variable=self.fixdrift)
         self.drift_button.configure(state=Tk.NORMAL)
         self.drift_button.pack(side=Tk.TOP)
+        maxnbd = 52  # Default number of bands for initial interface
 
         #   Sigma map window
         pc_resultframe = Tk.Frame(pc_trframe)
@@ -159,12 +160,12 @@ class App():
         self.ab_fig_info = subplots(1,1)
         self.ab_fig_info[0].set_size_inches(2.6,4.5,forward=True)
         ax = self.ab_fig_info[1]
-        im = ax.pcolormesh(np.arange(14),np.arange(35),np.zeros((34,13)))
+        im = ax.pcolormesh(np.arange(14),np.arange(maxnbd+1),np.zeros((maxnbd,13)))
         for i in range(13):
-            ax.plot([i,i],[0,34],color='white',linewidth=0.2)
-        for j in range(34):
+            ax.plot([i,i],[0,maxnbd],color='white',linewidth=0.2)
+        for j in range(maxnbd):
             ax.plot([0,13],[j,j],color='white',linewidth=0.2)
-        self.ab_text = ax.text(2, 17, 'No scan selected', color='white')
+        self.ab_text = ax.text(2, maxnbd/2, 'No scan selected', color='white')
         ax.set_xlabel('Antenna Number')
         ax.set_ylabel('Band Number')
         bbox = ax.get_position().extents
@@ -638,7 +639,8 @@ class App():
                             # Set 2pi wrap so that minimum of "U" (~ 7 GHz) is near 0
                             phz -= np.round(phz[14] / (2*np.pi)) * 2*np.pi
                         else:
-                            phz = np.unwrap(lobe(np.unwrap(np.angle(data['x'][i,j,good]) - np.angle(data['x'][0,j,good]))))
+                            #phz = np.unwrap(lobe(np.unwrap(np.angle(data['x'][i,j,good]) - np.angle(data['x'][0,j,good]))))
+                            phz = lobe(np.unwrap(np.angle(data['x'][i,j,good]) - np.angle(data['x'][0,j,good])))
                         # Set 2pi wrap so that minimum of "U" (~ 7 GHz) is near 0
                         #phz = np.unwrap(np.angle(data['x'][i,j,good]))
                         #phz -= np.round(phz[14] / (2*np.pi)) * 2*np.pi

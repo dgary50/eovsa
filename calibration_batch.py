@@ -491,12 +491,10 @@ def solpntanal(t, udb=False, auto=False, find=True):
         newskycal = None
     fghz = otp['fghz']
     xra,xdec,xrao,xdeco = solpnt.process_tsys(otp,proc,pol=0,skycal=newskycal)
-    x = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':xra,'decparms':xdec,
-         'rao':xrao,'deco':xdeco,'ra':proc['rao'],'dec':proc['deco'],'antlist':proc['antlist']}
+    x = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':xra,'decparms':xdec,'rao':xrao,'deco':xdeco,'ra':proc['rao'],'dec':proc['deco']}
 #    otp = solpnt.rd_tsys(yfile,sfile)
     yra,ydec,yrao,ydeco = solpnt.process_tsys(otp,proc,pol=1,skycal=newskycal)
-    y = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':yra,'decparms':ydec,
-         'rao':yrao,'deco':ydeco,'ra':proc['rao'],'dec':proc['deco'],'antlist':proc['antlist']}
+    y = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':yra,'decparms':ydec,'rao':yrao,'deco':ydeco,'ra':proc['rao'],'dec':proc['deco']}
     qual = sp_check_qual(x,y)
     return x,y, qual
         
@@ -1159,76 +1157,32 @@ def best_solpnt2sql(t):
         print 'No good scans for',t.iso[:10]+'. Update manually with a result from another date.'
    
 if __name__ == "__main__":
-    ''' Run automatically via cron job, or at command line.
-        Usage: python /common/python/current/calibration.py "2014-12-15 18:30"
-        where the time string is optional.  If omitted, the current time is used.
-        
-        The logic is to check whether there is a new SOLPNTCAL available, and
-        analyze it if so.  Compares times from solpnt.find_solpnt() with current
-        time and analyzes any that are between 5 and 10 minutes old.
-        
-        Normally this is run from the DPP, in which case the results are now
-        written to the SQL database.  The old method of writing to a file is
-        now to be discouraged, and probably will not work on pipeline anyway.
-    '''
-    arglist = str(sys.argv)
-    t = Time.now()
-    if len(sys.argv) == 2:
-        try:
-            t = Time(sys.argv[1])
-        except:
-            print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
-            exit()
+    ''' Run automatically via cron job, for date given in the text file /common/tmp/tpbatch.txt.
+        An example file contents is:
+           2019-05-10 2019-05-20
+        For each date, the best of multiple total power calibrations is written to the SQL database,
+        and the first date in the file is incremented by 1.  Subsequent runs of this batch file will
+        run the next date.
 
-    timestamp = t.lv  # Current timestamp
-    times, tstamp = solpnt.find_solpnt(t)
-    # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
-    if len(times) == 0:
-        # No SOLPNTCAL scans (yet)
-        print t.iso[:19]+': No SOLPNTCAL scans for today'
-        exit()
-    #elif type(times[0]) is np.ndarray:
-    #    # Annoyingly necessary when only one time in tstamps
-    #    times = times[0]
-    igt5 = np.where((timestamp - times) > 300)[0]
-    if (Time.now().mjd - t.mjd) < 1:
-        # This has a chance of being a "real-time" calibration, so make some further checks
-        if len(igt5) == 0:
-            # SOLPNTCAL scan in progress
-            print t.iso[:19]+': SOLPNTCAL scan still in progress'
-            exit()
-        if (timestamp - times[igt5[-1]]) > 600:
-            # Latest SOLPNTCAL scan is too old, so nothing to do
-            print t.iso[:19]+': Last SOLPNTCAL scan too old. Age:',int(timestamp - times[igt5[-1]])/60,'minutes'
-            exit()
-        # Looks like this is the right "age" and ready to be analyzed
-        # Wait 30 s to ensure scan is done.
-        time.sleep(30)
-    t = Time(times[igt5[-1]],format='lv')
- #   if socket.gethostname() == 'pipeline':
- #       x, y, qual = solpntanal(t,udb=True)
- #   elif socket.gethostname() == 'dpp':
-    x, y, qual = solpntanal(t,udb=False)
-    xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
- #   else:
- #       print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
- #       exit()
-    percent_good = check_qual(x, qual)
-    if percent_good > 50:
-#        if socket.gethostname() == 'dpp':
-#            # If this is the DPP, write the results to the SQL database automatically.
-        solpnt2sql(t,prompt=False)
-#        else:
-#            # This is the old way of writing results to a disk file--should be removed...
-#            calfac, offsun = sp_get_calfac(x,y)
-#            # If another file for today's date already exists, this will overwrite it
-#            sp_write_calfac(x,y,calfac,offsun)
-#            print 'Calibration file successfully written'
-#            if t.iso[:10] == Time.now().iso[:10]:
-#               # The calibration file is for today, so rewrite as tomorrow's file also
-#               x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
-#               sp_write_calfac(x,y,calfac,offsun)
-#               print "Also wrote tomorrow's file"
-    else:
-        print 'Calibration file not written--too many bad values.'
+        Dates are processed until the start data in the file matches the end date.
+    '''
+    f = open('/common/tmp/tpbatch.txt','r')
+    line = readlines(f)
+    f.close()
+    times = line[0].strip().split()
+    t = Time(times[0])  # The date in the file, specifying the date to be analyzed
+    
+    # If the times match, exit without doing anything.
+    if Time(times[0],format='mjd') == Time(times[1],format='mjd'): exit()
+    
+    # The times do not match, so increment the start time by one day and write
+    # a new file (even if the total power analysis fails).
+    tout = Time(t.mjd+1,format='mjd').iso     # Increment date by one day and write a new file
+    f = open('/common/tmp/tpbatch.txt','w')
+    f.write(tout[:10]+' '+times[1]+'\n')
+    f.close()
+    
+    # Analyze the requested date.
+    best_solpnt2sql(t)
+    
     exit()  

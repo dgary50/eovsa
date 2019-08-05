@@ -85,14 +85,20 @@ def tp_bgnd(tpdata):
     import read_idb as ri
     from util import Time
     outfghz = tpdata['fghz']
-    outtime = tpdata['time']
-    trange = Time(outtime[[0,-1]],format='jd')
+    try:
+        outtime = tpdata['time']
+        trange = Time(outtime[[0,-1]],format='jd')
+    except:
+        outtime = tpdata['ut_mjd']
+        trange = Time(outtime[[0,-1]],format='mjd')
+    
     tstr = trange.lv.astype(int).astype(str)
     nt = len(outtime)
     nf = len(outfghz)
     outpd = Time(outtime,format='jd').plot_date
     cursor = db.get_cursor()
-    query = 'select * from fV66_vD8 where (Timestamp between '+tstr[0]+' and '+tstr[1]+')'
+    version = db.find_table_version(cursor,int(tstr[0]))
+    query = 'select * from fV'+version+'_vD8 where (Timestamp between '+tstr[0]+' and '+tstr[1]+')'
     data, msg = db.do_query(cursor, query)
     pd = Time(data['Timestamp'][::8].astype(int),format='lv').plot_date
     inlet = data['Sche_Data_Roac_TempInlet'].reshape(len(pd),8)   # Inlet temperature variation

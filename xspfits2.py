@@ -1,3 +1,13 @@
+#
+# FITS writing routines, originally intended for XSP files, but now
+# expanded to other types of dynamic spectrum files.
+#
+# History
+#  2019-08-05  DG
+#    Updates to tp_writefits() to extend to other types of files.
+#    Also changed deprecated "clobber" keyword to "overwrite"
+
+
 import time, os
 import numpy as np
 from util import Time
@@ -106,16 +116,17 @@ def daily_xsp_writefits(xdat, pdata):
     prihdr.set('POLARIZA', 'XX, YY', 'Polarizations present')
     prihdr.set('RESOLUTI', 0.0, 'Resolution value')
 # Write the file
-    hdulist.writeto(file_out, clobber=True)
+    hdulist.writeto(file_out, overwrite=True)
 
     return file_out
 
-def tp_writefits(out, med):
+def tp_writefits(out, med, filestem='', outpath='/data1/eovsa/fits/flares/'):
     '''This takes the dictionary output from read_idb, corrected with
        autocorrect_tp.py, and the background-subtracted median data 
        from it, and creates a FITS file.  Output is the filename.
     '''
 
+    import os
     file_out = ''
     if out == None or len(out) == 0:
         print 'tp_writefits: No data input'
@@ -132,14 +143,23 @@ def tp_writefits(out, med):
     dy = t01[8:10]
     hr = t01[11:13]
     mn = t01[14:16]
-    file_out = 'EOVSA'+yr+mm+dy+hr+mn+'.fts'
+    file_out = 'EOVSA_'+filestem+yr+mm+dy+hr+mn+'.fts'
 #flare fits files
-    flarefitsdir = '/data1/eovsa/fits/flares/'
-    if os.path.isdir(flarefitsdir) == False:
-        print "tp_writefits: creating "+flarefitsdir
-        os.mkdir(flarefitsdir)
-#add directory
-    outdir = flarefitsdir+'/'+yr+'/'
+    if os.path.isdir(outpath) == False:
+        print "tp_writefits: creating "+outpath
+        os.mkdir(outpath)
+#add yr directory
+    outdir = outpath+'/'+yr+'/'
+    if os.path.isdir(outdir) == False:
+        print "daily_xsp_writefits: creating "+outdir
+        os.mkdir(outdir)
+#add mn directory
+    outdir = outpath+'/'+yr+'/'+mm+'/'
+    if os.path.isdir(outdir) == False:
+        print "daily_xsp_writefits: creating "+outdir
+        os.mkdir(outdir)
+#add dy directory
+    outdir = outpath+'/'+yr+'/'+mm+'/'+dy+'/'
     if os.path.isdir(outdir) == False:
         print "daily_xsp_writefits: creating "+outdir
         os.mkdir(outdir)
@@ -195,7 +215,12 @@ def tp_writefits(out, med):
     prihdr.set('ORIGIN', 'NJIT', 'Institute where file was written')
     prihdr.set('TELESCOP', 'EOVSA', 'Expanded Owens Valley Solar Array')
     prihdr.set('OBJ_ID', obj_id, 'Object ID')
-    prihdr.set('TYPE', 1, 'Flare Spectrum')
+    if filestem == 'TP_':
+        prihdr.set('TYPE', 1, 'Total Power Dynamic Spectrum')
+    elif filestem == 'X_':
+        prihdr.set('TYPE', 2, 'Cross Power Dynamic Spectrum')
+    else:
+        prihdr.set('TYPE', 0, 'Spectrum Type Undefined')
     prihdr.set('DATE_OBS', date_obs, 'Start date/time of observation')
     prihdr.set('DATE_END', date_end, 'End date/time of observation')
     prihdr.set('FREQMIN', min(sfreq), 'Min freq in observation (GHz)')
@@ -205,7 +230,7 @@ def tp_writefits(out, med):
     prihdr.set('POLARIZA', 'I', 'Polarizations present')
     prihdr.set('RESOLUTI', 0.0, 'Resolution value')
 # Write the file
-    hdulist.writeto(file_out, clobber=True)
+    hdulist.writeto(file_out, overwrite=True)
 
     return file_out
     

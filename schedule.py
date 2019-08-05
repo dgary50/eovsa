@@ -2033,6 +2033,7 @@ class App():
         '''
         # Convert from comma-separated variables to zero-based band numbers
         bands = numpy.array(sequence.split(',')).astype('int')-1
+        # Read current DCM_Master_Table
         dcm, buf = cal_header.read_cal(2)
         dcm_m_attn = stateframe.extract(buf,dcm['Attenuation'])
         dcm_attn = dcm_m_attn[bands]
@@ -2340,7 +2341,7 @@ class App():
                                 self.lorx = True
                                 print 'Ant 14 delays will be set for LO-Frequency Receiver'
                             else:
-                                print 'Ant 14 outlet set for LO-Frequency Receiver, but RxcSelect position is wrong.'
+                                print 'Ant 14 outlet set for LO-Frequency Receiver, but RxSelect position is wrong.'
                                 print 'Ant 14 delays will be set for HI-Frequency Receiver.'
                         else:
                             print 'Ant 14 delays will be set for HI-Frequency Receiver.'

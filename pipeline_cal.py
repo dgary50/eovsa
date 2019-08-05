@@ -58,6 +58,13 @@
 #    subtraction.  Note that this only works for XX and YY, and XY and YX
 #    are left with no subtraction.  Also added subtraction of auto-correlation
 #    receiver noise in apply_fem_level().
+#  2019-07-18  DG
+#    Added allday_udb_corr(), to simplify processing all IDB or UDB files
+#    for a given observing date.
+#  2019-08-05  DG
+#    Added allday_process() to process and all-day set of IDB files and
+#    create file-by-file FITS files with calibrated spectrograms (for HSO
+#    proposal)
 #
 
 import dbutil as db
@@ -416,9 +423,10 @@ def unrot(data, azeldict=None):
     # Ensure that nearest valid parallactic angle is used for times in the data
     good = np.where(azeldict['ActualAzimuth'] != 0)
     tidx = []  # List of arrays of indexes for each antenna
+    gd = []
     for i in range(14):
-        gd = good[0][np.where(good[1] == i)]
-        tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd].jd))
+        gd.append(good[0][np.where(good[1] == i)])
+        tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd[i]].jd))
 
     # Read X-Y Delay phase from SQL database and get common frequencies
     xml, buf = ch.read_cal(11, t=trange[0])
@@ -458,7 +466,7 @@ def unrot(data, azeldict=None):
                 ti = tidx[i][n]
                 tj = tidx[j][n]
                 if track[ti, i] and track[tj, j]:
-                    dchi = chi[ti, i] - chi[tj, j]
+                    dchi = chi[gd[i][ti], i] - chi[gd[j][tj], j]
                     cchi = np.cos(dchi)
                     schi = np.sin(dchi)
                     cdata['x'][:, k, 0, n] = data['x'][:, k, 0, n] * cchi + data['x'][:, k, 3, n] * schi
@@ -542,12 +550,12 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
             print 'Applying attn correction took', time.time() - t1, 's'
             sys.stdout.flush()
             ## temp
-            nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
-            cout['px'].shape = (nf, 16, 3, nt)
-            f = open('pctemp.dat','ab')
-            f.write(deepcopy(cout['px'][:,0,0,25]))
-            cout['px'].shape = (nf*16*3,nt)
-            f.close()
+            #nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
+            #cout['px'].shape = (nf, 16, 3, nt)
+            #f = open('pctemp.dat','ab')
+            #f.write(deepcopy(cout['px'][:,0,0,25]))
+            #cout['px'].shape = (nf*16*3,nt)
+            #f.close()
             ## end temp
             t1 = time.time()
         else:
@@ -569,14 +577,6 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
             calfac = get_calfac(Time(mjd, format='mjd'))
             if Time(calfac['sqltime'], format='lv').mjd == mjd:
                 coutu = apply_calfac(coutu, calfac)
-                ## temp
-                nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
-                coutu['px'].shape = (nf, 16, 3, nt)
-                f = open('pctemp.dat','ab')
-                f.write(deepcopy(coutu['px'][:,0,0,25]))
-                coutu['px'].shape = (nf*16*3,nt)
-                f.close()
-                ## end temp
                 print 'Applying calibration took', time.time() - t1, 's'
             else:
                 print 'Error: no TP calibration for this date.  Skipping calibration.'
@@ -596,3 +596,83 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
     ufile_out = uu.udbfile_write(x, filelist[0], ufilename)
     return ufilename
 
+def allday_udb_corr(trange, outpath='./'):
+    ''' Perform udb_corr() on all solar scans in the Time() trange given,
+        or the observing day of the date given if trange is a single time.
+        
+        The output path name can be given, default is the current path.
+    '''
+    import dump_tsys as dt
+    from util import fname2mjd
+    if len(trange) == 1:
+        mjd = int(trange.mjd)
+        t0, t1 = Time([mjd+0.5,mjd+1.2],format='mjd')
+    else:
+        t0 = trange[0]
+        t1 = trange[1]
+    fdb = dt.rd_fdb(t0)
+    flist = fdb['FILE'][np.where(fdb['PROJECTID']=='NormalObserving')]
+    if int(t1.mjd) != int(t0.mjd):
+        fdb = dt.rd_fdb(t1)
+        flist2 = fdb['FILE'][np.where(fdb['PROJECTID']=='NormalObserving')]
+        flist = np.concatenate((flist,flist2))
+    mjd = fname2mjd(flist)
+    idx, = np.where(np.logical_and(mjd >= t0.mjd, mjd <= t1.mjd))
+    # Assume we are working on Pipeline, and branch according to filename prefix
+    if flist[0][:3] == 'UDB':
+        year = Time(mjd[0],format='mjd').iso[:4]
+        fdir = '/data1/eovsa/fits/UDB/'+year+'/'
+        getdate = False
+    elif flist[0][:3] == 'IDB':
+        fdir = '/data1/eovsa/fits/IDB/'
+        getdate = True
+    for i,file in enumerate(flist[idx]):
+        if getdate:
+            date = Time(mjd[idx[i]],format='mjd').iso[:10].replace('-','')
+            filename = fdir+date+'/'+file
+        else:
+            filename = fdir+file
+        print 'Processing',filename
+        udb_corr(filename, calibrate=True, outpath=outpath)
+
+def allday_process(path=None):
+    ''' Process an all day list of corrected data files to create total power 
+        and baseline amplitude FITS spectrograms (planned for submission to
+        NASA SDAC for support of the Parker Solar Probe).
+    '''
+    import glob
+    import read_idb as ri
+    from xspfits2 import tp_writefits
+    if path is None:
+        path = './'
+    files = glob.glob(path+'IDB*')
+    files.sort()
+    for file in files:
+        out = ri.read_idb([file])
+        nant,npol,nf,nt = out['p'].shape
+        nant = 13
+        # Determine best 8 antennas
+        med = np.mean(np.median(out['p'][:nant],3),1)   # size nant,nf
+        medspec = np.median(med,0)                      # size nf
+        p = np.polyfit(out['fghz'], medspec, 2)
+        spec = np.polyval(p, out['fghz']).repeat(nant).reshape(nf,nant)   # size nf, nant
+        stdev = np.std(med - np.transpose(spec),1)   # size nant
+        idx = stdev.argsort()[:8]     # List of 8 best-fitting antennas
+        # Use list of antennas to get final median total power dynamic spectrum
+        med = np.mean(np.median(out['p'][idx],0),0)
+        # Write the total power spectrum to a FITS file
+        tp_writefits(out, med.astype(np.float32), filestem='TP_',outpath='./')
+        # Form sum of intermediate baselines
+        baseidx = np.array([ 29, 30, 31, 32, 33, 34, 42, 43, 44, 45, 46, 54, 55, 56, 57, 65, 66, 67, 75, 76, 84])
+        # Get uv distance for mid-time
+        #uvdist = np.sqrt(out['uvw'][:,nt/2,0]**2 + out['uvw'][:,nt/2,1]**2 + out['uvw'][:,nt/2,2]**2)
+        # Sort from low to high uv distance
+        #bah = uvdist.argsort()
+        # Use "intermediate" lengths, i.e. 20th to 39th in list, and sum amplitudes
+        med = abs(sum(sum(out['x'][baseidx],0),0))
+        # Write the baseline amplitude spectrum to a FITS file
+        tp_writefits(out, med.astype(np.float32), filestem='X_',outpath='./')
+        
+        
+        
+        

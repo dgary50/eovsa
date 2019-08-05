@@ -90,6 +90,8 @@
 #      Added delete_cal() routine for deleting SQL records of a given type for a given time.
 #   2019-02-22  DG
 #      Updated DCM Master table to version 2.0, increasing from 34 to 52 bands to reflect new IF Filters
+#   2019-07-18  DG
+#      Updated Refcal and Phasecal types to version 2.0, increasing from 34 to 52 bands (xml defs written to 2019-02-22)
 #
 import struct, util
 import stateframe as sf
@@ -114,11 +116,10 @@ def cal_types():
             5: ['Equalizer gains', 'eq_gain2xml', 1.0],
             6: ['DCM attenuator values [units=dB]', 'dcm_attn_val2xml', 1.0],
             7: ['FEM attenuator values [units=dB]', 'fem_attn_val2xml', 1.0],
-            8: ['Reference calibration', 'refcal2xml', 1.0],
-            9: ['Daily phase calibration', 'phacal2xml', 1.0],
+            8: ['Reference calibration', 'refcal2xml', 2.0],   # Version 2.0 (2019-02-22)
+            9: ['Daily phase calibration', 'phacal2xml', 2.0],  # Version 2.0 (2019-02-22)
            10: ['Total power calibration', 'tpcal2xml', 1.0],
-           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0],  # Changed the definition of this, so version is 2.0 (2018-01-01)
-           12: ['Super Reference calibration', 'refcal_sp2xml', 1.0]}
+           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0]}  # Changed the definition of this, so version is 2.0 (2018-01-01)
 
 
 def str2bin(string):
@@ -703,39 +704,39 @@ def refcal2xml():
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Fghz</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Real</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Sigma</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Flag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -743,13 +744,12 @@ def refcal2xml():
 
     return buf
 
-def refcal_sp2xml():
-    ''' Writes the XML description of the super reference calibration table.
-        The different with ordinary refcal is this table contains correction for band 4.
+def refcal2xml52():
+    ''' Writes the XML description of the 52-band reference calibration table.
         The values are complex numbers.
-        Returns a binary representation of the xml text file, for
+        Returns a binary representation of the xml text file, for 
         putting into the SQL database.  The version number
-        must be incremented each time there is a change to the structure
+        must be incremented each time there is a change to the structure 
         of this header.
     '''
     version = cal_types()[12][2]
@@ -801,36 +801,36 @@ def refcal_sp2xml():
         '<Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Real</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Sigma</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Flag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -910,39 +910,39 @@ def phacal2xml():
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Fghz</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of real part of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Amp</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of imaginary part of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Pha</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of sigmas of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of sigmas of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Sigma</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flags of daily phase calibration (nant x npol x nband) (15 x 2 x 34).
+    # List of flags of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Flag</Name>')
     buf += str2bin(
-        '<Dimsize>34</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -1044,7 +1044,7 @@ def read_cal_xml(type, t=None):
         Returns a dictionary of look-up information and its internal version.  A side-effect
         is that a file /tmp/type<n>.xml is created, where <n> is the type.
     '''
-    import dbutil, read_xml2, sys
+    import dbutil, read_xml2, sys, os
     if t is None:
         t = util.Time.now()
     timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
@@ -1074,6 +1074,7 @@ def read_cal_xml(type, t=None):
             f.close()
             xmldict, thisver = read_xml2.xml_ptrs(xmlfile)
             cursor.close()
+            os.system('rm -rf {}'.format(xmlfile))
             return xmldict, thisver
 
 
@@ -1927,7 +1928,7 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     return write_cal(typedef,buf,t)
 
 
-def refcal2sql(rfcal, timestamp=None, lohi = False):
+def refcal2sql(rfcal, timestamp=None):
     ''' Write reference calibration to SQL server table
         abin, with the timestamp given by Time() object t (or current
         time, if none).
@@ -1935,10 +1936,7 @@ def refcal2sql(rfcal, timestamp=None, lohi = False):
 
         This kind of record is type definition 8.
     '''
-    if lohi:
-        typedef = 12
-    else:
-        typedef = 8
+    typedef = 8
 
     if not 'vis' in rfcal.keys():
         raise KeyError('Key "vis" not exist')
@@ -1986,44 +1984,46 @@ def refcal2sql(rfcal, timestamp=None, lohi = False):
     # Write timestamp of end time of refcal
     buf += struct.pack('d', ted)
 
+    # Get number of frequencies (either 34 or 52)
+    nf = len(rfcal['fghz'])
     # Write table of the averaged band frequencies
-    buf += struct.pack('I', 34)
-    buf += struct.pack('34f', *rfcal['fghz'])
+    buf += struct.pack('I', nf)
+    buf += struct.pack(str(nf)+'f', *rfcal['fghz'])
 
     # Write real part of table
     rrfcal = np.real(rfcal['vis'])
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *rrfcal[i, j])
+            buf += struct.pack(str(nf)+'f', *rrfcal[i, j])
 
     # Write imag part of table
     irfcal = np.imag(rfcal['vis'])
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *irfcal[i, j])
+            buf += struct.pack(str(nf)+'f', *irfcal[i, j])
 
     # Write Sigma of table
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *sigma[i, j])
+            buf += struct.pack(str(nf)+'f', *sigma[i, j])
 
     # Write Flag table
     flag = np.array(flag, dtype=float)
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *flag[i, j])
+            buf += struct.pack(str(nf)+'f', *flag[i, j])
     t = util.Time(t, format='lv')
     print 'sending refcal of {} to SQL database.'.format(t.iso)
     return write_cal(typedef, buf, t)
@@ -2065,6 +2065,8 @@ def phacal2sql(phcal, timestamp=None):
     else:
         ted = -1
 
+    # Get number of frequencies (either 34 or 52)
+    nf = len(phcal['phacal']['fghz'])
     # Write timestamp
     buf = struct.pack('d', t)
     # Write version number
@@ -2096,44 +2098,44 @@ def phacal2sql(phcal, timestamp=None):
     buf += struct.pack('d', ted)
 
     # Write table of the averaged band frequencies
-    buf += struct.pack('I', 34)
-    buf += struct.pack('34f', *phcal['phacal']['fghz'])
+    buf += struct.pack('I', nf)
+    buf += struct.pack(str(nf)+'f', *phcal['phacal']['fghz'])
 
     # Write amplitude of phcal
     aphcal = np.real(phcal['phacal']['amp'])
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *aphcal[i, j])
+            buf += struct.pack(str(nf)+'f', *aphcal[i, j])
 
     # Write phase of phcal
     pphcal = np.array(phcal['phacal']['pha'])
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *pphcal[i, j])
+            buf += struct.pack(str(nf)+'f', *pphcal[i, j])
 
     # Write Sigma of phcal
     sigma = np.array(phcal['phacal']['sigma'])
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *sigma[i, j])
+            buf += struct.pack(str(nf)+'f', *sigma[i, j])
 
     # Write Flag of phcal
     phacal_flag = np.array(phcal['phacal']['flag'], dtype=float)
-    buf += struct.pack('I', 34)
+    buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 15)
     for i in range(15):
         for j in range(2):
-            buf += struct.pack('34f', *phacal_flag[i, j])
+            buf += struct.pack(str(nf)+'f', *phacal_flag[i, j])
 
     t = util.Time(t, format='lv')
     print 'sending phacal of {} to SQL database.'.format(t.iso)
