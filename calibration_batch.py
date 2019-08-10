@@ -534,12 +534,16 @@ def skycal_anal(t=None, do_plot=False, last=False):
     if t is None:
         t = Time.now()
     if t.mjd < 58623: 
-        print 'SKYCAL_ANAL: No valid SKYCALTEST scans for dates prior to 2019-05-20'
+        print 'SKYCAL_ANAL: No valid SKYCALTEST scans for dates prior to 2019-05-20. Will attempt to use GCAL.'
         # Do a "poor-man's" skycal background by using the gaincal 62 dB setting.
         # This should be almost as good for receiver noise subtraction as a true SKYCAL
         from attncal import get_attncal
         outdict = get_attncal(t)
-        return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
+        if outdict is []:
+            print 'SKYCAL_ANAL: No valid GCAL, so no receiver background subtracted.'
+            return None
+        else:
+            return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
     fdb = dump_tsys.rd_fdb(t)
     gcidxes, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
     if len(gcidxes) != 0:
@@ -1167,13 +1171,13 @@ if __name__ == "__main__":
         Dates are processed until the start data in the file matches the end date.
     '''
     f = open('/common/tmp/tpbatch.txt','r')
-    line = readlines(f)
+    line = f.readlines()
     f.close()
     times = line[0].strip().split()
     t = Time(times[0])  # The date in the file, specifying the date to be analyzed
     
     # If the times match, exit without doing anything.
-    if Time(times[0],format='mjd') == Time(times[1],format='mjd'): exit()
+    if Time(times[0]).mjd == Time(times[1]).mjd: exit()
     
     # The times do not match, so increment the start time by one day and write
     # a new file (even if the total power analysis fails).

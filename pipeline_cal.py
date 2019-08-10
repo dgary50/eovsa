@@ -522,14 +522,6 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
     for filename in filelist:
         t1 = time.time()
         out = uu.readXdata(filename)
-        # temp
-        nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
-        out['px'].shape = (nf, 16, 3, nt)
-        f = open('pctemp.dat','ab')
-        f.write(deepcopy(out['px'][:,0,0,25]))
-        out['px'].shape = (nf*16*3,nt)
-        f.close()
-        ## end temp
         print 'Reading file took', time.time() - t1, 's'
         sys.stdout.flush()
         trange = Time(out['time'][[0, -1]], format='jd')
@@ -549,14 +541,6 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
                 cout = apply_attn_corr(out)
             print 'Applying attn correction took', time.time() - t1, 's'
             sys.stdout.flush()
-            ## temp
-            #nf, nt = np.array(out['px'].shape)/np.array([3*16,1])
-            #cout['px'].shape = (nf, 16, 3, nt)
-            #f = open('pctemp.dat','ab')
-            #f.write(deepcopy(cout['px'][:,0,0,25]))
-            #cout['px'].shape = (nf*16*3,nt)
-            #f.close()
-            ## end temp
             t1 = time.time()
         else:
             cout = out
