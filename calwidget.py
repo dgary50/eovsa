@@ -29,6 +29,10 @@
 #    Fixed a bug in writing Refcal back when read directly from SQL.
 #  2019-06-22  DG
 #    Start to make this work with new 52-band operations
+#  2019-08-20  DG
+#    Added ability to select two sets of time ranges to flag in each antenna/band
+#  2019-08-23  DG
+#    Fixed a bug in bands plotted.
 #
 
 import matplotlib
@@ -173,7 +177,7 @@ class App():
         #ax.set_title('No Results Yet')
         canvas = FigureCanvasTkAgg(self.ab_fig_info[0], master=pc_resultframe)
         canvas.mpl_connect('button_press_event',self.ab_select)
-        canvas.show()
+        canvas.draw()
         canvas.get_tk_widget().pack(side=Tk.TOP, fill=Tk.BOTH, expand=1)
 
         self.allants = Tk.BooleanVar()
@@ -211,7 +215,7 @@ class App():
         for i in range(3):
             canvas = FigureCanvasTkAgg(self.fig_info[i][0], master=fant[i])
             if i == 0: canvas.mpl_connect('key_press_event',self.key_event)
-            canvas.show()
+            canvas.draw()
             canvas.get_tk_widget().pack(side=Tk.TOP, fill=Tk.BOTH, expand=1)
             toolbar = NavigationToolbar2TkAgg(canvas, fant[i])
             toolbar.update()
@@ -314,7 +318,7 @@ class App():
         '''
         tab = self.nb_ant.index(self.nb_ant.select())
         fig, ax = self.fig_info[tab]
-        fig.canvas.show()
+        fig.canvas.draw()
         if tab == 0:
             # Update the plot on the antenna tab by "faking" an event
             try:
@@ -351,74 +355,78 @@ class App():
                 allants = self.allants.get()
                 allbands = self.allbands.get()
                 if key == 'A':
-                    if nlines == 3:
+                    if nlines == 5:
                         # Erase last-drawn line to add a new one
                         ax[0].lines.pop()
                         ax[1].lines.pop()
                         nlines = len(event.inaxes.lines)
-                    if nlines == 2:
+                    if nlines == 2 or nlines == 4:
                         # Okay to accept an "A" keystroke
                         ax[0].plot_date(event.xdata*np.ones(2),ax[0].get_ylim(),'g-')
                         ax[1].plot_date(event.xdata*np.ones(2),ax[1].get_ylim(),'g-')
                         fig.canvas.draw()
                         t1 = event.xdata
+                        k = nlines/2 - 1  #  Either 0 or 1, depending on nlines
                         if allants and allbands:
-                            tflags[:,:,0] = t1
-                            tflags[:,:,1] = 0
+                            tflags[:,:,0,k] = t1
+                            tflags[:,:,1,k] = 0
                         elif allants:
-                            tflags[:,band,0] = t1
-                            tflags[:,band,1] = 0
+                            tflags[:,band,0,k] = t1
+                            tflags[:,band,1,k] = 0
                         elif allbands:
-                            tflags[ant,:,0] = t1
-                            tflags[ant,:,1] = 0
+                            tflags[ant,:,0,k] = t1
+                            tflags[ant,:,1,k] = 0
                         else:
-                            tflags[ant,band,:] = [t1,0]
+                            tflags[ant,band,:,k] = [t1,0]
                 elif key == 'B':
-                    if nlines == 4:
+                    if nlines == 6:
                         # Erase last-drawn line to add a new one
                         ax[0].lines.pop()
                         ax[1].lines.pop()
                         nlines = len(event.inaxes.lines)
-                    if nlines == 3:
+                    if nlines == 3 or nlines == 5:
                         # Okay to accept a "B" keystroke
                         ax[0].plot_date(event.xdata*np.ones(2),ax[0].get_ylim(),'r--')
                         ax[1].plot_date(event.xdata*np.ones(2),ax[1].get_ylim(),'r--')
                         self.last_key = key
                         fig.canvas.draw()
                         t2 = event.xdata
+                        k = (nlines-1)/2 - 1  #  Either 0 or 1, depending on nlines
                         if allants and allbands:
-                            tflags[:,:,1] = t2
+                            tflags[:,:,1,k] = t2
                         elif allants:
-                            tflags[:,band,1] = t2
+                            tflags[:,band,1,k] = t2
                         elif allbands:
-                            tflags[ant,:,1] = t2
+                            tflags[ant,:,1,k] = t2
                         else:
-                            tflags[ant,band,1] = t2
+                            tflags[ant,band,1,k] = t2
                 elif key == 'X':
                     ax[0].lines.pop()
                     ax[1].lines.pop()
                     fig.canvas.draw()
                     nlines = len(event.inaxes.lines)
-                    if nlines == 2:
+                    if nlines == 2 or nlines == 4:
                         # Zero any time flags
+                        k = nlines/2 - 1  #  Either 0 or 1, depending on nlines
                         if allants and allbands:
-                            tflags[:,:,:] = 0
+                            tflags[:,:,:,k] = 0
                         elif allants:
-                            tflags[:,band,:] = 0
+                            tflags[:,band,:,k] = 0
                         elif allbands:
-                            tflags[ant,:,:] = 0
+                            tflags[ant,:,:,k] = 0
                         else:
-                            tflags[ant,band,:] = [0,0]
-                    elif nlines == 3:
+                            tflags[ant,band,:,k] = [0,0]
+                    elif nlines == 3 or nlines == 5:
                         # Zero second time flags
+                        k = (nlines-1)/2 - 1  #  Either 0 or 1, depending on nlines
                         if allants and allbands:
-                            tflags[:,:,1] = 0
+                            tflags[:,:,1,k] = 0
                         elif allants:
-                            tflags[:,band,1] = 0
+                            tflags[:,band,1,k] = 0
                         elif allbands:
-                            tflags[ant,:,1] = 0
+                            tflags[ant,:,1,k] = 0
                         else:
-                            tflags[ant,band,1] = 0
+                            tflags[ant,band,1,k] = 0
                 self.pc_dictlist[self.scan_selected]['tflags'] = tflags
                 
     def use_date(self, event):
@@ -501,6 +509,13 @@ class App():
                 t_beg = Time(extract(buf,xml['T_beg']),format='lv')
                 t_end = Time(extract(buf,xml['T_end']),format='lv')
                 refcal_time = Time((t_beg.lv+t_end.lv)/2,format='lv')  # Mid-time of data
+                mjd = refcal_time.mjd
+                if mjd > 58536:
+                    maxnbd = 52
+                    from chan_util_52 import freq2bdname
+                else:
+                    maxnbd = 34
+                    from chan_util_bc import freq2bdname
                 dtr1 = st_time - refcal_time   # negative if in scan
                 dtr2 = en_time - refcal_time   # positive if in scan
                 if dtr1.jd < 0 and dtr2.jd > 0:
@@ -511,7 +526,8 @@ class App():
                     sigma = extract(buf,xml['Refcal_Sigma'])
                     flags = extract(buf,xml['Refcal_Flag'])
                     fghz = extract(buf,xml['Fghz'])
-                    self.pc_dictlist.append({'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags})
+                    bands = freq2bdname(fghz)
+                    self.pc_dictlist.append({'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 'bands':bands})
                     self.saved.append(True)
                     not_a_refcal = False
             except:
@@ -520,6 +536,13 @@ class App():
                 try:
                     xml, buf = ch.read_cal(phacal_type, t=en_time)
                     phacal_time = Time(extract(buf,xml['Timestamp']),format='lv')  # Mid-time of data
+                    mjd = phacal_time.mjd
+                    if mjd > 58536:
+                        maxnbd = 52
+                        from chan_util_52 import freq2bdname
+                    else:
+                        maxnbd = 34
+                        from chan_util_bc import freq2bdname
                     dtp1 = st_time - phacal_time
                     dtp2 = en_time - phacal_time
                     if dtp1.jd < 0 and dtp2.jd > 0:
@@ -530,10 +553,11 @@ class App():
                         sigma = extract(buf,xml['Phacal_Sigma'])
                         flags = extract(buf,xml['Phacal_Flag'])
                         fghz = extract(buf,xml['Fghz'])
+                        bands = freq2bdname(fghz)
                         mbd = extract(buf,xml['MBD'])
                         mbd_flag = extract(buf,xml['Flag'])
                         self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 
-                                             'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag})
+                                             'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag, 'bands':bands})
                         self.saved.append(True)
                         not_a_phacal = False
                 except:
@@ -617,7 +641,7 @@ class App():
             if line[-1] == 'R':
                 data = self.pc_dictlist[k]
                 # Convert frequency to band
-                bands = (data['fghz']*2 - 1).astype(np.int)
+                bands = data['bands'] #(data['fghz']*2 - 1).astype(np.int)
                 good, = np.where(bands != -1)
                 # This is a refcal so act accordingly
                 flags = data['flags'][:13,:2]
@@ -663,7 +687,7 @@ class App():
             elif line[-1] == 'P':
                 data = self.pc_dictlist[k]
                 # Convert frequency to band
-                bands = (data['fghz']*2 - 1).astype(np.int)
+                bands = data['bands'] #(data['fghz']*2 - 1).astype(np.int)
                 # This is a phacal so act accordingly
                 flags = data['flags'][:13,:2]
                 im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
@@ -682,7 +706,10 @@ class App():
                         ax2[j,i].cla()
                         good, = np.where(data['flags'][i,j] == 0)
                         if len(good) > 3:
-                            ax1[j,i].plot(bands[good],np.abs(data['x'][i,j,good]),'.')
+                            try:
+                                ax1[j,i].plot(bands[good],np.abs(data['x'][i,j,good]),'.')
+                            except:
+                                print 'ant',i+1,'pol',j+1,bands.shape,data['x'].shape,good
                             try:
                                 phz = np.unwrap(data['pdiff'][i,j,good])
                                 # unwrap starts with phz[0], so make sure it is in the lobe nearest to 0.
@@ -766,15 +793,16 @@ class App():
                     ax[1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
                     # Apply any existing time flags
                     if 'tflags' in self.pc_dictlist[self.scan_selected].keys():
-                        tflags = self.pc_dictlist[self.scan_selected]['tflags'][ant,band,:]
-                        if tflags[0] != 0:
-                            ax[0].plot_date(tflags[0]*np.ones(2),ax[0].get_ylim(),'g-')
-                            ax[1].plot_date(tflags[0]*np.ones(2),ax[1].get_ylim(),'g-')
-                        if tflags[1] != 0:
-                            ax[0].plot_date(tflags[1]*np.ones(2),ax[0].get_ylim(),'r--')
-                            ax[1].plot_date(tflags[1]*np.ones(2),ax[1].get_ylim(),'r--')
+                        for k in range(2):
+                            tflags = self.pc_dictlist[self.scan_selected]['tflags'][ant,band,:,k]
+                            if tflags[0] != 0:
+                                ax[0].plot_date(tflags[0]*np.ones(2),ax[0].get_ylim(),'g-')
+                                ax[1].plot_date(tflags[0]*np.ones(2),ax[1].get_ylim(),'g-')
+                            if tflags[1] != 0:
+                                ax[0].plot_date(tflags[1]*np.ones(2),ax[0].get_ylim(),'r--')
+                                ax[1].plot_date(tflags[1]*np.ones(2),ax[1].get_ylim(),'r--')
                 fig.canvas.draw()
-                fig.canvas.show()
+                #fig.canvas.show()
                 fig.canvas.get_tk_widget().focus_force()
                 self.nb_ant.select(0)
                 #print band,'selected.'
@@ -1107,7 +1135,7 @@ def rd_refcal(file, quackint=120., navg=3):
     dph = extract(buf,xml['XYphase'])
     xi_rot = extract(buf,xml['Xi_Rot'])
     freq = extract(buf,xml['FGHz'])
-    freq = freq[np.where(freq != 0)]
+    freq = freq[np.where(freq !=0)]
     
     band = np.array(freq2bdname(freq))
     bds, sidx = np.unique(band, return_index=True)
@@ -1122,6 +1150,7 @@ def rd_refcal(file, quackint=120., navg=3):
         xi[bd - 1] = np.nanmean(xi_rot[sidx[b]:eidx[b]])
         for a in range(14):
             dxy[a, bd - 1] = np.angle(np.sum(np.exp(1j * dph[a, sidx[b]:eidx[b]])))
+    bands = np.array(freq2bdname(fghz))
     # Read parallactic angles for this scan
     trange = Time(out['time'][[0,-1]],format='jd')
     times, chi = db.get_chi(trange)
@@ -1151,7 +1180,7 @@ def rd_refcal(file, quackint=120., navg=3):
     # *******
     if fghz[1] < 1.:
         fghz[1] = 1.9290   # This band is missing, but no need to set its frequency to zero...
-    return {'file': file, 'source': out['source'], 'vis': vis, 'bands': bds, 'fghz': fghz, 'times': out['time'], 'ha': out['ha'], 'dec': out['dec'], 'flag': np.zeros_like(vis, dtype=np.int)}
+    return {'file': file, 'source': out['source'], 'vis': vis, 'bands': bands, 'fghz': fghz, 'times': out['time'], 'ha': out['ha'], 'dec': out['dec'], 'flag': np.zeros_like(vis, dtype=np.int)}
     
 def refcal_anal(out):
     ''' Analyze the visibility data from rd_refcal and return time averaged visibility 
@@ -1173,16 +1202,17 @@ def refcal_anal(out):
         # Apply time flags
         for i in range(13):
             for j in range(maxnbd):
-                if tflags[i,j,1] != 0.0:
-                    jdrange = Time(tflags[i,j],format='plot_date').jd
-                    if jdrange[0] > jdrange[1]:
-                        jdrange = jdrange[::-1]
-                    bad, = np.where(np.logical_and(times >= jdrange[0],times <= jdrange[1]))
-                    if len(bad) > 0:
-                        vis[i,:,j,bad] = np.nan
+                for k in range(2):
+                    if tflags[i,j,1,k] != 0.0:
+                        jdrange = Time(tflags[i,j,:,k],format='plot_date').jd
+                        if jdrange[0] > jdrange[1]:
+                            jdrange = jdrange[::-1]
+                        bad, = np.where(np.logical_and(times >= jdrange[0],times <= jdrange[1]))
+                        if len(bad) > 0:
+                            vis[i,:,j,bad] = np.nan
     else:
         # If there was no tflags key, add one of all zeros.
-        out.update({'tflags':np.zeros((13,maxnbd,2),np.float)})
+        out.update({'tflags':np.zeros((13,maxnbd,2,2),np.float)})
     nt = len(times)
     # compute standard deviation of the visibilities
     sigma = np.nanstd(vis, axis=3)

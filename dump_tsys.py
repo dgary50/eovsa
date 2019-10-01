@@ -50,7 +50,6 @@
 #    this uses frequency-dependent attenuations.
 #  2019-May-21  DG
 #    Added skycal keyword to rd_miriad_tsys_16()
-#
 
 import subprocess, time, sys, glob
 import numpy as np
@@ -98,7 +97,7 @@ def file_list(trange, udb=False):
             files.sort()
         if files == [] or glob.glob(folder) == []:
             datdir = trange[0].iso[:10].replace('-', '')
-            folder = '/data1/eovsa/fits/IDB/' + datdir
+            folder = '/common/archive/data1/eovsa/fits/IDB/' + datdir
             files = glob.glob(folder + '/IDB' + fstr.replace('-', '').split()[0] + '*')
             files.sort()
         # Check if second time has different date
@@ -107,9 +106,9 @@ def file_list(trange, udb=False):
             if (mjd2 - 1) != mjd1:
                 usage('Second date must differ from first by at most 1 day')
             else:
-                if folder[:22] == '/data1/eovsa/fits/IDB/':
+                if folder[:22] == '/common/archive/data1/eovsa/fits/IDB/':
                     datdir = trange[1].iso[:10].replace('-', '')
-                    folder = '/data1/eovsa/fits/IDB/' + datdir
+                    folder = '/common/archive/data1/eovsa/fits/IDB/' + datdir
                 fstr2 = trange[1].iso
                 files2 = glob.glob(folder + '/IDB' + fstr2.replace('-', '').split()[0] + '*')
                 files2.sort()

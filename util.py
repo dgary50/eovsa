@@ -37,6 +37,8 @@
 #  2019-Jul-18  DG
 #    Added fname2mjd(), versions of which have been in several other modules.
 #    This version allows conversion of arrays or lists of filenames.
+#  2019-Aug-24  DG
+#    Fixed a bug in lin_phase_fit() when data were all nan.
 # * 
 
 import StringUtil as su
@@ -1110,7 +1112,10 @@ def lin_phase_fit(f,pha, doplot=False):
         print 'Error: arrays not of same size:',len(f),len(pha)
         return None
     dpdf = []
-    good = np.where(np.logical_not(np.isnan(pha)))
+    good, = np.where(np.logical_not(np.isnan(pha)))
+    if len(good) < 3:
+        # Not enough points to fit, so return zeros and a large standard deviation
+        return np.array((0,0,np.pi))
     f_ = f[good]
     pha_ = pha[good]
     for i in range(len(f_)-1):

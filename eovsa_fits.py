@@ -9,6 +9,8 @@
 #  2019-08-10  DG
 #    Added return of dictionary of data from combined files.  Changed
 #    eovsa_fits2plot() name to eovsa_combinefits().
+#  2019-08-12  DG
+#    Remove nans before checking vmax in scaling the imshow() colors
 
 from astropy.io import fits
 import glob
@@ -115,8 +117,17 @@ def eovsa_combinefits(files, freqgaps=True, outpath=None, ac_corr=True, doplot=T
             fdif = fghz[1:] - fghz[:-1]
             bad, = np.where(fdif > 0.1)
             specs[bad,:] = 0
+        else:
+            if time[0].mjd < 58536:
+                # If the date is earlier than 2019-02-22, eliminate frequency gaps
+                # (for display only) by smoothing the frequency list
+                nf = len(fghz)
+                p = np.polyfit(np.arange(nf),fghz,6)
+                fghz = np.polyval(p,np.arange(nf))
         X = np.sort(specs.flatten())   # Sorted, flattened array
+        X = X[np.where(~np.isnan(X))]  # Removes any nan at end of the sorted array
         vmax = X[int(len(X)*0.95)]  # Clip at 5% of points
+        
         im = ax.pcolormesh(pds,fghz,specs,vmax=vmax,vmin=0)
         #    plt.colorbar(im,ax=ax,label='Amplitude [arb. units]')
         ax.xaxis_date()

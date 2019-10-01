@@ -1,3 +1,11 @@
+#
+# Routines to try to correct total power issues
+#
+# History
+#  2019-08-12  DG
+#    Initial start of history log.  Fixed a problem in tp_bgnd() for
+#    nans in the data
+
 import pipeline_cal as pc
 import gaincal2 as gc
 import attncal as ac
@@ -228,7 +236,7 @@ def tp_bgnd(tpdata):
         # Subtract smooth trend from data
         sig = tpdata['p'][i] - smooth(tpdata['p'][i],2000,'blackman')[1000:-999]
         # Eliminate the worst outliers and repeat
-        stdev = np.std(sig)
+        stdev = np.nanstd(sig)
         good, = np.where(np.abs(sig) < stdev)
         sig = tpdata['p'][i,good] - smooth(tpdata['p'][i,good],2000,'blackman')[1000:-999]
         sint_i = sint[good]

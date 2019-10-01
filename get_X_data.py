@@ -23,6 +23,8 @@
 #  2016-05-11  DG
 #    Fixed the data path now that both /dppdata1 and the new /data1/eovsa
 #    path for older data are available.
+#  2018-08-20  Shaheda
+#    For 2015 data which is moved to /common/archive, an extra path is added.
 #
 import aipy
 import os
@@ -209,6 +211,11 @@ def get_trange_files(trange):
     if files == [] or glob.glob(folder) == []:
         datdir = trange[0].iso[:10].replace('-','')
         folder = '/data1/eovsa/fits/IDB/'+datdir
+        files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+        files.sort()
+    if files == [] or glob.glob(folder) == []:
+        datdir = trange[0].iso[:10].replace('-','')
+        folder = '/common/archive/data1/eovsa/fits/IDB/'+datdir               #for 2015 data    
         files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
         files.sort()
     mjd1, mjd2 = trange.mjd.astype('int')
