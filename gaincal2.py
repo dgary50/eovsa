@@ -34,6 +34,10 @@
 #  2019-07-22  DG
 #    Initial writing of eq_anal(), which will ultimately be used to set the EQ
 #    coefficients of the correlator.
+#  2019-10-24  DG
+#    Strangely, when a SQL attncal was not found, and it was then calculated from the
+#    data, the code did not then write it to SQL.  It seems obvious that once it is
+#    calculated a new SQL record should be written, so that is now added.
 #
 import dbutil as db
 import read_idb as ri
@@ -398,7 +402,8 @@ def apply_fem_level(data, skycal=None, gctime=None):
         attn = ac.read_attncal(gctime)[0]   # Attn from SQL
         if (gctime.mjd - attn['time'].mjd) > 1:
             # SQL entry is too old, so analyze the GAINCALTEST
-            attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)            
+            attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
+            ch.fem_attn_val2sql([attn])   # Go ahead and write it to SQL
     except:
         attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
     antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency

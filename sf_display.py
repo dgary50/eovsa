@@ -76,6 +76,8 @@
 #     Fixed some annoying string display problems that were not there for earlier version
 #     of Tkinter. Also finally killed the old "pcapture" tab, which had not been used in
 #     forever.
+#   2019-Nov-22  DG
+#     Added red (error) color to LO1A Sweep Status
 #
 
 from Tkinter import *
@@ -1312,6 +1314,8 @@ class App():
             stb = str(stf.extract(data,sf['LODM']['LO1A']['STB']))
             line = '    {:9.8}      {:20.19}  {:3} {:3} {:5} {:5}'.format(status,fseqfile,esr,stb,errno,errmsg)
             self.L3.insert(END,line)
+            if errmsg.find('No error') != 1 :
+                self.L3.itemconfig(END,bg=self.colors['error'])
 
         # ================= Section 4: Phase Tracking ===================
         c = sf['Schedule']['Data']

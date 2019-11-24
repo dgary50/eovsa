@@ -286,6 +286,11 @@
 #    2019-Feb-22  DG
 #      Import chan_util from new chan_util_52, which defines things for new
 #      IF filters, e.g. 52 channels of 325 MHz bandwidth.
+#    2019-Nov-24  DG
+#      Added $WSCRAM-LIMIT command to set the default windscram limit for 27-m and
+#      code to automatically set the windscram limit to 0 if the weather station
+#      information is "stale" (older than 5 minutes).  One side effect is that the
+#      windscram limit will be set to the default 17 mph on restarting the schedule.
 #
 
 import os, signal
@@ -873,6 +878,8 @@ class App():
         self.delays = [{},{},{},{},{},{},{},{}]  # Empty ROACH delays dictionaries
         self.w = {} # Empty weather dictionary
         self.PAthread = None
+        self.wlimit = 17  # Default wind limit (mph) for 27-m antenna
+        self.stale = True # Default status of weather station information (will be immediately set to False if not stale)
 
         # Start the clock ticking
         self.prev = time.time()
@@ -1725,6 +1732,39 @@ class App():
         # Update weather information in sf_dict (reads from OVRO weather station)
         self.w = stateframe.weather()
         sf_dict.update(self.w)
+        # If weather information is "stale" (older than 5 minutes), set wscram-limit to 0 to force
+        # Ant 14 to be kept stowed.
+        try:
+            tdifw = t - Time(self.w['mtSampTime'].replace('/','-'))
+            if tdifw.value > 300./86400.:
+                if self.stale is False:
+                    self.stale = True
+                    # Open socket to ACC
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    try:
+                        # Send commands to update antenna trip information
+                        s.connect((self.accini['host'],self.accini['scdport']))
+                        s.send('WSCRAM-LIMIT 0 ANT14')
+                        time.sleep(0.01)
+                        s.close()
+                    except:
+                        pass
+            else:
+                if self.stale is True:
+                    self.stale = False
+                    # Open socket to ACC
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    try:
+                        # Send command to update windscram limit for Ant 14
+                        s.connect((self.accini['host'],self.accini['scdport']))
+                        s.send('WSCRAM-LIMIT '+str(self.wlimit)+' ANT14')
+                        time.sleep(0.01)
+                        s.close()
+                    except:
+                        pass
+        except:
+            # The above calculation of tdif failed--probably a glitch in reading the weather, so leave state as is
+            pass
 
         # Once per minute, update the information from the Solar Power station(s)
         if t.datetime.second == 0:
@@ -2318,6 +2358,14 @@ class App():
                     t = threading.Thread(target=pcapture2.capture_1s, kwargs={'stem':stem})
                     t.daemon = True
                     t.start()
+                elif ctlline.split()[0].upper() == '$WSCRAM-LIMIT':
+                    # Update the 27-m windscram limit
+                    try:
+                        wlimit = int(ctlline.split()[1])
+                        self.wlimit = wlimit
+                        self.stale = True   # This will force sending of new limit at next 1-sec tick
+                    except:
+                        pass
                 #==== SCAN-START ====
                 elif ctlline.split()[0].upper() == '$SCAN-START':
                     # Command by itself is normal scan start, while $SCAN-START NODATA
