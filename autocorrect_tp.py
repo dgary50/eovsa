@@ -5,6 +5,10 @@
 #  2019-08-12  DG
 #    Initial start of history log.  Fixed a problem in tp_bgnd() for
 #    nans in the data
+#  2019-12-31  DG
+#    Check for how many good data points for a given frequecy in autocorrect_tp(),
+#    and skip that frequency is less than 10% of time samples.
+#
 
 import pipeline_cal as pc
 import gaincal2 as gc
@@ -238,12 +242,13 @@ def tp_bgnd(tpdata):
         # Eliminate the worst outliers and repeat
         stdev = np.nanstd(sig)
         good, = np.where(np.abs(sig) < stdev)
-        sig = tpdata['p'][i,good] - smooth(tpdata['p'][i,good],2000,'blackman')[1000:-999]
-        sint_i = sint[good]
-        stdev = np.std(sig)
-        # Final check for data quality
-        good, = np.where(np.logical_and(sig < 2*stdev, sint_ok[good]))
-        p = np.polyfit(sint_i[good],sig[good],1)
-        # Apply correction for this frequency
-        bgnd[i] = sint*p[0] + p[1]
+        if len(good) > nt/0.1:
+            sig = tpdata['p'][i,good] - smooth(tpdata['p'][i,good],2000,'blackman')[1000:-999]
+            sint_i = sint[good]
+            stdev = np.std(sig)
+            # Final check for data quality
+            good, = np.where(np.logical_and(sig < 2*stdev, sint_ok[good]))
+            p = np.polyfit(sint_i[good],sig[good],1)
+            # Apply correction for this frequency
+            bgnd[i] = sint*p[0] + p[1]
     return bgnd

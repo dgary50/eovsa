@@ -65,6 +65,9 @@
 #    Added allday_process() to process and all-day set of IDB files and
 #    create file-by-file FITS files with calibrated spectrograms (for HSO
 #    proposal)
+#  2019-11-29  DG
+#    Work around bug where difference in chi is not defined because an
+#    antenna has all-zero ActualAzimuth (i.e. missing data)
 #
 
 import dbutil as db
@@ -466,7 +469,11 @@ def unrot(data, azeldict=None):
                 ti = tidx[i][n]
                 tj = tidx[j][n]
                 if track[ti, i] and track[tj, j]:
-                    dchi = chi[gd[i][ti], i] - chi[gd[j][tj], j]
+                    # If something goes wrong with chi difference calculation, just default to chi = 0
+                    try:
+                        dchi = chi[gd[i][ti], i] - chi[gd[j][tj], j]
+                    except:
+                        dchi = 0.0
                     cchi = np.cos(dchi)
                     schi = np.sin(dchi)
                     cdata['x'][:, k, 0, n] = data['x'][:, k, 0, n] * cchi + data['x'][:, k, 3, n] * schi

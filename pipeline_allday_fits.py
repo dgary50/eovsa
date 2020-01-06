@@ -1,45 +1,54 @@
 if __name__ == '__main__':
+    import matplotlib
+    matplotlib.use("Agg")
+
     import pipeline_cal as pc
     import eovsa_fits as ef
     import glob
     from util import Time
     import sys, os
-    from __future__ import print_function
 
-    print(sys.argv)
+    print sys.argv
     try:
-        argv = sys.argv[3:]
+        argv = sys.argv[1:]
+        if '--clearcache' in argv:
+            clearcache = True
+            argv.remove('--clearcache')   # Allows --clearcache to be either before or after date items
+        else:
+            clearcache = False
         year = argv[0]
         month = argv[1]
         day = argv[2]
         t = Time([year+'-'+month+'-'+day+' 20:00:00'])
-        if '--clearcache' in argv:
-            clearcache = True
-        else:
-            clearcache = False
     except:
-        print('Error interpreting command line arguments--will analyze data from yesterday.')
+        print 'Error interpreting command line arguments--will analyze data from yesterday.'
         # No arguments (or no arguments given), so default to yesterday's data to analyze
         mjdnow = Time.now().mjd
         t = Time(mjdnow-1,format='mjd')
-        year = t.iso.split('-')[0]
-        month = t.iso.split('-')[1]
-        day = t.iso.split('-')[2].split(' ')[0]
+        year, month, day = t.iso.split('-')
+        day = day.split(' ')[0]
         t = Time([t.iso])
         clearcache = True
     # Change to standard working directory and delete any existing IDB files there
-    outpath = '/data1/dgary/HSO/'
+    datstr = t[0].iso[:10].replace('-','')+'/'
+    outpath = '/data1/dgary/HSO/'+datstr
+    if not os.path.exists(outpath):
+        os.mkdir(outpath)
+    fitsoutpath = '/data1/eovsa/fits/qlook_10m/'
     os.chdir(outpath)
     os.system('rm -rf IDB*')
     # Run first (and lengthy!) task to create corrected IDB files for the entire day
     pc.allday_udb_corr(t, outpath=outpath)
     # Process the entire day's IDB files to create fits files
     pc.allday_process(path=outpath)
+    print outpath,year,month,day,'Finding files:',outpath+year+'/'+month+'/'+day+'/*_TP_*.fts'
     files = glob.glob(outpath+year+'/'+month+'/'+day+'/*_TP_*.fts')
-    files = files.sort()
-    spec = ef.eovsa_combinefits(files, freqgaps=True, outpath=outpath, ac_corr=True, doplot=False)
+    files.sort()
+    spec = ef.eovsa_combinefits(files, freqgaps=True, outpath=fitsoutpath, ac_corr=True, savfig=True)
+    print outpath,year,month,day,'Finding files:',outpath+year+'/'+month+'/'+day+'/*_X_*.fts'
     files = glob.glob(outpath+year+'/'+month+'/'+day+'/*_X_*.fts')
-    files = files.sort()
-    spec = ef.eovsa_combinefits(files, freqgaps=True, outpath=outpath, ac_corr=True, doplot=False)
+    files.sort()
+    spec = ef.eovsa_combinefits(files, freqgaps=True, outpath=fitsoutpath, ac_corr=True, savfig=True)
     if clearcache:
-        os.system('rm -rf IDB*')
+        os.chdir('..')
+        os.system('rm -rf '+datstr)

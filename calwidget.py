@@ -33,6 +33,9 @@
 #    Added ability to select two sets of time ranges to flag in each antenna/band
 #  2019-08-23  DG
 #    Fixed a bug in bands plotted.
+#  2020-01-06  DG
+#    Change line thickness for sigma map grid for every 5th ant and 10th band.  Also
+#    add button for flagging all bands higher than a selected band.
 #
 
 import matplotlib
@@ -166,9 +169,13 @@ class App():
         ax = self.ab_fig_info[1]
         im = ax.pcolormesh(np.arange(14),np.arange(maxnbd+1),np.zeros((maxnbd,13)))
         for i in range(13):
-            ax.plot([i,i],[0,maxnbd],color='white',linewidth=0.2)
+            linewidth = 0.4 if i % 5 == 0 else 0.2 # make every 5th antenna line thicker
+            ax.plot([i,i],[0,maxnbd],color='white',linewidth=linewidth)
+#            ax.plot([i,i],[0,maxnbd],color='white',linewidth=0.2)
         for j in range(maxnbd):
-            ax.plot([0,13],[j,j],color='white',linewidth=0.2)
+            linewidth = 0.4 if j % 10 == 0 else 0.2 # make every 10th band line thicker
+            ax.plot([0,13],[j,j],color='white',linewidth=linewidth)
+#            ax.plot([0,13],[j,j],color='white',linewidth=0.2)
         self.ab_text = ax.text(2, maxnbd/2, 'No scan selected', color='white')
         ax.set_xlabel('Antenna Number')
         ax.set_ylabel('Band Number')
@@ -186,6 +193,9 @@ class App():
         self.allbands = Tk.BooleanVar()
         Tk.Checkbutton(pc_resultframe, text="Apply to all bands",
                 variable=self.allbands).pack(side=Tk.TOP, expand=0, fill=Tk.BOTH)
+        self.higherbands = Tk.BooleanVar()
+        Tk.Checkbutton(pc_resultframe, text="Apply to all bands above selected one",
+                variable=self.higherbands).pack(side=Tk.TOP, expand=0, fill=Tk.BOTH)
         self.apply_flags = Tk.Button(pc_resultframe, text='Apply Time Flagging', command=self.do_flags)
         self.apply_flags.pack(side=Tk.TOP, expand=0)
         self.save2sql = Tk.Button(pc_resultframe, text='Save to SQL', command=self.do_SQL)
@@ -354,6 +364,7 @@ class App():
                 # Check allants and allbands button states
                 allants = self.allants.get()
                 allbands = self.allbands.get()
+                higherbands = self.higherbands.get()
                 if key == 'A':
                     if nlines == 5:
                         # Erase last-drawn line to add a new one
@@ -367,15 +378,22 @@ class App():
                         fig.canvas.draw()
                         t1 = event.xdata
                         k = nlines/2 - 1  #  Either 0 or 1, depending on nlines
-                        if allants and allbands:
-                            tflags[:,:,0,k] = t1
-                            tflags[:,:,1,k] = 0
+                        if allants and (allbands or higherbands):
+                            if higherbands:
+                                tflags[:,band:,0,k] = t1
+                                tflags[:,band:,1,k] = 0
+                            else:
+                                tflags[:,:,0,k] = t1
+                                tflags[:,:,1,k] = 0
                         elif allants:
                             tflags[:,band,0,k] = t1
                             tflags[:,band,1,k] = 0
                         elif allbands:
                             tflags[ant,:,0,k] = t1
                             tflags[ant,:,1,k] = 0
+                        elif higherbands:
+                            tflags[ant,band:,0,k] = t1
+                            tflags[ant,band:,1,k] = 0
                         else:
                             tflags[ant,band,:,k] = [t1,0]
                 elif key == 'B':
@@ -392,12 +410,17 @@ class App():
                         fig.canvas.draw()
                         t2 = event.xdata
                         k = (nlines-1)/2 - 1  #  Either 0 or 1, depending on nlines
-                        if allants and allbands:
-                            tflags[:,:,1,k] = t2
+                        if allants and (allbands or higherbands):
+                            if higherbands:
+                                tflags[:,bands:,1,k] = t2
+                            else:
+                                tflags[:,:,1,k] = t2
                         elif allants:
                             tflags[:,band,1,k] = t2
                         elif allbands:
                             tflags[ant,:,1,k] = t2
+                        elif higherbands:
+                            tflags[ant,band:,1,k] = t2
                         else:
                             tflags[ant,band,1,k] = t2
                 elif key == 'X':
@@ -408,23 +431,33 @@ class App():
                     if nlines == 2 or nlines == 4:
                         # Zero any time flags
                         k = nlines/2 - 1  #  Either 0 or 1, depending on nlines
-                        if allants and allbands:
-                            tflags[:,:,:,k] = 0
+                        if allants and (allbands or higherbands):
+                            if higherbands:
+                                tflags[:,:,band:,k] = 0
+                            else:
+                                tflags[:,:,:,k] = 0
                         elif allants:
                             tflags[:,band,:,k] = 0
                         elif allbands:
                             tflags[ant,:,:,k] = 0
+                        elif higherbands:
+                            tflags[ant,band:,:,k] = 0
                         else:
                             tflags[ant,band,:,k] = [0,0]
                     elif nlines == 3 or nlines == 5:
                         # Zero second time flags
                         k = (nlines-1)/2 - 1  #  Either 0 or 1, depending on nlines
-                        if allants and allbands:
-                            tflags[:,:,1,k] = 0
+                        if allants and (allbands or higherbands):
+                            if higherbands:
+                                tflags[:,band:,1,k] = 0
+                            else:
+                                tflags[:,:,1,k] = 0
                         elif allants:
                             tflags[:,band,1,k] = 0
                         elif allbands:
                             tflags[ant,:,1,k] = 0
+                        elif higherbands:
+                            tflags[ant,band:,1,k] = 0
                         else:
                             tflags[ant,band,1,k] = 0
                 self.pc_dictlist[self.scan_selected]['tflags'] = tflags

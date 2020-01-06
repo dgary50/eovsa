@@ -11,6 +11,9 @@
 #    eovsa_fits2plot() name to eovsa_combinefits().
 #  2019-08-12  DG
 #    Remove nans before checking vmax in scaling the imshow() colors
+#  2019-12-30  DG
+#    Added savefig capability, writing to /common/webplots/SynopticImg/...
+#
 
 from astropy.io import fits
 import glob
@@ -18,8 +21,9 @@ from util import Time
 import numpy as np
 import matplotlib.pylab as plt
 from matplotlib.dates import DateFormatter
+import os
 
-def eovsa_combinefits(files, freqgaps=True, outpath=None, ac_corr=True, doplot=True):
+def eovsa_combinefits(files, freqgaps=True, outpath=None, ac_corr=True, doplot=True, savfig=False):
     ''' Reads provided list of FITS files and combines them into a single,
         all-day dynamic spectrum.  Returns a dictionary with the spectrum, 
         times and frequencies.  Optionally writes the combined FITS files 
@@ -97,7 +101,6 @@ def eovsa_combinefits(files, freqgaps=True, outpath=None, ac_corr=True, doplot=T
         out = {'x':specs,'time':jds,'fghz':fghz,'source':src}
 
     if outpath:
-        import os
         from xspfits2 import tp_writefits
         if typstr == 'Total Power':
             # Write an all-day FITS file
@@ -137,4 +140,18 @@ def eovsa_combinefits(files, freqgaps=True, outpath=None, ac_corr=True, doplot=T
         ax.set_ylabel('Frequency [GHz]')
         ax.set_title('EOVSA '+typstr+' Dynamic Spectrum for '+date)
         f.autofmt_xdate(bottom=0.15)
+        if savfig:
+            outstem = '/common/webplots/SynopticImg/eovsamedia/eovsa-browser/'
+            slashdate = date.replace('-','/')
+            if not os.path.exists(outstem+slashdate[:4]):
+                os.mkdir(outstem+slashdate[:4])
+            if not os.path.exists(outstem+slashdate[:7]):
+                os.mkdir(outstem+slashdate[:7])
+            if not os.path.exists(outstem+slashdate):
+                os.mkdir(outstem+slashdate)
+            if typstr == 'Total Power':
+                plt.savefig('/common/webplots/SynopticImg/eovsamedia/eovsa-browser/'+slashdate+'/TPSP.png',bbox_inches='tight')
+            else:
+                plt.savefig('/common/webplots/SynopticImg/eovsamedia/eovsa-browser/'+slashdate+'/XPSP.png',bbox_inches='tight')
+
     return out
