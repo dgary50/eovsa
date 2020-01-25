@@ -242,7 +242,7 @@ def tp_bgnd(tpdata):
         # Eliminate the worst outliers and repeat
         stdev = np.nanstd(sig)
         good, = np.where(np.abs(sig) < stdev)
-        if len(good) > nt/0.1:
+        if len(good) > nt*0.1:
             sig = tpdata['p'][i,good] - smooth(tpdata['p'][i,good],2000,'blackman')[1000:-999]
             sint_i = sint[good]
             stdev = np.std(sig)

@@ -36,6 +36,9 @@
 #  2020-01-06  DG
 #    Change line thickness for sigma map grid for every 5th ant and 10th band.  Also
 #    add button for flagging all bands higher than a selected band.
+#  2020-01-13 DG
+#    Fixed a bug in fitting phase slopes with new 52-band data (just needed a nanmedian 
+#    at one point in fix_time_drift())
 #
 
 import matplotlib
@@ -1270,7 +1273,7 @@ def fix_time_drift(out):
                 if p[2] < 0.7:
                     slopes.append(p[1]/out['fghz'][iband])
             if len(slopes) > 0:
-                dpdt = np.median(slopes)  # Radians/GHz/Day
+                dpdt = np.nanmedian(slopes)  # Radians/GHz/Day
                 for iband in range(nband):
                     pfit = dpdt*out['fghz'][iband]*(out['times']-out['times'][nt/2])
                     out['vis'][iant,ipol,iband] *= np.cos(pfit)-1j*np.sin(pfit)

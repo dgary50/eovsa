@@ -68,6 +68,8 @@
 #  2019-11-29  DG
 #    Work around bug where difference in chi is not defined because an
 #    antenna has all-zero ActualAzimuth (i.e. missing data)
+#  2020-01-25  DG
+#    Skip over bad/missing files in allday_udb_corr(), instead of crashing!
 #
 
 import dbutil as db
@@ -624,7 +626,10 @@ def allday_udb_corr(trange, outpath='./'):
         else:
             filename = fdir+file
         print 'Processing',filename
-        udb_corr(filename, calibrate=True, outpath=outpath)
+        try:
+            udb_corr(filename, calibrate=True, outpath=outpath)
+        except:
+            print 'Error processing',filename,' Skipping...'
 
 def allday_process(path=None):
     ''' Process an all day list of corrected data files to create total power 
@@ -662,7 +667,7 @@ def allday_process(path=None):
         # Use "intermediate" lengths, i.e. 20th to 39th in list, and sum amplitudes
         med = abs(sum(sum(out['x'][baseidx],0),0))
         # Write the baseline amplitude spectrum to a FITS file
-        tp_writefits(out, med.astype(np.float32), filestem='X_',outpath='./')
+        tp_writefits(out, med.astype(np.float32), filestem='XP_',outpath='./')
         
         
         

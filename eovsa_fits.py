@@ -13,6 +13,8 @@
 #    Remove nans before checking vmax in scaling the imshow() colors
 #  2019-12-30  DG
 #    Added savefig capability, writing to /common/webplots/SynopticImg/...
+#  2020-01-20  DG
+#    Changed Xall to XPall in cross-power output filename
 #
 
 from astropy.io import fits
@@ -107,7 +109,7 @@ def eovsa_combinefits(files, freqgaps=True, outpath=None, ac_corr=True, doplot=T
             tp_writefits(out, out['p'].astype(np.float32), filestem='TPall_',outpath=outpath)
         else:
             # Write an all-day FITS file
-            tp_writefits(out, out['x'].astype(np.float32), filestem='Xall_',outpath=outpath)
+            tp_writefits(out, out['x'].astype(np.float32), filestem='XPall_',outpath=outpath)
             
     if doplot:
         f, ax = plt.subplots(1,1,figsize=(14,5))

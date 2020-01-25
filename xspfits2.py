@@ -6,7 +6,10 @@
 #  2019-08-05  DG
 #    Updates to tp_writefits() to extend to other types of files.
 #    Also changed deprecated "clobber" keyword to "overwrite"
-
+#  2020-01-20  DG
+#    Removed hour and minute from tp_writefits() output filename,
+#    when filestem ends with 'all_'.
+#
 
 import time, os
 import numpy as np
@@ -143,7 +146,10 @@ def tp_writefits(out, med, filestem='', outpath='/data1/eovsa/fits/flares/'):
     dy = t01[8:10]
     hr = t01[11:13]
     mn = t01[14:16]
-    file_out = 'EOVSA_'+filestem+yr+mm+dy+hr+mn+'.fts'
+    if filestem.endswith('all_'):
+        file_out = 'EOVSA_'+filestem+yr+mm+dy+'.fts'
+    else:
+        file_out = 'EOVSA_'+filestem+yr+mm+dy+hr+mn+'.fts'
 #flare fits files
     if os.path.isdir(outpath) == False:
         print "tp_writefits: creating "+outpath
@@ -153,7 +159,7 @@ def tp_writefits(out, med, filestem='', outpath='/data1/eovsa/fits/flares/'):
     if os.path.isdir(outdir) == False:
         print "daily_xsp_writefits: creating "+outdir
         os.mkdir(outdir)
-#add mn directory
+#add mm directory
     outdir = outpath+'/'+yr+'/'+mm+'/'
     if os.path.isdir(outdir) == False:
         print "daily_xsp_writefits: creating "+outdir
@@ -217,7 +223,7 @@ def tp_writefits(out, med, filestem='', outpath='/data1/eovsa/fits/flares/'):
     prihdr.set('OBJ_ID', obj_id, 'Object ID')
     if filestem == 'TP_':
         prihdr.set('TYPE', 1, 'Total Power Dynamic Spectrum')
-    elif filestem == 'X_':
+    elif filestem == 'XP_':
         prihdr.set('TYPE', 2, 'Cross Power Dynamic Spectrum')
     else:
         prihdr.set('TYPE', 0, 'Spectrum Type Undefined')
