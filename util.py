@@ -39,6 +39,8 @@
 #    This version allows conversion of arrays or lists of filenames.
 #  2019-Aug-24  DG
 #    Fixed a bug in lin_phase_fit() when data were all nan.
+#  2020-Jan-30  DG
+#    Fixed another bug in lin_phase_fit() that caused shape error.
 # * 
 
 import StringUtil as su
@@ -1124,7 +1126,7 @@ def lin_phase_fit(f,pha, doplot=False):
     slp = np.median(dpdf)
     p = np.polyfit(f_,np.unwrap((pha_-f_*slp)),1)
     p[0] = p[0]+slp
-    stdev = np.std(lobe(pha-np.polyval(p,f_)))
+    stdev = np.std(lobe(pha_-np.polyval(p,f_)))
     if doplot:
         import matplotlib.pylab as plt
         plt.plot(f,pha,'.')

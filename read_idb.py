@@ -100,6 +100,8 @@
 #    Fix bandname list to work with either 34 or 52 band data, depending on date.  Dates
 #    prior to 2019-Feb-22 use 34 bands.  Also, added allow_pickle=True in np.load() call
 #    in read_npz().  Looks like a new security "feature" of Python.
+#  2020-Jan-25  DG
+#    Suppress warnings about imaginary total power data in a file, after the first one.
 #
 
 import aipy
@@ -127,6 +129,7 @@ def read_udb(filename):
     nf = len(uv['sfreq'])
     nt = uv['ntimes']
 
+    print_warning = True     # Print a warning about imaginary total power data, if found.
     freq = uv['sfreq']
     npol = uv['npol']
     nants = uv['nants']
@@ -179,8 +182,9 @@ def read_udb(filename):
         if i0 == j0:
             # This is an auto-correlation
             outa[i0,k,:,l] = data
-            if k < 2 and np.sum(data != np.real(data)) > 0:
-                print preamble,uv['pol'], 'has imaginary data!'
+            if print_warning and k < 2 and np.sum(data != np.real(data)) > 0:
+                print preamble,uv['pol'], 'has imaginary data! Additional warnings suppressed.'
+                print_warning = False
         else:
             outx[bl2ord[i,j],k,:,l] = data
             if k == 3: uvwarray[bl2ord[i,j],l] = uvw
@@ -251,6 +255,7 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
         if src:
             # If a specific source name is given, and there is no source in the file, stop and return
             pass#return '<no "source" var!>'
+    print_warning = True    # Print a warning about imaginary total power data, if found.
     nf = len(good_idx)
     freq = uv['sfreq'][good_idx]
     npol = uv['npol']
@@ -351,8 +356,9 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
                 if i0 == j0:
                     # This is an auto-correlation
                     outa[i0,k,:,l] = data
-                    if k < 2 and np.sum(data != np.real(data)) > 0:
-                        print preamble,uv['pol'], 'has imaginary data!'
+                    if print_warning and k < 2 and np.sum(data != np.real(data)) > 0:
+                        print preamble,uv['pol'], 'has imaginary data! Additional warnings suppressed.'
+                        print_warning = False
                 else:
                     outx[bl2ord[i,j],k,:,l] = data
                     if k == 3: uvwarray[bl2ord[i,j],l] = uvw

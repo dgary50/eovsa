@@ -16,6 +16,8 @@
 #    Added mv_ptg_files().
 #  2019-Jun-21  DG
 #    Fixed a bug in filenames when running on pipeline.
+#  2020-Jan-26  DG
+#    mv_pcal_files() only worked for years 201*, so now works for 20*
 #
 
 import numpy as np
@@ -30,7 +32,7 @@ def mv_pcal_files():
     '''
     import glob, os
     from time import sleep
-    npzfiles = glob.glob('/common/webplots/phasecal/201???????*')
+    npzfiles = glob.glob('/common/webplots/phasecal/20????????*')
     npzfiles.sort()
     #datstr = ''
     if len(npzfiles) > 20:

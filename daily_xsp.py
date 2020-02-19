@@ -298,8 +298,19 @@ def cal_qual(t=None, savfig=False):
         # List of GCAL files
         gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:
-        print 'CAL_QUAL: Error, no GAINCALTEST scan for this date.'
-        return
+        print 'CAL_QUAL: Warning, no GAINCALTEST scan for this date.  Will try using the GAINCALTEST from previous day.'
+        fdb = dt.rd_fdb(Time(mjd-1,format='mjd'))
+        gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
+        if len(gcidx) == 1:
+            datadir=os.getenv('EOVSADB')
+            if not datadir:
+                # go to default directory on pipeline
+                datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            # List of GCAL files
+            gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
+        else:
+            print 'CAL_QUAL: Error, no GAINCALTEST scan for previous day.'
+            return
     # Find SOLPNTCAL scan for this date
     fdb = dt.rd_fdb(Time(mjd,format='mjd'))
     gcidx, = np.where(fdb['PROJECTID'] == 'SOLPNTCAL')
