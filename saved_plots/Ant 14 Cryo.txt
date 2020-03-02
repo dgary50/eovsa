@@ -1,0 +1,1 @@
+FEMA Thermal FirstStageTemp, FEMA Thermal SecondStageTemp, FEMA Thermal LowFreqLNATemp, FEMA Thermal HiFreqLNATemp

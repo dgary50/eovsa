@@ -36,9 +36,13 @@
 #  2020-01-06  DG
 #    Change line thickness for sigma map grid for every 5th ant and 10th band.  Also
 #    add button for flagging all bands higher than a selected band.
-#  2020-01-13 DG
+#  2020-01-13  DG
 #    Fixed a bug in fitting phase slopes with new 52-band data (just needed a nanmedian 
 #    at one point in fix_time_drift())
+#  2020-02-20  DG
+#    Set the fixdrift checkbox to default on checked.  Also added a color indicator on
+#    scans where there is a windscram state.  If greater than zero, but less than 20%, 
+#    the scan line is yellow.  If greater than 20%, it is red.
 #
 
 import matplotlib
@@ -61,6 +65,7 @@ import ttk
 from tkMessageBox import askyesno, showerror
 from util import Time, nearest_val_idx, lobe, lin_phase_fit
 import cal_header as ch
+import dbutil as db
 from stateframe import extract
 import refcal_anal as ra   #I'll try to eliminate this later...only needed for phase_diff()
 
@@ -95,6 +100,7 @@ class App():
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.wm_title("Calibration Widget")
         
+        self.colors = {'error': '#f88', 'warn': '#ff8', 'na': '#ddd'}
         tabsframe = Tk.Frame()
         tabsframe.pack(expand=1,fill=Tk.BOTH)
         # Add some tabs for different calibration types
@@ -159,6 +165,7 @@ class App():
                 variable=self.fixdrift)
         self.drift_button.configure(state=Tk.NORMAL)
         self.drift_button.pack(side=Tk.TOP)
+        self.fixdrift.set(1)
         maxnbd = 52  # Default number of bands for initial interface
 
         #   Sigma map window
@@ -322,6 +329,8 @@ class App():
                     if k+2 == i:
                         line = line[:8] + timestamp.iso[10:19] + line[17:]
                     self.pc_scanbox.insert(Tk.END, line)
+                    if i > 1:
+                        self.pc_scanbox.itemconfig(Tk.END, bg=self.pc_dictlist[i-2]['color'])
         
     def ant_tab_event(self, event):
         '''When user selects an antenna tab, this callback allows the newly
@@ -563,7 +572,7 @@ class App():
                     flags = extract(buf,xml['Refcal_Flag'])
                     fghz = extract(buf,xml['Fghz'])
                     bands = freq2bdname(fghz)
-                    self.pc_dictlist.append({'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 'bands':bands})
+                    self.pc_dictlist.append({'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 'bands':bands, 'color':'#fff'})
                     self.saved.append(True)
                     not_a_refcal = False
             except:
@@ -593,19 +602,28 @@ class App():
                         mbd = extract(buf,xml['MBD'])
                         mbd_flag = extract(buf,xml['Flag'])
                         self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 
-                                             'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag, 'bands':bands})
+                                             'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag, 'bands':bands, 'color':'#fff'})
                         self.saved.append(True)
                         not_a_phacal = False
                 except:
                     pass
             if not_a_refcal and not_a_phacal:
                 # Neither refcal nor phacal exists for this time, so set empty dictionary
-                self.pc_dictlist.append({})
+                self.pc_dictlist.append({'color': '#fff'})
                 self.saved.append(False)
 
-            nscans = len(self.pc_dictlist)
             self.pc_scanbox.insert(Tk.END, line)
-        
+            trange = Time([st_time.mjd,en_time.mjd],format='mjd')
+            times, wscram, avgwind = db.a14_wscram(trange)
+            nwind = len(wscram)
+            nbad = np.sum(wscram)
+            if nbad*1./nwind > 0.2:
+                self.pc_scanbox.itemconfig(Tk.END,bg=self.colors['error'])
+                self.pc_dictlist[-1].update({'color': self.colors['error']})
+            elif nbad > 0:
+                self.pc_scanbox.itemconfig(Tk.END,bg=self.colors['warn'])
+                self.pc_dictlist[-1].update({'color': self.colors['warn']})
+
     def set_multi(self):
         ''' Set scanbox selection mode to multiple if set '''
         if self.extselect.get():
@@ -877,6 +895,8 @@ class App():
             if j:
                 if k == j+2: line = line[:-2] + '*R'
             self.pc_scanbox.insert(Tk.END, line)
+            if k > 1:
+                self.pc_scanbox.itemconfig(Tk.END, bg=self.pc_dictlist[k-2]['color'])
         self.ref_selected = i
         # Reset selection cleared by above insertion
         self.pc_scanbox.selection_set(i+2)
@@ -916,6 +936,8 @@ class App():
                 else:
                     line += ' R'
             self.pc_scanbox.insert(Tk.END, line)
+            if k > 1:
+                self.pc_scanbox.itemconfig(Tk.END, bg=self.pc_dictlist[k-2]['color'])
         # Reset selection cleared by above insertion
         self.pc_scanbox.selection_set(i+2)
         self.scan_select()
@@ -1032,6 +1054,8 @@ class App():
                 else:
                     line += ' P'
             self.pc_scanbox.insert(Tk.END, line)
+            self.pc_scanbox.itemconfig(Tk.END, bg=self.pc_dictlist[k]['color'])
+
         # Reset selection cleared by above insertion
         self.pc_scanbox.selection_set(i+2)
         self.scan_select()

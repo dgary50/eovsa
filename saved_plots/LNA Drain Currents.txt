@@ -1,0 +1,1 @@
+FEMA Receiver LNAs 1 DrainCurrent, FEMA Receiver LNAs 2 DrainCurrent, FEMA Receiver LNAs 3 DrainCurrent, FEMA Receiver LNAs 4 DrainCurrent

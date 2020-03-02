@@ -1,6 +1,2 @@
 Antenna 1 Controller ElevationMotorCurrent, Antenna 1 Controller AzimuthMotorCurrent,
-Antenna 2 Controller ElevationMotorCurrent, Antenna 2 Controller AzimuthMotorCurrent,
-Antenna 3 Controller ElevationMotorCurrent, Antenna 3 Controller AzimuthMotorCurrent,
-Antenna 4 Controller ElevationMotorCurrent, Antenna 4 Controller AzimuthMotorCurrent,
-Antenna 5 Controller ElevationMotorCurrent, Antenna 5 Controller AzimuthMotorCurrent,
-Antenna 6 Controller ElevationMotorCurrent, Antenna 6 Controller AzimuthMotorCurrent
+Antenna 4 Controller ElevationMotorCurrent, Antenna 4 Controller AzimuthMotorCurrent
