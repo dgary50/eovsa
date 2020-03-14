@@ -222,7 +222,7 @@ def sun_risetime(t,limit_deg=10):
 
 def sun_settime(t,limit_deg=10):
     '''Calculate the times that the Sun sets below a given elevation
-       limit for the OVRO site.
+       limit for the OVRO site.:q
 
        t is a Time() object representing the day in question.
        limit_deg is the elevation limit in degrees (default 10 degrees)
