@@ -35,7 +35,7 @@ if __name__ == '__main__':
     outpath = '/data1/dgary/HSO/'+datstr
     if not os.path.exists(outpath):
         os.mkdir(outpath)
-    fitsoutpath = '/data1/eovsa/fits/qlook_10m/'
+    fitsoutpath = '/data1/eovsa/fits/synoptic/'
     os.chdir(outpath)
     os.system('rm -rf IDB*')
     # Run first (and lengthy!) task to create corrected IDB files for the entire day
