@@ -291,6 +291,10 @@
 #      code to automatically set the windscram limit to 0 if the weather station
 #      information is "stale" (older than 5 minutes).  One side effect is that the
 #      windscram limit will be set to the default 17 mph on restarting the schedule.
+#    2020-Mar-08  DG
+#      Added $PLUSDELAY command to add a given delay to the current ANT 14 LO-FRQ 
+#      RCVR delays (both X and Y).  This does write a new delay-center record to
+#      the SQL database, so use cal_header.delete_cal() to remove it if desired.
 #
 
 import os, signal
@@ -2344,6 +2348,35 @@ class App():
                     t = threading.Thread(target=adc_cal2.set_fem_attn, kwargs={'ant_str':ant_str})
                     t.daemon = True
                     t.start()
+                #==== PLUSDELAY ====
+                elif ctlline.split()[0].upper() == '$PLUSDELAY':
+                    # Really specific command that adds given delay argument (in nsec) to the Ant 14 LO-FRQ RCVR
+                    # delays (both X and Y) in the current delay center table.  This writes the changed record as
+                    # a new record in the SQL database.  It can be deleted later using cal_header.delete_cal().
+                    try:
+                        cmd, dla = ctlline.strip().split()
+                        dla = numpy.float(dla)
+                        # Read current delay center table, which creates output table in /tmp
+                        cal_header.dla_censql2table()
+                        time.sleep(0.1)
+                        # Read the table from the disk
+                        f = open('/tmp/delay_centers.txt','r')
+                        lines = f.readlines()
+                        f.close()
+                        time.sleep(0.1)
+                        # Add the given delay to both X and Y delays in line 18 (Ant 15 line, which is really Ant 14 LO_FRQ RCVR)
+                        vals = array(map(float,lines[18].strip().split())) + [0,dla,dla]
+                        lines[18] = '  {:2d}    {:9.3f}    {:9.3f}\n'.format(int(vals[0]),vals[1],vals[2])
+                        # Write the table back to the disk
+                        f = open('/tmp/delay_centers.txt','w')
+                        for line in lines:
+                            f.write(line)
+                        f.close()
+                        time.sleep(0.1)
+                        # Write the table to the SQL database
+                        cal_header.dla_centable2sql(filename='/tmp/delay_centers.txt')
+                    except:
+                        print util.Time.now().iso,'Could not interpret PLUSDELAY arguments.'
                 #==== CAPTURE-1S ====
                 elif ctlline.split()[0].upper() == '$CAPTURE-1S':
                     # Use $CAPTURE-1S <stem> where <stem> is a string to add to the end of the

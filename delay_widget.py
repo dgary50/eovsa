@@ -49,7 +49,7 @@ class App():
         '''
         self.root = Tk()
         #self.root.geometry("+100+0")
-        # Set window title from command-line argument, which is saved in self.subarray_name
+        # Set window title
         self.root.wm_title('Delay Widget')
         
         self.menu = Menu(self.root)
@@ -377,7 +377,8 @@ class App():
         if f is None:
             # User cancelled, so do nothing.
             return
-        data = np.load(f)
+        data = np.load(f, allow_pickle=True)
+        self.root.wm_title('Delay Widget '+f.name)
         k = data.keys()
         out = data[k[0]].item()
         self.ph = np.angle(np.sum(out['x'][ri.bl2ord[0:13,13]],3))

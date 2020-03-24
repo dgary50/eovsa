@@ -78,6 +78,8 @@
 #      PRT filename, which must have PRTyyyymmddhhmmss... form.  Also added the routine
 #      prt_dla(), to determine delay differences between two PRT captures on the CIEL-2
 #      geosynchronous satellite.
+#   2020-Mar-07  DG
+#      Added a legend to each plot in prt_dla().
 
 import numpy as np
 import pdb
@@ -534,9 +536,12 @@ def rd_jspec(filename):
         out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr,'delays':outdla, 'time': t}
     return out
 
-def prt_dla(out, ref, doplot=False):
+def prt_dla(out, ref, refant=14, doplot=False):
     ''' Print (and optionally plot) the delay differences between a PRT file from one correlator state
-        (the reference PRT file) and those in another correlator state after the correlator has been rebooted.
+        (the reference PRT file) and those in another correlator state after the correlator has been rebooted,
+        relative to the reference antenna specified in refant.  If ref is None, the phase differences are just
+        those relative to the refant.
+
         The procedure is to point the antennas at the geosynchronous satellite CIEL-2 and do a $capture-1s,
         when the correlator is in the reference state, and then again after a reboot.  Note that sometimes
         a glitch occurs to create very large delay differences on some antennas, in which case
@@ -545,24 +550,33 @@ def prt_dla(out, ref, doplot=False):
             out    The structure returned from the rd_jspec() routine (in pcapture2.py), corresponding to the
                      new correlator state.
             ref    The structure returned from the rd_jspec() routine (in pcapture2.py), corresponding to the
-                     reference correlator state.
+                     reference correlator state.  If ref is None, the phase differences are relative to the
+                     refant only.
+            refant The ordinal number of the reference antenna (not 0-based).  Default is Ant 14.
             doplot An optional keyword.  If True, a plot is created to visually compare the results
         
         The results are printed to the terminal.  The purpose of this routine is as a sanity check for
         possible glitches as described above, and as an aid to setting the delay centers using delay_widget.py.
     '''
     from util import bl2ord,lobe
+    from copy import deepcopy
+    if ref is None:
+        ref = deepcopy(out)
+        ref['x'] = ref['x']*(0.+0j) + (1.+0j)
     if doplot:
         import matplotlib.pylab as plt
-        f, ax = plt.subplots(3,4)
-        f.set_size_inches(12,7)
-        f.suptitle('Geosat Phase Diff for '+out['time'].iso[:19]+'UT (Ref Time: '+ref['time'].iso[:19]+' UT)',fontsize=16)
-        ax.shape = (12,)
-    dladiff = out['delays'][:,:,35]-ref['delays'][:,:,35]  # Difference in delay settings-
-    for i in range(12):
-        ddiff = dladiff[i+1,0] - dladiff[0,0]  # Difference in delay settings relative to Ant 1
+        f, ax = plt.subplots(4,4)
+        f.set_size_inches(12,9.5)
+        f.suptitle('Geosat Phase Diff for '+out['time'].iso[:19]+' UT (Ref Time: '+ref['time'].iso[:19]+' UT)',fontsize=16)
+        ax.shape = (16,)
+    dladiff = out['delays'][:,:,35]-ref['delays'][:,:,35]  # Difference in delay settings
+    for i in range(14):
+        ddiff = dladiff[i,0] - dladiff[refant-1,0]  # Difference in delay settings relative to refant
         xax = np.arange(2048)*0.2/2048. * 2*np.pi * 1.25
-        pdiff = np.unwrap(np.angle(out['x'][bl2ord[0,i+1],0,:2048,35]) - np.angle(ref['x'][bl2ord[0,i+1],0,:2048,35]) 
+        if i == refant-1:
+            pdiff = np.zeros(2048,np.float)
+        else:
+            pdiff = np.unwrap(np.angle(out['x'][bl2ord[refant-1,i],0,:2048,35]) - np.angle(ref['x'][bl2ord[refant-1,i],0,:2048,35]) 
                   - xax*ddiff)
         res = np.polyfit(xax, pdiff, 1)
         #steps = np.round(res[0])
@@ -574,16 +588,17 @@ def prt_dla(out, ref, doplot=False):
         #else:
         #    print ' Ant: {:2d} Steps: {:5d}  stdev [deg]: {:5d}  Delay [ns]: {:7.3f}'.format(i+2,int(steps),resid,steps*1.25)
         if resid > 10:
-            print '*Ant: {:2d} Steps: {:7.1f}  stdev [deg]: {:7.1f}  Delay [ns]: {:7.3f}'.format(i+2,steps,resid,steps*1.25)
+            print '*Ant: {:2d} Steps: {:7.1f}  stdev [deg]: {:7.1f}  Delay [ns]: {:7.3f}'.format(i+1,steps,resid,steps*1.25)
         else:
-            print ' Ant: {:2d} Steps: {:7.1f}  stdev [deg]: {:7.1f}  Delay [ns]: {:7.3f}'.format(i+2,steps,resid,steps*1.25)
+            print ' Ant: {:2d} Steps: {:7.1f}  stdev [deg]: {:7.1f}  Delay [ns]: {:7.3f}'.format(i+1,steps,resid,steps*1.25)
         if doplot:
-            ax[i].plot(lobe(np.polyval(res,xax)))
-            ax[i].plot(lobe(pdiff),',')
-            ax[i].plot(lobe(pdiff - np.polyval(res,xax)),',')
-            ax[i].text(100,3.3,'Ant '+str(i+2)+' relative to Ant 1')
+            ax[i].plot(lobe(np.polyval(res,xax)),label='fit')
+            ax[i].plot(lobe(pdiff),',',label='phase diff')
+            ax[i].plot(lobe(pdiff - np.polyval(res,xax)),',',label='corrected')
+            ax[i].text(100,3.3,'Ant '+str(i+1)+' relative to Ant '+str(refant))
             ax[i].text(100,-3.9,'Delay '+str(steps*1.25)[:5]+' ns (steps='+str(int(round(steps)))+')')
             ax[i].set_ylim(-4,4)
+            ax[i].legend()
 
 
 def get_bl_order(n_ants):
