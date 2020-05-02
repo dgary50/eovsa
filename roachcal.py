@@ -101,7 +101,7 @@ def DCM_cal(filename=None,fseqfile='gainseq.fsq',dcmattn=None,missing='ant15',up
         DCMlines.append('{:2} :  {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2}'.format(band,*new_table[band-1]))
     return DCMlines
 
-def DCM_calnew(filename=None,fseqfile='solarnew.fsq',dcmattn=None,missing='ant15',update=False):
+def DCM_calnew(filename=None,fseqfile='solar.fsq',dcmattn=None,missing='ant15',update=False):
 
     if filename is None:
         return 'Must specify ADC packet capture filename, e.g. "/dppdata1/PRT/PRT<yyyymmddhhmmss>adc.dat"'
@@ -163,6 +163,26 @@ def DCM_calnew(filename=None,fseqfile='solarnew.fsq',dcmattn=None,missing='ant15
     for band in range(1,53):
         DCMlines.append('{:2} :  {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2}'.format(band,*new_table[band-1]))
     return DCMlines
+
+def override(tbl,bandlist):
+    ''' When a table has bad attenuation for a given band, this command will replace
+        the new values with the ones in the current DCM_master_table.
+        
+        Inputs:
+           tbl       A text string version of a table as returned by DCM_calnew()
+           bandlist  A simple list of band numbers (1 - 52) that will be replaced.
+    '''
+    import cal_header
+    import stateframe
+    xml, buf = cal_header.read_cal(2)
+    cur_table = stateframe.extract(buf,xml['Attenuation'])
+    if type(bandlist) != list:
+        # If bandlist is not a list, it may be just a single band, so make it a list (of one).
+        bandlist = [bandlist]
+    for band in bandlist:
+        # Format cur_table[band-1] as text line, and use it to replace tbl[band+2] line
+        tbl[band+2] = tbl[band+2][:5]+('{:3d}'*30).format(*cur_table[band-1])
+    return tbl
 
 def getphasecor(data, ant_str='ant1-14', polist=[0,1], crange=[0,4095], pplot=False):
     ''' Routine adapted from Maria Loukitcheva's code, to find phase slopes in

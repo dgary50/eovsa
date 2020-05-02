@@ -41,6 +41,10 @@
 #    Fixed a bug in lin_phase_fit() when data were all nan.
 #  2020-Jan-30  DG
 #    Fixed another bug in lin_phase_fit() that caused shape error.
+#  2020-May-02  DG
+#    Added fix_time_drift() routine based on the one with the same name in
+#    calwidget.py (although that one assumes a different data structure). This
+#    verstion works with a standard read_idb() output file.
 # * 
 
 import StringUtil as su
@@ -1132,6 +1136,35 @@ def lin_phase_fit(f,pha, doplot=False):
         plt.plot(f,pha,'.')
         plt.plot(f,lobe(np.polyval(p,f)))
     return np.array((p[1], p[0], stdev))
+
+def fix_time_drift(out):
+    ''' Routine to correct a linear phase drift vs. time for baselines with
+        Ant 14 in a standard read_idb() output file.  This calculates a slope vs.
+        time for each frequency and pol = XX and YY separately, but then uses 
+        the median of the delay (slope/fghz) for well-determined slopes (those 
+        with stdev < 0.7) to correct the phase on ALL frequencies and polarizations. 
+        Other baselines than those with Ant 14 are returned unmodified.
+        (Although they COULD be corrected -- TODO)
+    '''
+    import numpy as np
+    nant, npol, nband, nt = out['x'][bl2ord[13,:13]].shape   # Consider baselines with Ant14 only
+    for iant in range(nant):
+        for ipol in range(2):      # Use only polarizations XX and YY for slope determination
+            slopes = []
+            for iband in range(nband):
+                phz = np.angle(out['x'][bl2ord[13,iant],ipol,iband])
+                #if out['flags'][iant,ipol,iband] == 0:
+                p = lin_phase_fit(out['time'],phz)
+                if p[2] < 0.7:
+                    slopes.append(p[1]/out['fghz'][iband])
+        
+        if len(slopes) > 0:
+            dpdt = np.nanmedian(slopes)  # Radians/GHz/Day
+            for ipol in range(npol):         # Apply the corrections to all polarization products
+                for iband in range(nband):
+                    pfit = dpdt*out['fghz'][iband]*(out['time']-out['time'][nt/2])
+                    out['x'][bl2ord[13,iant],ipol,iband] *= np.cos(pfit)-1j*np.sin(pfit)
+    return out
 
 def sat_phase(out,ant,doplot=False):
     ''' Takes the autocorrelation read from a packet dump (PRT) file taken while the array is

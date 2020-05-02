@@ -78,7 +78,11 @@
 #     forever.
 #   2019-Nov-22  DG
 #     Added red (error) color to LO1A Sweep Status
-#
+#   2020-Apr-23 OG
+#     Added collapsable section for Antenna Last Command, increased the starting height 
+#     of the opening window to 950 pixels, and set ROACH status to be expanded by default
+#   2020-May-02  DG
+#     Cleaned up some garbage in the "Task" string
 
 from Tkinter import *
 from ttk import *
@@ -121,6 +125,7 @@ class App():
         self.root = Tk()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.wm_title('Stateframe Display')
+        self.root.minsize(500,950)
         timeframe = Frame(self.root)
         timeframe.pack()
         toolbar = Frame(self.root)
@@ -318,7 +323,7 @@ class App():
                           font=font2use)
         self.L3.bind('<<ListboxSelect>>', self.toggle_heading)
         self.L3.pack(side=LEFT, fill=BOTH, expand=0)
-        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 0]
+        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0]
         self.colors = {'section0': '#757', 'section1': '#979',
                        'colhead': '#cfc', 'error': '#f88', 'warn': '#ff8',
                        'na': '#ddd', 'offsets': '#feb'}
@@ -1039,10 +1044,13 @@ class App():
         mjd = t.mjd
         version = stf.extract(data,sf['Version'])
         line = 'SF v'+str(version)+' Time: '+t.iso
-        task = stf.extract(data,sf['Schedule']['Task']).strip('\x00').replace('\t',' ')
+        task = stf.extract(data,sf['Schedule']['Task']).strip('\x00').replace('\t',' ').replace('\r\n','|')
         if task == '':
             task = self.last_task
         else:
+            # Clean up the task string, which has some junk that does not need to be displayed.
+            task = task[:-1]   # Remove trailing character (the '|' replacing the last \r\n)
+            task = ' '.join(task.split()[1:])   # Remove the first "word" (a time within the current second)
             self.last_task = task
 
         line += ' Source: '+'  Task: '+task
@@ -1536,9 +1544,21 @@ class App():
                     # For some reason, a good ROACH reports '0xc00000' for status
                     self.L3.itemconfig(END,bg=self.colors['error'])
 
-        for i in antindex:
-            parser = sf['Antenna'][i]['Parser']
-            self.L3.insert(END,'Ant'+str(i+1)+' Last Command:'+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
+        # ================= Section 8: Last Antenna Command ===================
+        heading = 'Antenna Last Command'
+        
+        if not self.sectionDisplayState[7]:
+            headline = ' '+heading+' '*(100-len(heading)-len(expand))+expand
+            self.L3.insert(END,headline)
+            self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
+        else:
+            headline = ' '+heading+' '*(100-len(heading)-len(collapse))+collapse
+            self.L3.insert(END,headline)
+            self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
+            for i in antindex:
+                parser = sf['Antenna'][i]['Parser']
+                an='  '+'{:2d}'.format(i)+":   "
+                self.L3.insert(END,an+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
 
     def cryo_display(self,data):
         ''' Creates the CryoRX page to display Cryo Receiver information

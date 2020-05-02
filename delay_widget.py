@@ -28,6 +28,8 @@
 #      ant 1, except for ant 1 itself, which displays baseline 1-14. This
 #      turns out to be a relatively minor change.  Also add a checkbox to
 #      allow the user to mark missing antennas.
+#   2020-May-02  DG
+#      Added some much-needed legends to the plots
 
 from Tkinter import *
 from tkFileDialog import askopenfile
@@ -319,6 +321,7 @@ class App():
         self.doplot(ant)
 
     def doplot(self,ant=1):
+        polstr = ['XX','XY','YX','YY']
         dla = self.delays[ant-1]
         ydla = self.xydelays[ant-1]
         # Also need delay settings for ant 1
@@ -344,29 +347,31 @@ class App():
                 tau1 = dla1 + ydla1
             ax.cla()
             if ant == 1:
-                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau),'.')
+                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau),'.',label=polstr[i])
                 if self.pol[i] == 0:
                     pxx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 1:
-                    pyy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
+                    pyy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 2:
-                    pxy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
+                    pxy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 3:
-                    pyx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
+                    pyx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
             else:
-                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - self.ph[0,self.pol[i]] - 2*np.pi*self.fghz*(tau-tau1)),'.')
+                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - self.ph[0,self.pol[i]] - 2*np.pi*self.fghz*(tau-tau1)),'.',label=polstr[i])
                 if self.pol[i] == 0:
                     pxx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 1:
-                    pyy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
+                    pyy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 2:
-                    pxy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
+                    pxy = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 3:
-                    pyx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)                    
+                    pyx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
             ax.set_ylim(-4,4)
+            ax.legend(fontsize=9,loc='lower right')
         self.ax[4].cla()
         self.ax[4].plot(self.fghz,lobe(pyy - pxx),'.')
-        self.ax[4].plot(self.fghz,lobe(pxy - pyx),'.')
+        self.ax[4].set_title('YY - XX Phase')
+        #self.ax[4].plot(self.fghz,lobe(pxy - pyx),'.')
         self.ax[4].set_ylim(-4,4)
         self.canvas.draw()
 
