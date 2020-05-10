@@ -48,26 +48,30 @@
 #  2020-May-10  DG
 #    Added routine get_idbdir(), which returns the root path of IDB data for a
 #    given date.
-# * 
+#  2020-May-10  SY
+#    Added envirmental variable EOVSADBJSON to get_idbdir().
+#    Use the json file defined by EOVSADBJSON to control the date-dependant data location.
+# *
 
 import StringUtil as su
 from numpy import pi, sqrt, array, mat, matrix, dot, where, ndarray
 import datetime as dt
 from time import gmtime
 
+
 class Angle:
     """General angle class, converts input to radians, but handles input
        and output in various units."""
 
-    __pi               = pi
-    __twopi            = 2*pi
-    __degperrad        = 180./pi
-    __arcsecperdeg     = 3600.
-    __masperdeg        = 3600000.
-    __arcsecperrad     = __arcsecperdeg * __degperrad
-    __arcminperrad     = 60 * __degperrad
-    __masperrad        = __masperdeg * __degperrad
-    
+    __pi = pi
+    __twopi = 2 * pi
+    __degperrad = 180. / pi
+    __arcsecperdeg = 3600.
+    __masperdeg = 3600000.
+    __arcsecperrad = __arcsecperdeg * __degperrad
+    __arcminperrad = 60 * __degperrad
+    __masperrad = __masperdeg * __degperrad
+
     def __init__(self, value=0.0, units='radians'):
         """Constructor"""
         self.modulo = False
@@ -131,20 +135,20 @@ class Angle:
             strg = su.dmsStrFromDeg(self.radians * self.__degperrad, precision=3)
             if len(strg) == 11:
                 # Need to add missing zero and space
-                strg = ' 0'+strg
+                strg = ' 0' + strg
             elif len(strg) == 12:
                 # Need to add missing zero or space
                 if strg[0] == '-':
-                    strg = strg[0]+'0'+strg[1:]
+                    strg = strg[0] + '0' + strg[1:]
                 else:
-                    strg = ' '+strg
+                    strg = ' ' + strg
             return strg
         elif units == 'hmsstr' or units == 'hms':
             # String in the form -HH:MM:SS.SSS
             strg = su.dmsStrFromDeg(self.radians * self.__degperrad / 15., precision=3)
             if len(strg) == 11:
                 # Need to add missing zero
-                strg = '0'+strg
+                strg = '0' + strg
             return strg
         elif units == 'masec':
             return self.radians * self.__masperrad
@@ -154,47 +158,48 @@ class Angle:
             print 'ERROR: Unknown units string, radians used'
             return self.radians
 
-    def __add__(self,other):
+    def __add__(self, other):
         """Add one Angle object to another, or add a scalar to
             an Angle object.
             """
-        if isinstance(other,int) or isinstance(other, float):
+        if isinstance(other, int) or isinstance(other, float):
             # scalar is interpreted as radians
             radians = other
-        elif isinstance(other,Angle):
+        elif isinstance(other, Angle):
             radians = other.radians
         else:
             print 'Angle.__add__(): Cannot add', other, 'to an Angle()'
             return 0
-        
+
         # Create the right kind of object to return (same as self)
-        if isinstance(self,RA_Angle):
+        if isinstance(self, RA_Angle):
             return RA_Angle(self.radians + radians)
         elif isinstance(self, Dec_Angle):
             return Dec_Angle(self.radians + radians)
         else:
             return Angle(self.radians + radians)
 
-    def __sub__(self,other):
+    def __sub__(self, other):
         """Subtract one Angle object from another, or subtract a scalar from
             an Angle object.
             """
-        if isinstance(other,int) or isinstance(other, float):
+        if isinstance(other, int) or isinstance(other, float):
             # scalar is interpreted as radians
             radians = other
-        elif isinstance(other,Angle):
+        elif isinstance(other, Angle):
             radians = other.radians
         else:
             print 'Angle.__sub__(): Cannot subtract', other, 'from an Angle()'
             return 0
-        
+
         # Create the right kind of object to return (same as self)
-        if isinstance(self,RA_Angle):
+        if isinstance(self, RA_Angle):
             return RA_Angle(self.radians - radians)
         elif isinstance(self, Dec_Angle):
             return Dec_Angle(self.radians - radians)
         else:
             return Angle(self.radians - radians)
+
 
 class RA_Angle(Angle):
     """Inherits Angle class, with modulo = True"""
@@ -203,6 +208,7 @@ class RA_Angle(Angle):
         """Constructor"""
         self.modulo = True
         self.set(value, units)
+
 
 #    def set(self, value, units='radians'):
 #        Angle.set(self, value, units)
@@ -223,20 +229,20 @@ class Dec_Angle(Angle):
         Angle.set(self, value, units)
         # Now set back to original (normally True unless overridden)
         self.modulo = save_modulo
-        
+
         # If modulo bool is set, make sure the value of radians
         # is between -pi, pi.  This doesn't guarantee it is a
         # valid Declination, but at least gives it a fighting chance.
         if self.modulo:
             radians = self.radians
-            twopi = 2.*pi
+            twopi = 2. * pi
             while radians >= pi:
                 radians -= twopi
             while radians < -pi:
                 radians += twopi
             self.radians = radians
             # Set the decvalid flag to False if not between -pi/2 and pi/2.
-            if radians >= pi/2 or radians < -pi/2:
+            if radians >= pi / 2 or radians < -pi / 2:
                 self.decvalid = False
             else:
                 self.decvalid = True
@@ -248,10 +254,10 @@ class Length():
         """
 
     global cmperm, mperkm
-    
+
     cmperm = 100.
     mperkm = 1000.
-    
+
     def __init__(self, value=0.0, units='m'):
         """Constructor allows setting a value on creation.  Default is
             a zero-length string with meter units.
@@ -268,17 +274,17 @@ class Length():
                 'km' = kilometers
             """
         if not (isinstance(value, int) or isinstance(value, float)):
-            print 'Length.set(): Invalid length value',value,'Setting to zero'
+            print 'Length.set(): Invalid length value', value, 'Setting to zero'
             self.meters = 0.0
-            
+
         if units == 'cm':
-            self.meters = value/cmperm
+            self.meters = value / cmperm
         elif units == 'm':
             self.meters = float(value)
         elif units == 'km':
-            self.meters = value*mperkm
+            self.meters = value * mperkm
         else:
-            print 'Length.set(): Invalid length units',units,'Meters assumed.'
+            print 'Length.set(): Invalid length units', units, 'Meters assumed.'
 
         self.units = units
 
@@ -296,12 +302,12 @@ class Length():
                 'str' = return string value in object's own units
             """
         if units == 'cm':
-            value = self.meters*cmperm
+            value = self.meters * cmperm
         elif units == 'm':
             value = self.meters
         elif units == 'km':
-            value = self.meters/mperkm
-            
+            value = self.meters / mperkm
+
         if units == 'str':
             value = self.get(units=self.units)
             return str(value) + ' ' + self.units
@@ -318,16 +324,16 @@ class Length():
                 >>> (a + 27).get()
                 202.0
             """
-        if isinstance(other,Length):
+        if isinstance(other, Length):
             new = Length(self.meters + other.meters)
-        elif isinstance(other,int) or isinstance(other,float):
+        elif isinstance(other, int) or isinstance(other, float):
             new = Length(self.meters + other)
         else:
-            print 'Length.__add__(): Cannot add',other,\
+            print 'Length.__add__(): Cannot add', other, \
                 'to a Length object. Returning copy of self.'
             new = Length(self.meters)
         new.units = self.units
-        
+
         return new
 
     def __sub__(self, other):
@@ -342,16 +348,16 @@ class Length():
                 >>> (a - 27).get()           # Subtract constant from a length
                 148.0
             """
-        if isinstance(other,Length):
+        if isinstance(other, Length):
             new = Length(self.meters - other.meters)
-        elif isinstance(other,int) or isinstance(other,float):
+        elif isinstance(other, int) or isinstance(other, float):
             new = Length(self.meters - other)
         else:
-            print 'Length.__sub__(): Cannot subtract',other,\
+            print 'Length.__sub__(): Cannot subtract', other, \
                 'from a Length object. Returning copy of self.'
             new = Length(self.meters)
         new.units = self.units
-        
+
         return new
 
     def __div__(self, other):
@@ -368,24 +374,25 @@ class Length():
                 56.45161290322581
 
             """
-        if isinstance(other,Length):
+        if isinstance(other, Length):
             new = self.meters / other.meters
-        elif isinstance(other,int) or isinstance(other,float):
+        elif isinstance(other, int) or isinstance(other, float):
             new = Length(self.meters / other)
             new.units = self.units
         else:
-            print 'Length.__div__(): Cannot divide a Length object by',other,\
+            print 'Length.__div__(): Cannot divide a Length object by', other, \
                 'Error return "False"'
             new = False
-        
+
         return new
+
 
 class Vector():
     """A general class to hold and manipulate 3-element vectors of
         Length() objects
         """
 
-    def __init__(self, lengths = None, units='m'):
+    def __init__(self, lengths=None, units='m'):
         """Constructor, input defaults to a three-element vector of three
             zero-length Length objects with meter units
             """
@@ -397,9 +404,9 @@ class Vector():
             # problem." Functions in argument lists are evaluated at compile
             # time, not anew every time the function is invoked.
             lengths = [0.0, 0.0, 0.0]
-        self.set(lengths,units)
+        self.set(lengths, units)
 
-    def set(self, lengths = None, units='m'):
+    def set(self, lengths=None, units='m'):
         """Set the value of the Vector using any combination of Length()
             objects or constants, the latter interpreted according to
             the specified units.  The default is three zero-length Length()
@@ -416,24 +423,23 @@ class Vector():
             lengths = lengths.tolist()
         except:
             pass
-        
+
         # Loop over the three lengths to check them
         for i in range(3):
-            if not isinstance(lengths[i],Length):
+            if not isinstance(lengths[i], Length):
                 # One of the supplied objects is not a Length() object, so
                 # see if it is a scalar constant.
-                if isinstance(lengths[i],int) or isinstance(lengths[i],float):
+                if isinstance(lengths[i], int) or isinstance(lengths[i], float):
                     # It is, so create a Length() object using it and the
                     # supplied units.
-                    lengths[i] = Length(lengths[i],units=units)
+                    lengths[i] = Length(lengths[i], units=units)
                 else:
                     # It is neither a Length object nor a scalar constant, so
                     # it is an error.
-                    print 'Vector.set(): Item',i,'is not a Length() or a constant.\n\
+                    print 'Vector.set(): Item', i, 'is not a Length() or a constant.\n\
                         Replacing with a zero-length Length object'
                     lengths[i] = Length()
 
-        
         self.lengths = lengths
         self.units = units
 
@@ -444,10 +450,10 @@ class Vector():
         out = []
         # Loop over the three lengths to return their values as a list
         for i in range(3):
-            #if units == 'str':
+            # if units == 'str':
             #    value = self.lengths[i].get(units)
             #    out.append(str(value) + ' ' + self.units)
-            #else:
+            # else:
             value = self.lengths[i].get(units)
             out.append(value)
 
@@ -461,10 +467,10 @@ class Vector():
                 out.lengths[i] = self.lengths[i] + other.lengths[i]
             return out
         else:
-            print 'Vector.__add__(): Object',other,'must be a Vector() object.',\
+            print 'Vector.__add__(): Object', other, 'must be a Vector() object.', \
                 'Returning a zero vector.'
-            return Vector([0.0,0.0,0.0])
-        
+            return Vector([0.0, 0.0, 0.0])
+
     def __sub__(self, other):
         """Subtract two vector objects"""
         if isinstance(other, Vector):
@@ -473,10 +479,10 @@ class Vector():
                 out.lengths[i] = self.lengths[i] - other.lengths[i]
             return out
         else:
-            print 'Vector.__sub__(): Object',other,'must be a Vector() object.',\
+            print 'Vector.__sub__(): Object', other, 'must be a Vector() object.', \
                 'Returning a zero vector.'
-            return Vector([0.0,0.0,0.0])
-        
+            return Vector([0.0, 0.0, 0.0])
+
     def magnitude(self, units='m'):
         """Returns the magnitude of the Vector in the units specified.
             """
@@ -486,29 +492,29 @@ class Vector():
         else:
             # Return the lengths in the specified units
             vals = self.get(units)
-            
-        #Calculate the magnitude
+
+        # Calculate the magnitude
         mag = 0.0
         for i in range(3):
-            mag += vals[i]*vals[i]
+            mag += vals[i] * vals[i]
         magnitude = sqrt(mag)
         if units == 'str':
             # Make a string out of it
-            return str(magnitude)+' '+self.units
-        
+            return str(magnitude) + ' ' + self.units
+
         return magnitude
 
     def rotate(self, rot=None):
         """Rotate a Vector object by applying the rotation matrix rot."""
 
         if rot is None:
-            rot = mat([[1,0,0],[0,1,0],[0,0,1]])
-        if not isinstance(rot,matrix):
-            print 'Vector.rotate(): Object',rot,'is not a matrix.  No rotation applied.'
-            rot = mat([[1,0,0],[0,1,0],[0,0,1]])
+            rot = mat([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        if not isinstance(rot, matrix):
+            print 'Vector.rotate(): Object', rot, 'is not a matrix.  No rotation applied.'
+            rot = mat([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
         # Apply rotation (output is in meter)
-        vnew = dot(rot,self.get())
+        vnew = dot(rot, self.get())
         # Create a new Vector object for output.  Have to convert vnew numpy
         # array to a "list of lists", then take the first element
         new = Vector(vnew.tolist()[0])
@@ -518,27 +524,29 @@ class Vector():
     def __mul__(self, other):
         """Multiplies a Vector() object by a scalar.
             """
-        if isinstance(other,int) or isinstance(other,float):
+        if isinstance(other, int) or isinstance(other, float):
             new = Vector((array(self.get()) * other).tolist())
             new.units = self.units
         else:
-            print 'Length.__mul__(): Cannot multiply a Length object by',other,\
+            print 'Length.__mul__(): Cannot multiply a Length object by', other, \
                 'Error return "False"'
             new = False
-        
+
         return new
+
     def __div__(self, other):
         """Divides a Vector() object by a scalar.
             """
-        if isinstance(other,int) or isinstance(other,float):
+        if isinstance(other, int) or isinstance(other, float):
             new = Vector((array(self.get()) / other).tolist())
             new.units = self.units
         else:
-            print 'Length.__div__(): Cannot divide a Length object by',other,\
+            print 'Length.__div__(): Cannot divide a Length object by', other, \
                 'Error return "False"'
             new = False
-        
+
         return new
+
 
 class datime():
     """Extend the datetime class to add mjd (Modified Julian Day) handling and
@@ -575,7 +583,7 @@ class datime():
         # new "now", true if within 1 msec)
         if dtin is None:
             dtin = dt.datetime.now()
-            
+
         now = dt.datetime.now()
         if (now - dtin).microseconds < 1000:
             # Was called with default "now", so compare hour with Greenwich Mean Time
@@ -587,25 +595,25 @@ class datime():
             elif tz > 12:
                 tz = tz - 24
         else:
-            tz = 0   # Do not consider time zone correction.
+            tz = 0  # Do not consider time zone correction.
 
         # Attach datetime() object to self
         self.dt = dtin
         # Calculate mjd day and add time as fraction of a day.  Zero of MJD is 1858/11/17.
-        mjdt = self.dt - dt.datetime(1858,11,17,0,0,0)
-        mjd = mjdt.days + mjdt.seconds/86400. + mjdt.microseconds/86400000000.
+        mjdt = self.dt - dt.datetime(1858, 11, 17, 0, 0, 0)
+        mjd = mjdt.days + mjdt.seconds / 86400. + mjdt.microseconds / 86400000000.
         # Set our mjd (first call creates private attribute __mjd) 
         self.__mjd = mjd
         # Now correct for time zone so that time is in UTC.
-        self.set(mjd + tz/24.)
+        self.set(mjd + tz / 24.)
 
-    def get(self,units='mjd'):
+    def get(self, units='mjd'):
         """Return the date and time in various formats specified by units string
             'mjd' -- Modified Julian Day number, including fraction of a day (default)
             'str' -- standard datetime output string, YYYY-MM-DD HH:MM:SS.SSSSSS
             'mstr'  -- string with 3-char month text,  YYYY-Mon-DD HH:MM:SS.SSSSSS
             'trad'  -- time only, as an angle in radians"""
-            
+
         if units == 'mjd':
             """Return the Modified Julian Day number, including fraction of a day"""
             return self.__mjd
@@ -620,7 +628,7 @@ class datime():
             return (self.dt.strftime('%Y-%b-%d %H:%M:%S.%f') + '.000')[:24]
         elif units == 'tstamp':
             """Output LabVIEW timestamp (seconds since 1904-01-01)"""
-            return (self.__mjd - 16480.0)*86400.
+            return (self.__mjd - 16480.0) * 86400.
 
     def set(self, value, units='mjd'):
         """Set the date and time, with input in various formats specified by units string
@@ -630,8 +638,8 @@ class datime():
             'trad'  -- time only, as an angle in radians"""
         if units == 'mjd':
             imjd = int(value)
-            fmjd = (value - imjd)*86400.
-            self.dt = dt.datetime(1858,11,17,0,0,0)+dt.timedelta(imjd,fmjd)
+            fmjd = (value - imjd) * 86400.
+            self.dt = dt.datetime(1858, 11, 17, 0, 0, 0) + dt.timedelta(imjd, fmjd)
             self.__mjd = value
         elif units == 'str':
             """Use StringUtil routine secFromDMSStr() to convert time to fraction
@@ -645,18 +653,18 @@ class datime():
                 d = dt.datetime.today().__str__()
                 v_date = d.split(' ')[0]
                 v_time = value
-                
+
             yr, mo, da = v_date.split('-')
             try:
                 hh, mm, ss = v_time.split(':')
             except:
-        # Failure indicates that no seconds were given, so handle
+                # Failure indicates that no seconds were given, so handle
                 # hour and minute, setting seconds to zero.
                 hh, mm = v_time.split(':')
                 ss = '0'
             try:
                 ints, ms = ss.split('.')
-                us = int(ms)*1000
+                us = int(ms) * 1000
             except:
                 # Failure indicates that no fractional seconds were given,
                 # so set microseconds to zero.
@@ -665,17 +673,20 @@ class datime():
             # Create a datetime object for this time, and initialize self with it.  Adding 1
             # us appears to be necessary to keep a time, e.g. 19:32:49.000000 from going to
             # 19:32:48.999999.
-            self.__init__(dt.datetime(int(yr),int(mo),int(da),int(hh),int(mm),int(ints),us+1))
+            self.__init__(dt.datetime(int(yr), int(mo), int(da), int(hh), int(mm), int(ints), us + 1))
         elif units == 'tstamp':
-            mjd = value/86400. + 16480.0  # Convert LabVIEW timestamp to mjd
+            mjd = value / 86400. + 16480.0  # Convert LabVIEW timestamp to mjd
             imjd = int(mjd)
-            fmjd = (mjd - imjd)*86400.
-            self.dt = dt.datetime(1858,11,17,0,0,0)+dt.timedelta(imjd,fmjd)
+            fmjd = (mjd - imjd) * 86400.
+            self.dt = dt.datetime(1858, 11, 17, 0, 0, 0) + dt.timedelta(imjd, fmjd)
             self.__mjd = mjd
         return self.get()
-            
+
+
 from astropy.time import Time as astroTime
 from astropy.time.core import TimeFromEpoch
+
+
 class TimeLV(TimeFromEpoch):
     """
     LabVIEW timestamp input:
@@ -685,52 +696,57 @@ class TimeLV(TimeFromEpoch):
     # This corresponds to the zero reference time for LabVIEW.
     # Note that TAI and UTC are equivalent at the reference time.
     name = 'lv'
-    unit = 1.0/86400.0     # Converts to seconds
+    unit = 1.0 / 86400.0  # Converts to seconds
     epoch_val = 2416480.5  # Time('1904-01-01 00:00:00', scale='tai').jd - 1
     epoch_val2 = None
     epoch_scale = 'utc'
     epoch_format = 'jd'
 
+
 class Time(astroTime):
     ''' Extends astropy Time object to handle LabVIEW timestamps
         (format 'lv').
     '''
+
     def __init__(self, val, val2=None, format=None, scale=None,
-             precision=None, in_subfmt=None, out_subfmt=None,
-             location=None, copy=False):
+                 precision=None, in_subfmt=None, out_subfmt=None,
+                 location=None, copy=False):
         # Extend formats list to include TimeLV (LabVIEW format)
         self.FORMATS[u'lv'] = TimeLV
         astroTime.__init__(self, val, val2, format=format, scale=scale,
-             precision=precision, in_subfmt=in_subfmt, out_subfmt=out_subfmt,
-             location=location, copy=copy)
+                           precision=precision, in_subfmt=in_subfmt, out_subfmt=out_subfmt,
+                           location=location, copy=copy)
 
         import pytz
         try:
-            self.LocalTime = pytz.utc.localize(self.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles'))
+            self.LocalTime = pytz.utc.localize(self.datetime, is_dst=None).astimezone(
+                pytz.timezone('America/Los_Angeles'))
         except:
             try:
                 locT = []
                 for ll in self:
-                    locT.append(pytz.utc.localize(ll.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles')))
+                    locT.append(
+                        pytz.utc.localize(ll.datetime, is_dst=None).astimezone(pytz.timezone('America/Los_Angeles')))
                 self.LocalTime = locT
             except:
                 pass
 
+
 from math import floor
 
-class QuadraticInterpolator():
 
+class QuadraticInterpolator():
     """A quadratic interpolator class"""
 
     # Data
     def __init__(self, ytype='normal'):
         """Initialize the quadratic interpolator"""
-        
-        self.npt = 0           # Number of points currently in the interpolator (0, 1, 2 or 3)
+
+        self.npt = 0  # Number of points currently in the interpolator (0, 1, 2 or 3)
         self.ytype = ytype  # Do not wrap values ['normal'] or wrap to -pi,pi ['signed'] or 0,2pi ['unsigned'])
         self.emptyvalue = 0.0  # The value to use if npts = 0
-        self.__X0 = 0.0        # Value to be subtracted from each x value to maintain accuracy
-        self.empty(self.emptyvalue) # Initialize to empty
+        self.__X0 = 0.0  # Value to be subtracted from each x value to maintain accuracy
+        self.empty(self.emptyvalue)  # Initialize to empty
 
     # Methods
     def extendangle(self, a, b):
@@ -742,9 +758,9 @@ class QuadraticInterpolator():
         b = float(b)
         dif = b - a
         if dif > pi:
-            return b - 2*pi
+            return b - 2 * pi
         elif dif < -pi:
-            return b + 2*pi
+            return b + 2 * pi
         else:
             return b
 
@@ -762,25 +778,26 @@ class QuadraticInterpolator():
         self.npt += 1
 
         # If this is the first point entered, use it to initialize __X0
-        if self.npt == 1: self.__X0 = x0
+        if self.npt == 1:
+            self.__X0 = x0
         elif self.npt > 3:
             # A valid point was popped off, so reset __X0 and x values for new minimum
             xdif = self.x[0]
             self.__X0 += xdif
-            for i in range(0,2):
+            for i in range(0, 2):
                 self.x[i] -= xdif
 
-        self.x.append(x0-self.__X0)   # Append the new x-coordinate after subtracting __X0
-        self.y.append(y0)             # Append the new y-coordinate
+        self.x.append(x0 - self.__X0)  # Append the new x-coordinate after subtracting __X0
+        self.y.append(y0)  # Append the new y-coordinate
 
         if self.npt > 3: self.npt = 3  # Make sure npt never exceeds 3
 
-        self.set()    # Call the set() function to evaluate the coefficients
+        self.set()  # Call the set() function to evaluate the coefficients
 
-    def evaluate(self,x):
+    def evaluate(self, x):
         """Given a time, evaluates the interpolation at that time"""
 
-        twopi = 2*pi
+        twopi = 2 * pi
         c = self.c
         ytype = self.ytype
 
@@ -789,39 +806,39 @@ class QuadraticInterpolator():
 
         y = x * (x * c[0] + c[1]) + c[2]
 
-        if ytype == 'signed': 
-            return y - twopi * floor(y/twopi + 0.5)
+        if ytype == 'signed':
+            return y - twopi * floor(y / twopi + 0.5)
         elif ytype == 'unsigned':
-            return y - twopi * floor(y/twopi)
+            return y - twopi * floor(y / twopi)
         else:
             return y
-        
-    def gradient(self,x): 
+
+    def gradient(self, x):
         """Given a time, evaluates the gradient of the interpolation at that time"""
 
-        #if self.ytype == 'normal': 
+        # if self.ytype == 'normal':
         x -= self.__X0
 
         return 2.0 * x * self.c[0] + self.c[1]
 
-    def empty(self,emptyvalue):
+    def empty(self, emptyvalue):
         """empty:   Clears the interpolator of all points, and sets npts to 0"""
 
-        self.x = [0.0, 0.0, 0.0]   # The x coordinates (times) to use for the quadratic
-        self.y = [0.0, 0.0, 0.0]   # The y coordinates corresponding to x
-        self.c = [0.0, 0.0, 0.0]   # The coefficients calculated by set()
+        self.x = [0.0, 0.0, 0.0]  # The x coordinates (times) to use for the quadratic
+        self.y = [0.0, 0.0, 0.0]  # The y coordinates corresponding to x
+        self.c = [0.0, 0.0, 0.0]  # The coefficients calculated by set()
         self.npt = 0
 
-    def canbracket(self,x):
+    def canbracket(self, x):
         """canbracket: Says whether the interpolator can bracket the given time (true or false)"""
 
         # if self.ytype == 'normal': 
         x -= self.__X0
 
-        if self.npt < 2: 
+        if self.npt < 2:
             return False
         else:
-            return (x >= self.x[3-self.npt] and x <= self.x[self.npt-1])
+            return (x >= self.x[3 - self.npt] and x <= self.x[self.npt - 1])
 
     def set(self):
         """Calculates the coefficients of the interpolator"""
@@ -855,7 +872,7 @@ class QuadraticInterpolator():
             # Return coefficients for linear interpolation of two existing points
             c[0] = 0.0
             c[1] = (y[2] - y[1]) / (x[2] - x[1])
-            c[2] = y[1] - c[1]*x[1]
+            c[2] = y[1] - c[1] * x[1]
         else:
             p = (y[2] - y[1]) / (x[2] - x[0]) / (x[2] - x[1])
             q = (y[1] - y[0]) / (x[2] - x[0]) / (x[1] - x[0])
@@ -866,50 +883,57 @@ class QuadraticInterpolator():
         # Copy the results
         for i in range(0, self.npt):
             self.c[i] = c[i]
-            
+
     def getx(self):
         """Gets the contents of the interpolator"""
 
         x = []
         for i in range(len(self.x)):
-            x.append(self.x[i]+self.__X0)
+            x.append(self.x[i] + self.__X0)
         return x
+
 
 class RA_Interpolator(QuadraticInterpolator):
     """A convenience, to create an 'unsigned' quadratic interpolator as is needed for RA"""
+
     def __init__(self):
         """Initialize the RA quadratic interpolator"""
-        self.npt = 0           # Number of points currently in the interpolator (0, 1, 2 or 3)
+        self.npt = 0  # Number of points currently in the interpolator (0, 1, 2 or 3)
         self.ytype = 'unsigned'  # Wrap to 0,2pi ['unsigned']
         self.emptyvalue = 0.0  # The value to use if npts = 0
-        self.__X0 = 0.0        # Value to be subtracted from each x value to maintain accuracy
-        self.empty(self.emptyvalue) # Initialize to empty
+        self.__X0 = 0.0  # Value to be subtracted from each x value to maintain accuracy
+        self.empty(self.emptyvalue)  # Initialize to empty
+
 
 class HA_Interpolator(QuadraticInterpolator):
     """A convenience, to create a 'signed' quadratic interpolator as is needed for 
        HA"""
+
     def __init__(self):
         """Initialize the HA quadratic interpolator"""
-        self.npt = 0           # Number of points currently in the interpolator (0-3)
+        self.npt = 0  # Number of points currently in the interpolator (0-3)
         self.ytype = 'signed'  # Wrap to -pi,pi ['signed']
         self.emptyvalue = 0.0  # The value to use if npts = 0
-        self.__X0 = 0.0        # Value to be subtracted from each x value to maintain accuracy
-        self.empty(self.emptyvalue) # Initialize to empty
+        self.__X0 = 0.0  # Value to be subtracted from each x value to maintain accuracy
+        self.empty(self.emptyvalue)  # Initialize to empty
+
 
 class Dec_Interpolator(QuadraticInterpolator):
     """A convenience, to create a 'signed' quadratic interpolator as is needed for 
        Declination"""
+
     def __init__(self):
         """Initialize the quadratic interpolator"""
-        self.npt = 0           # Number of points currently in the interpolator (0-3)
+        self.npt = 0  # Number of points currently in the interpolator (0-3)
         self.ytype = 'signed'  # Wrap to -pi,pi ['signed']
         self.emptyvalue = 0.0  # The value to use if npts = 0
-        self.__X0 = 0.0        # Value to be subtracted from each x value to maintain accuracy
-        self.empty(self.emptyvalue) # Initialize to empty
+        self.__X0 = 0.0  # Value to be subtracted from each x value to maintain accuracy
+        self.empty(self.emptyvalue)  # Initialize to empty
 
 
 import urllib2
 from os import environ, path
+
 
 def UT1_UTC(mjd):
     '''Download current IERS Bulletin A, locate and read UT1-UTC
@@ -924,27 +948,26 @@ def UT1_UTC(mjd):
        N.B.: Need to create an environment variable (not HOME) for
        placing the file.
        '''
-    IERS_file = path.join(environ['HOME'],'IERS.txt')
+    IERS_file = path.join(environ['HOME'], 'IERS.txt')
     IERS_url = 'http://maia.usno.navy.mil/ser7/ser7.dat'
 
-
     try:
-        h = urllib2.urlopen(IERS_url,timeout=1)
+        h = urllib2.urlopen(IERS_url, timeout=1)
         # Copy the Bulletin IERS_file on disk, for potential fall-back
-        with open(IERS_file,'w') as f:
+        with open(IERS_file, 'w') as f:
             f.write(h.read())
             h.close()
         # Safest to now open and read from the file, to make sure
         # the "fall-back" works.
-        h = open(IERS_file,'r')                
+        h = open(IERS_file, 'r')
     except:
         # DUT: Could not open URL for IERS Bulletin A, so read from
         #      existing file.
         print 'IERS Bulletin unreachable.  Reading from cached file.'
-        h = open(IERS_file,'r')
+        h = open(IERS_file, 'r')
 
     for line in h:
-        if line.find(str(int(mjd+1))) == 19:
+        if line.find(str(int(mjd + 1))) == 19:
             # This actually uses "tomorrow's" value which is within 1 ms
             # of today, and anyway we tend to operate near the end of the
             # current day at OVRO.
@@ -954,7 +977,7 @@ def UT1_UTC(mjd):
 
     try:
         # Convert dut in seconds to fraction of a day
-        dut = dut/86400.
+        dut = dut / 86400.
     except (UnboundLocalError, NameError):
         # This is likely to happen only if DUT is undefined, i.e. MJD
         # was not found in the file.  This should never happen, but...
@@ -963,71 +986,77 @@ def UT1_UTC(mjd):
 
     return dut
 
-def common_val_idx(array1,array2,precision=None):
+
+def common_val_idx(array1, array2, precision=None):
     ''' Find the common values in two sorted arrays, and return the array
         of indexes of those common values in the two arrays.  If the
         parameter precision is given, the input arrays are rounded to
         that many decimal places before comparison.
         
     '''
-    from numpy import intersect1d,searchsorted,round
-    
+    from numpy import intersect1d, searchsorted, round
+
     if precision:
         try:
-            ar1 = round(array1*10**precision)
-            ar2 = round(array2*10**precision)
+            ar1 = round(array1 * 10 ** precision)
+            ar2 = round(array2 * 10 ** precision)
         except Exception as e:
-            print 'Error: common_val_idx: arrays could not be rounded to precision',precision
+            print 'Error: common_val_idx: arrays could not be rounded to precision', precision
             print e
             return None, None
     else:
         ar1 = array1
         ar2 = array2
-    common = intersect1d(ar1,ar2,True)
-    idx1 = searchsorted(ar1,common)
-    idx2 = searchsorted(ar2,common)
+    common = intersect1d(ar1, ar2, True)
+    idx1 = searchsorted(ar1, common)
+    idx2 = searchsorted(ar2, common)
     return idx1, idx2
 
-def nearest_val_idx(array1,array2):
+
+def nearest_val_idx(array1, array2):
     ''' Find the nearest values in the second array to the values in the first array
         and return the array of indexes of those nearest values in the second array.
     '''
-    def find_nearest(array,value):
-        from numpy import intersect1d,searchsorted
+
+    def find_nearest(array, value):
+        from numpy import intersect1d, searchsorted
         from math import fabs
         idx = searchsorted(array, value, side="left")
-        if idx > 0 and (idx == len(array) or fabs(value - array[idx-1]) < fabs(value - array[idx])):
-            return idx-1
+        if idx > 0 and (idx == len(array) or fabs(value - array[idx - 1]) < fabs(value - array[idx])):
+            return idx - 1
         else:
             return idx
+
     idx = []
     for value in array1:
-        idx.append(find_nearest(array2,value))
+        idx.append(find_nearest(array2, value))
     return array(idx)
 
-def lobe(phi,mid=True):
+
+def lobe(phi, mid=True):
     # Ensures that value phi lies between -pi and pi (if mid = True)
     # or 0 and 2*pi (if mid = False)
     intype = ''
-    if isinstance(phi,list):
+    if isinstance(phi, list):
         intype = 'list'
         phi = array(phi)
-    if isinstance(phi,float) or isinstance(phi,int):
+    if isinstance(phi, float) or isinstance(phi, int):
         intype = 'float'
         phi = array([phi])
-    if not isinstance(phi,ndarray):
-        raise TypeError('Wrong argument type for lobe:'+str(type(phi)))
-    phi = phi % (2*pi)
+    if not isinstance(phi, ndarray):
+        raise TypeError('Wrong argument type for lobe:' + str(type(phi)))
+    phi = phi % (2 * pi)
     if mid:
-        phi[where(phi > pi)] -= 2*pi
-        phi[where(phi < -pi)] += 2*pi
+        phi[where(phi > pi)] -= 2 * pi
+        phi[where(phi < -pi)] += 2 * pi
     else:
-        phi[where(phi < 0)] += 2*pi
+        phi[where(phi < 0)] += 2 * pi
     if intype == 'list':
         return phi.tolist()
     elif intype == 'float':
         return phi[0]
     return phi
+
 
 def ant_str2list(ant_str):
     ant_list = []
@@ -1037,25 +1066,29 @@ def ant_str2list(ant_str):
             antrange = grp[3:].split('-')
             if len(antrange) == 1:
                 if antrange != '':
-                    ant_list.append(int(antrange[0])-1)
+                    ant_list.append(int(antrange[0]) - 1)
             elif len(antrange) == 2:
-                ant_list += range(int(antrange[0])-1,int(antrange[1]))
+                ant_list += range(int(antrange[0]) - 1, int(antrange[1]))
     except:
-        print 'Error: cannot interpret ant_str',ant_str
+        print 'Error: cannot interpret ant_str', ant_str
         return None
     return array(ant_list)
+
 
 def get_bl_order(n_ants):
     """Return the order of baseline data output by a CASPER correlator
     X engine."""
     order1, order2 = [], []
     for i in range(n_ants):
-        for j in range(int(n_ants/2),-1,-1):
-            k = (i-j) % n_ants
-            if i >= k: order1.append((k, i))
-            else: order2.append((i, k))
+        for j in range(int(n_ants / 2), -1, -1):
+            k = (i - j) % n_ants
+            if i >= k:
+                order1.append((k, i))
+            else:
+                order2.append((i, k))
     order2 = [o for o in order2 if o not in order1]
     return tuple([o for o in order1 + order2])
+
 
 def bl_list(nant=16):
     ''' Returns a two-dimensional array bl2ord that will translate
@@ -1064,21 +1097,23 @@ def bl_list(nant=16):
         and bl2ord(i,i) = nant*(nant-1)/2 + i.
     '''
     from numpy import ones
-    bl2ord = ones((nant,nant),dtype='int')*(-1)
-    nbl = nant*(nant-1)/2
+    bl2ord = ones((nant, nant), dtype='int') * (-1)
+    nbl = nant * (nant - 1) / 2
     k = 0
-    for i in range(nant-1):
-        for j in range(i+1,nant):
-            bl2ord[i,j] = k
-            bl2ord[j,i] = k
-            k+=1
+    for i in range(nant - 1):
+        for j in range(i + 1, nant):
+            bl2ord[i, j] = k
+            bl2ord[j, i] = k
+            k += 1
     for i in range(nant):
-        bl2ord[i,i] = nbl+i
+        bl2ord[i, i] = nbl + i
     return bl2ord
-    
+
+
 bl2ord = bl_list()
 
-def get_idbdir(t=None):
+
+def get_idbdir(t=None, usejsonfile=True):
     ''' Returns the root location of IDB files for the date given in Time object t.
         If t is not supplied, returns the root location for the latest data.
         
@@ -1089,28 +1124,62 @@ def get_idbdir(t=None):
     #   EOVSADB2 = /data1/eovsa/fits/IDB/
     #   EOVSADATE = <yyyy-mm-dd>  (date of start of data on EOVSADB2)
     import os
-    if t is None:
-        # Default to current time
-        t = Time.now()
-    eodate = os.getenv('EOVSADATE')
-    # Default to EOVSADB2
-    envar = 'EOVSADB2'
-    if not eodate:
-        # EOVSADATE is not defined
-        print 'GET_IDBDIR: Environment variable EOVSADATE is not defined. Returning root of latest data'
-    else: 
-        try:
-            if t < Time(eodate):
-                # Requested time is before EOVSADATE, so use EOVSADB1
-                envar = 'EOVSADB1'
-        except:
-            print 'GET_IDBDIR: Invalid Time() object. Returning root of latest data.'
-    datadir=os.getenv(envar)
+    from astropy.time import Time
+
+    eovsajsonfile = os.getenv('EOVSADBJSON')
+    if not os.path.exists(eovsajsonfile):
+        print('GET_IDBDIR: The {} does not existed. usejsonfile is set to False.'.format(eovsajsonfile))
+        usejsonfile = False
+
+    if usejsonfile:
+        import json
+        import numpy as np
+        with open(eovsajsonfile) as f:
+            eovsadb = json.load(f)
+        dbarr = []
+        datekey = eovsadb['EOVSADB'].keys()
+        datetobj = Time(datekey)
+        dtype = [('date', 'S10'), ('tobj', object), ('path', object)]
+        for idx, k in enumerate(datekey):
+            dbarr.append((k, datetobj[idx], eovsadb['EOVSADB'][k]))
+        dbarr = np.array(dbarr, dtype=dtype)
+        dbarrsort = np.sort(dbarr, order='tobj')
+
+        if t is None:
+            # Default to current time
+            t = Time.now()
+        if t < dbarrsort['tobj'][0]:
+            print('The date provided with t is before the time of the EOVSA first light. t is reset to {}.'.format(
+                dbarrsort[0]['date']))
+            t = dbarrsort['tobj'][0]
+        # eodate = os.getenv('EOVSADATE')
+        # Default to EOVSADB2
+        # envar = 'EOVSADB2'
+        datadir = dbarrsort['path'][np.where(t >= dbarrsort['tobj'])[0][-1]]
+    else:
+        if t is None:
+            # Default to current time
+            t = Time.now()
+        eodate = os.getenv('EOVSADATE')
+        # Default to EOVSADB2
+        envar = 'EOVSADB2'
+        if not eodate:
+            # EOVSADATE is not defined
+            print 'GET_IDBDIR: Environment variable EOVSADATE is not defined. Returning root of latest data'
+        else:
+            try:
+                if t < Time(eodate):
+                    # Requested time is before EOVSADATE, so use EOVSADB1
+                    envar = 'EOVSADB1'
+            except:
+                print 'GET_IDBDIR: Invalid Time() object. Returning root of latest data.'
+        datadir = os.getenv(envar)
     if not datadir:
         # Return default directory on pipeline
-        datadir='/data1/eovsa/fits/IDB/'
-        print 'GET_IDBDIR: Environment variable',envar,'is not defined. Returning root of latest data.'
+        datadir = '/data1/eovsa/fits/IDB/'
+        print 'GET_IDBDIR: Environment variable', envar, 'is not defined. Returning root of latest data.'
     return datadir
+
 
 def fname2mjd(filename):
     ''' Get modified julian date from a standard IDB or UDB filename.
@@ -1123,15 +1192,20 @@ def fname2mjd(filename):
         fstr = []
         for file in filename:
             fstem = file.split('/')[-1]
-            fstr.append(fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17])
+            fstr.append(fstem[3:7] + '-' + fstem[7:9] + '-' + fstem[9:11] + ' ' + fstem[11:13] + ':' + fstem[
+                                                                                                       13:15] + ':' + fstem[
+                                                                                                                      15:17])
         t = Time(fstr)
     else:
         fstem = filename.split('/')[-1]
-        fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
+        fstr = fstem[3:7] + '-' + fstem[7:9] + '-' + fstem[9:11] + ' ' + fstem[11:13] + ':' + fstem[
+                                                                                              13:15] + ':' + fstem[
+                                                                                                             15:17]
         t = Time(fstr)
     return t.mjd
 
-def lin_phase_fit(f,pha, doplot=False):
+
+def lin_phase_fit(f, pha, doplot=False):
     ''' Given an array of frequencies and corresponding phases,
         determine the best linear fit and return the parameters
         and standard deviation of the fit.  Optionally plots the
@@ -1152,27 +1226,28 @@ def lin_phase_fit(f,pha, doplot=False):
     '''
     import numpy as np
     if len(f) != len(pha):
-        print 'Error: arrays not of same size:',len(f),len(pha)
+        print 'Error: arrays not of same size:', len(f), len(pha)
         return None
     dpdf = []
     good, = np.where(np.logical_not(np.isnan(pha)))
     if len(good) < 3:
         # Not enough points to fit, so return zeros and a large standard deviation
-        return np.array((0,0,np.pi))
+        return np.array((0, 0, np.pi))
     f_ = f[good]
     pha_ = pha[good]
-    for i in range(len(f_)-1):
-        dpdf.append((pha_[i+1] - pha_[i])/(f_[i+1]-f_[i]))
+    for i in range(len(f_) - 1):
+        dpdf.append((pha_[i + 1] - pha_[i]) / (f_[i + 1] - f_[i]))
     dpdf = np.array(dpdf)
     slp = np.median(dpdf)
-    p = np.polyfit(f_,np.unwrap((pha_-f_*slp)),1)
-    p[0] = p[0]+slp
-    stdev = np.std(lobe(pha_-np.polyval(p,f_)))
+    p = np.polyfit(f_, np.unwrap((pha_ - f_ * slp)), 1)
+    p[0] = p[0] + slp
+    stdev = np.std(lobe(pha_ - np.polyval(p, f_)))
     if doplot:
         import matplotlib.pylab as plt
-        plt.plot(f,pha,'.')
-        plt.plot(f,lobe(np.polyval(p,f)))
+        plt.plot(f, pha, '.')
+        plt.plot(f, lobe(np.polyval(p, f)))
     return np.array((p[1], p[0], stdev))
+
 
 def fix_time_drift(out):
     ''' Routine to correct a linear phase drift vs. time for baselines with
@@ -1184,26 +1259,27 @@ def fix_time_drift(out):
         (Although they COULD be corrected -- TODO)
     '''
     import numpy as np
-    nant, npol, nband, nt = out['x'][bl2ord[13,:13]].shape   # Consider baselines with Ant14 only
+    nant, npol, nband, nt = out['x'][bl2ord[13, :13]].shape  # Consider baselines with Ant14 only
     for iant in range(nant):
-        for ipol in range(2):      # Use only polarizations XX and YY for slope determination
+        for ipol in range(2):  # Use only polarizations XX and YY for slope determination
             slopes = []
             for iband in range(nband):
-                phz = np.angle(out['x'][bl2ord[13,iant],ipol,iband])
-                #if out['flags'][iant,ipol,iband] == 0:
-                p = lin_phase_fit(out['time'],phz)
+                phz = np.angle(out['x'][bl2ord[13, iant], ipol, iband])
+                # if out['flags'][iant,ipol,iband] == 0:
+                p = lin_phase_fit(out['time'], phz)
                 if p[2] < 0.7:
-                    slopes.append(p[1]/out['fghz'][iband])
-        
+                    slopes.append(p[1] / out['fghz'][iband])
+
         if len(slopes) > 0:
             dpdt = np.nanmedian(slopes)  # Radians/GHz/Day
-            for ipol in range(npol):         # Apply the corrections to all polarization products
+            for ipol in range(npol):  # Apply the corrections to all polarization products
                 for iband in range(nband):
-                    pfit = dpdt*out['fghz'][iband]*(out['time']-out['time'][nt/2])
-                    out['x'][bl2ord[13,iant],ipol,iband] *= np.cos(pfit)-1j*np.sin(pfit)
+                    pfit = dpdt * out['fghz'][iband] * (out['time'] - out['time'][nt / 2])
+                    out['x'][bl2ord[13, iant], ipol, iband] *= np.cos(pfit) - 1j * np.sin(pfit)
     return out
 
-def sat_phase(out,ant,doplot=False):
+
+def sat_phase(out, ant, doplot=False):
     ''' Takes the autocorrelation read from a packet dump (PRT) file taken while the array is
         observing an R/L polarized communications satellite (e.g. Ciel), for one time sample, and
         corrects the XY and YX phase for phase slope (X-Y delay) and offset.  The correction
@@ -1222,22 +1298,23 @@ def sat_phase(out,ant,doplot=False):
         Ultimately, this routine should return the phase slope and offset, which could form
         the basis of a calibration scheme, but this is still under investigation. It should
         also correct and return the X vs. Y amplitude scaling.
-    '''        
+    '''
     import numpy as np
-    xy = out[ant,2,:]
-    yx = out[ant,3,:]
-    f = np.arange(len(out[0,0]))
-    phi = lobe(np.angle(xy)-np.angle(yx))
+    xy = out[ant, 2, :]
+    yx = out[ant, 3, :]
+    f = np.arange(len(out[0, 0]))
+    phi = lobe(np.angle(xy) - np.angle(yx))
     good = np.where(np.abs(xy) > np.median(np.abs(xy)))
-    poff, pslp, pstd = lin_phase_fit(f[good],phi[good])
-    if np.mean(lobe(np.angle(xy[1100:1300]) - (pslp*f[1100:1300] + poff + pi)/2.)) > 0: poff = poff + 2*np.pi
+    poff, pslp, pstd = lin_phase_fit(f[good], phi[good])
+    if np.mean(lobe(np.angle(xy[1100:1300]) - (pslp * f[1100:1300] + poff + pi) / 2.)) > 0: poff = poff + 2 * np.pi
     if doplot:
         import matplotlib.pylab as plt
-        plt.plot(f,lobe(np.angle(xy) - (pslp*f + poff + np.pi)/2.),'.')
-        plt.plot(f,lobe(np.angle(yx) + (pslp*f + poff + np.pi)/2.),'.')
-    out[ant,2,:] *= np.exp(-1j*(pslp*f + poff + np.pi)/2.)
-    out[ant,3,:] *= np.exp(1j*(pslp*f + poff + np.pi)/2.)
-    
+        plt.plot(f, lobe(np.angle(xy) - (pslp * f + poff + np.pi) / 2.), '.')
+        plt.plot(f, lobe(np.angle(yx) + (pslp * f + poff + np.pi) / 2.), '.')
+    out[ant, 2, :] *= np.exp(-1j * (pslp * f + poff + np.pi) / 2.)
+    out[ant, 3, :] *= np.exp(1j * (pslp * f + poff + np.pi) / 2.)
+
+
 def plot_sched_log(tail=None):
     ''' Routine to read the schedule.log file on Helios and plot the lines giving
         duration anomalies.  Normally inc_time in the schedule should be run every
@@ -1254,7 +1331,7 @@ def plot_sched_log(tail=None):
     '''
     import matplotlib.pylab as plt
     from util import Time
-    f = open('/tmp/schedule.log','r')
+    f = open('/tmp/schedule.log', 'r')
     lines = f.readlines()
     f.close()
     pd_list = []
@@ -1263,12 +1340,12 @@ def plot_sched_log(tail=None):
         tok = line.strip().split()
         if len(tok) == 3:
             try:
-                t = Time(tok[0]+' '+tok[1]).plot_date
+                t = Time(tok[0] + ' ' + tok[1]).plot_date
                 pd_list.append(t)
                 dur_list.append(float(tok[2]))
             except:
                 pass
     if tail is None:
-        plt.plot_date(pd_list,dur_list,'.')
+        plt.plot_date(pd_list, dur_list, '.')
     else:
-        plt.plot_date(pd_list[-tail:],dur_list[-tail:],'.')
+        plt.plot_date(pd_list[-tail:], dur_list[-tail:], '.')
