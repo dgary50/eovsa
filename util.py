@@ -45,6 +45,9 @@
 #    Added fix_time_drift() routine based on the one with the same name in
 #    calwidget.py (although that one assumes a different data structure). This
 #    verstion works with a standard read_idb() output file.
+#  2020-May-10  DG
+#    Added routine get_idbdir(), which returns the root path of IDB data for a
+#    given date.
 # * 
 
 import StringUtil as su
@@ -1074,6 +1077,40 @@ def bl_list(nant=16):
     return bl2ord
     
 bl2ord = bl_list()
+
+def get_idbdir(t=None):
+    ''' Returns the root location of IDB files for the date given in Time object t.
+        If t is not supplied, returns the root location for the latest data.
+        
+        Default in case of error is to return root location for the latest data.
+    '''
+    # Currently (2020-05-10), three variables are defined on pipeline:
+    #   EOVSADB1 = /nas3/IDB/
+    #   EOVSADB2 = /data1/eovsa/fits/IDB/
+    #   EOVSADATE = <yyyy-mm-dd>  (date of start of data on EOVSADB2)
+    import os
+    if t is None:
+        # Default to current time
+        t = Time.now()
+    eodate = os.getenv('EOVSADATE')
+    # Default to EOVSADB2
+    envar = 'EOVSADB2'
+    if not eodate:
+        # EOVSADATE is not defined
+        print 'GET_IDBDIR: Environment variable EOVSADATE is not defined. Returning root of latest data'
+    else: 
+        try:
+            if t < Time(eodate):
+                # Requested time is before EOVSADATE, so use EOVSADB1
+                envar = 'EOVSADB1'
+        except:
+            print 'GET_IDBDIR: Invalid Time() object. Returning root of latest data.'
+    datadir=os.getenv(envar)
+    if not datadir:
+        # Return default directory on pipeline
+        datadir='/data1/eovsa/fits/IDB/'
+        print 'GET_IDBDIR: Environment variable',envar,'is not defined. Returning root of latest data.'
+    return datadir
 
 def fname2mjd(filename):
     ''' Get modified julian date from a standard IDB or UDB filename.
