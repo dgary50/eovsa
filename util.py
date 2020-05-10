@@ -1165,19 +1165,19 @@ def get_idbdir(t=None, usejsonfile=True):
         envar = 'EOVSADB2'
         if not eodate:
             # EOVSADATE is not defined
-            print 'GET_IDBDIR: Environment variable EOVSADATE is not defined. Returning root of latest data'
+            print('GET_IDBDIR: Environment variable EOVSADATE is not defined. Returning root of latest data')
         else:
             try:
                 if t < Time(eodate):
                     # Requested time is before EOVSADATE, so use EOVSADB1
                     envar = 'EOVSADB1'
             except:
-                print 'GET_IDBDIR: Invalid Time() object. Returning root of latest data.'
+                print('GET_IDBDIR: Invalid Time() object. Returning root of latest data.')
         datadir = os.getenv(envar)
     if not datadir:
         # Return default directory on pipeline
         datadir = '/data1/eovsa/fits/IDB/'
-        print 'GET_IDBDIR: Environment variable', envar, 'is not defined. Returning root of latest data.'
+        print('GET_IDBDIR: Environment variable', envar, 'is not defined. Returning root of latest data.')
     return datadir
 
 
