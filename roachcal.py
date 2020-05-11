@@ -36,6 +36,9 @@
 #     Changes were made in February to add DMC_calnew() routine to handle
 #     new 52-band gain tables, but not recorded here.  Today I also noted
 #     some code that had to be uncommented, which is now done.
+#   2020-05-08  DG
+#     Added routines override() and compare_tbl() to make it easy to compare
+#     and update DCM Master Tables.
 #
 
 import pcapture2 as p
@@ -164,17 +167,21 @@ def DCM_calnew(filename=None,fseqfile='solar.fsq',dcmattn=None,missing='ant15',u
         DCMlines.append('{:2} :  {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2} {:2}'.format(band,*new_table[band-1]))
     return DCMlines
 
-def override(tbl,bandlist):
+def override(tbl, bandlist, t=None):
     ''' When a table has bad attenuation for a given band, this command will replace
         the new values with the ones in the current DCM_master_table.
         
         Inputs:
            tbl       A text string version of a table as returned by DCM_calnew()
            bandlist  A simple list of band numbers (1 - 52) that will be replaced.
+           t         An optional Time() object giving a date/time of the table to override from.
+                       If omitted or None, the currently active table is used.  Note, the
+                       exact date is not required.  Any date after the desired SQL record
+                       will return the active table for that date.
     '''
     import cal_header
     import stateframe
-    xml, buf = cal_header.read_cal(2)
+    xml, buf = cal_header.read_cal(2, t=t)
     cur_table = stateframe.extract(buf,xml['Attenuation'])
     if type(bandlist) != list:
         # If bandlist is not a list, it may be just a single band, so make it a list (of one).
@@ -184,6 +191,27 @@ def override(tbl,bandlist):
         tbl[band+2] = tbl[band+2][:5]+('{:3d}'*30).format(*cur_table[band-1])
     return tbl
 
+def compare_tbl(tbl, t=None):
+    ''' Compare the given table with that from the SQL database.
+    
+        Inputs:
+           tbl       A text string version of a table as returned by DCM_calnew()
+           t         An optional Time() object giving a date/time of the table to compare to.
+                       If omitted or None, the currently active table is used.  Note, the
+                       exact date is not required.  Any date after the desired SQL record
+                       will return the active table for that date.
+    '''
+    import cal_header
+    import stateframe
+    from copy import deepcopy
+    xml, buf = cal_header.read_cal(2, t=t)
+    cur_table = stateframe.extract(buf,xml['Attenuation'])
+    diftbl = deepcopy(tbl)   # Make a copy to update, to preserve structure
+    for i in range(52):
+        dif = map(int,tbl[i+3][4:].split()) - cur_table[i]
+        diftbl[3+i] = '{:2} : {:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}'.format(i,*dif)
+    return diftbl
+    
 def getphasecor(data, ant_str='ant1-14', polist=[0,1], crange=[0,4095], pplot=False):
     ''' Routine adapted from Maria Loukitcheva's code, to find phase slopes in
         correlated data on a geosynchronous satellite.

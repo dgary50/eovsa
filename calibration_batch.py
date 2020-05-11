@@ -115,6 +115,8 @@
 #    to append '2m' to output filename if calpnt2m = True and outfile is not specified, 
 #    to avoid mixing 2-m and 27-m results in the same file.  Also fixed a bug in
 #    calpnt_multi() that occurred in ax array when nrows is 1.
+#  2020-05-10  DG
+#    Updated skycal_anal() to use util.get_idbdir() to find IDB root path.
 #
 
 if __name__ == "__main__":
@@ -526,6 +528,7 @@ def skycal_anal(t=None, do_plot=False, last=False):
     '''
     from gaincal2 import get_fem_level
     import read_idb as ri
+    from util import get_idbdir
     
 #    lev = get_fem_level(trange,300)
 #    levs = np.zeros((13,2), dtype=int)
@@ -552,10 +555,7 @@ def skycal_anal(t=None, do_plot=False, last=False):
         else:
             gcidx = gcidxes[0]
 
-        datadir=os.getenv('EOVSADB')
-        if not datadir:
-            # go to default directory on pipeline
-            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][3:11]+'/'
+        datadir = get_idbdir + fdb['FILE'][gcidx][3:11]+'/'
 
         file = datadir+fdb['FILE'][gcidx]
         out = ri.read_idb([file])

@@ -10,7 +10,10 @@
 #    Also added a FITS argument to command line, for optional output of FITS file.
 #    FITS-ONLY means make a FITS file and stop.  FITS by itself means make a FITS file
 #    in addition to a plot.
-
+#  2020-05-10  DG
+#    Updated cal_qual() to use util.get_idbdir() to find IDB root path.
+#  2020-05-11  DG
+#    Further update to make this work on the DPP.
 
 if __name__ == "__main__":
     import matplotlib
@@ -276,7 +279,8 @@ def cal_qual(t=None, savfig=False):
     import dump_tsys as dt
     import pipeline_cal as pc
     import matplotlib.pylab as plt
-    import os, rstn
+    import rstn
+    from util import get_idbdir
     
     if t is None:
         t = Time.now()
@@ -291,10 +295,7 @@ def cal_qual(t=None, savfig=False):
     fdb = dt.rd_fdb(Time(mjd,format='mjd'))
     gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
     if len(gcidx) == 1:
-        datadir=os.getenv('EOVSADB')
-        if not datadir:
-            # go to default directory on pipeline
-            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+        datadir = get_idbdir(t) + fdb['FILE'][gcidx][0][3:11]+'/'
         # List of GCAL files
         gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:
@@ -302,10 +303,9 @@ def cal_qual(t=None, savfig=False):
         fdb = dt.rd_fdb(Time(mjd-1,format='mjd'))
         gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
         if len(gcidx) == 1:
-            datadir=os.getenv('EOVSADB')
-            if not datadir:
-                # go to default directory on pipeline
-                datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            datadir = get_idbdir(t)
+            # Add date path if on pipeline
+            if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
             # List of GCAL files
             gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
         else:
@@ -315,10 +315,9 @@ def cal_qual(t=None, savfig=False):
     fdb = dt.rd_fdb(Time(mjd,format='mjd'))
     gcidx, = np.where(fdb['PROJECTID'] == 'SOLPNTCAL')
     if len(gcidx) > 0:
-        datadir=os.getenv('EOVSADB')
-        if not datadir:
-            # go to default directory on pipeline
-            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+        datadir = get_idbdir(t)
+        # Add date path if on pipeline
+        if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
         # List of SOLPNTCAL files
         solpntfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:

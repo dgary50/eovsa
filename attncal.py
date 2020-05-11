@@ -12,6 +12,10 @@
 #    Added rcvr key to get_attncal() output, representing the power
 #    when 62 dB is inserted in the front end (i.e. is the receiver
 #    contribution to the noise).
+#  2020-05-10  DG
+#    Updated get_attncal() to use util.get_idbdir() to find IDB root path.
+#  2020-05-11  DG
+#    Further update to make this work on the DPP.
 #
 from util import Time
 import numpy as np
@@ -41,7 +45,7 @@ def get_attncal(trange, do_plot=False):
               the first is obvious, while the second is because there is no way to
               tell which of the 2 are good.
     '''
-    import os
+    from util import get_idbdir
     if type(trange.mjd) == np.float:
         # Interpret single time as both start and end time
         mjd1 = int(trange.mjd)
@@ -69,12 +73,11 @@ def get_attncal(trange, do_plot=False):
         if len(gcidx) == 1:
             print fdb['FILE'][gcidx]
 
-            datadir=os.getenv('EOVSADB')
-            if not datadir:
-                # go to default directory on pipeline
-                datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            datadir = get_idbdir(Time(mjd,format='mjd'))
+            # Add date path if on pipeline
+            if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
 
-            file = datadir+fdb['FILE'][gcidx][0]
+            file = datadir + fdb['FILE'][gcidx][0]
             out = ri.read_idb([file])
             vx = np.mean(out['p'][:13,:,:,6:12],3)
             va = np.mean(out['a'][:13,:2,:,6:12],3)
