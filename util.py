@@ -51,6 +51,8 @@
 #  2020-May-10  SY
 #    Added envirmental variable EOVSADBJSON to get_idbdir().
 #    Use the json file defined by EOVSADBJSON to control the date-dependant data location.
+#  2020-May-11  DG
+#    Fixed failure of get_idbdir() when EOVSADBJSON is not defined.
 # *
 
 import StringUtil as su
@@ -1119,7 +1121,8 @@ def get_idbdir(t=None, usejsonfile=True):
         
         Default in case of error is to return root location for the latest data.
     '''
-    # Currently (2020-05-10), three variables are defined on pipeline:
+    # Currently (2020-05-10), four variables are defined on pipeline:
+    #   EOVSAJSON = /data1/eovsa/EOVSADB.json (if set, the other three are not needed)
     #   EOVSADB1 = /nas3/IDB/
     #   EOVSADB2 = /data1/eovsa/fits/IDB/
     #   EOVSADATE = <yyyy-mm-dd>  (date of start of data on EOVSADB2)
@@ -1127,8 +1130,11 @@ def get_idbdir(t=None, usejsonfile=True):
     from astropy.time import Time
 
     eovsajsonfile = os.getenv('EOVSADBJSON')
-    if not os.path.exists(eovsajsonfile):
-        print('GET_IDBDIR: The {} does not existed. usejsonfile is set to False.'.format(eovsajsonfile))
+    if eovsajsonfile:
+        if not os.path.exists(eovsajsonfile):
+            print('GET_IDBDIR: JSON file {} does not exist. usejsonfile is set to False.'.format(eovsajsonfile))
+            usejsonfile = False
+    else:
         usejsonfile = False
 
     if usejsonfile:
