@@ -92,6 +92,8 @@
 #      Updated DCM Master table to version 2.0, increasing from 34 to 52 bands to reflect new IF Filters
 #   2019-07-18  DG
 #      Updated Refcal and Phasecal types to version 2.0, increasing from 34 to 52 bands (xml defs written to 2019-02-22)
+#   2020-05-12  DG
+#      Added copy_cal() routine for copying SQL records of a given type from one time to another.
 #
 import struct, util
 import stateframe as sf
@@ -1380,6 +1382,38 @@ def write_cal(type, buf, t=None):
                 cursor.close()
                 return False
 
+def copy_cal(type, tfrom=None, tto=None):
+    ''' Read the calibration data of the given type, for the given time tfrom (as a Time() object),
+        or for the current time if None, and write a copy to time tto (as a Time() object, required).
+    '''
+    from stateframe import extract
+    if tto is None:
+        print 'ERROR: Required "to" Time() object (tto) not given.'
+        return
+    if tfrom is None:
+        tfrom = util.Time.now()
+    try:
+        mjd_from = tfrom.mjd
+        mjd_to = tto.mjd
+    except:
+        print 'ERROR: At least one of the "from" or "to" times is not valid.'
+        return
+    xml, buf = read_cal(type, tfrom)
+    if buf is None:
+        print 'No such record could be found.'
+        return
+    else:
+        sql_from = util.Time(extract(buf,xml['SQL_timestamp']),format='lv').iso
+        print cal_types()[type][0], 'record found at', sql_from
+    ddays = abs(mjd_from - mjd_to)
+    ans = 'Y'
+    if ddays > 2.:
+        print 'WARNING: The time difference of',ddays,'days seems large.' 
+    ans = raw_input('Are you sure you want to copy this record from '+sql_from[:19]+' to '+tto.iso[:19]+' [y/n]?')
+    if ans.upper() == 'Y':
+        print write_cal(type,buf[:xml['SQL_timestamp'][1]],t=tto)
+    return
+    
 def delete_cal(type, t=None, relax=False):
     ''' Locate the calibration record for the given time, verify that it is of the
         correct type, and request the user to chose ID to delete.  Also requires user

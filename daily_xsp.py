@@ -14,6 +14,13 @@
 #    Updated cal_qual() to use util.get_idbdir() to find IDB root path.
 #  2020-05-11  DG
 #    Further update to make this work on the DPP.
+#  2020-05-17  DG
+#    The GOES data continues to be problematic because the Goddard respositories
+#    are not kept up to date.  I added a call to by new goes.py routine get_goes(),
+#    which grabs the latest 7 days of GOES data from NOAA.  If that fails or the
+#    requested date is more than 7 days from the current date, then it falls back
+#    to the original code and tries to get the data from Goddard.
+#
 
 if __name__ == "__main__":
     import matplotlib
@@ -30,6 +37,7 @@ import read_idb as ri
 from util import Time
 import numpy as np
 import glob
+from goes import get_goes
 
 def get_goes_data(t=None,sat_num=None):
     ''' Reads GOES data from https://umbra.nascom.nasa.gov/ repository, for date
@@ -42,6 +50,14 @@ def get_goes_data(t=None,sat_num=None):
            goes_t    GOES time array in plot_date format
            goes_data GOES 1-8 A lightcurve
         '''
+    # Can short-circuit the entire code below this block by using my goes.get_goes() routine
+    lo, hi, goes_t = get_goes()
+    if len(goes_t) != 0:
+        # Got the data, now isolate the requested day
+        good, = np.where(np.floor(goes_t.mjd) == np.floor(t.mjd))
+        if len(good) != 0:
+            return goes_t.plot_date,lo
+                
     from sunpy.util.config import get_and_create_download_dir
     import shutil
     from astropy.io import fits
