@@ -620,7 +620,7 @@ def allday_udb_corr(trange, outpath='./'):
         getdate = False
     elif flist[0][:3] == 'IDB':
         # fdir = '/data1/eovsa/fits/IDB/'
-        fidr = get_idbdir(t=t0)
+        fdir = get_idbdir(t=t0)
         getdate = True
     for i,file in enumerate(flist[idx]):
         if getdate:
