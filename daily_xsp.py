@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
 
 import read_idb as ri
-from util import Time
+from util import Time,get_idbdir
 import numpy as np
 import glob
 
@@ -288,37 +288,41 @@ def cal_qual(t=None, savfig=False):
     if mjd - tp_mjd > 0.5:
         print 'CAL_QUAL: Warning, TP Calibration not (yet) available for this date.'
     # Find GCAL scan for this date
-    fdb = dt.rd_fdb(Time(mjd,format='mjd'))
+    fdb = dt.rd_fdb(t)
     gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
     if len(gcidx) == 1:
         datadir=os.getenv('EOVSADB')
         if not datadir:
             # go to default directory on pipeline
-            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            datadir=get_idbdir(t)+fdb['FILE'][gcidx][0][3:11]+'/'
         # List of GCAL files
         gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:
         print 'CAL_QUAL: Warning, no GAINCALTEST scan for this date.  Will try using the GAINCALTEST from previous day.'
-        fdb = dt.rd_fdb(Time(mjd-1,format='mjd'))
+        tobj = Time(mjd-1,format='mjd')
+        fdb = dt.rd_fdb(tobj)
         gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
         if len(gcidx) == 1:
             datadir=os.getenv('EOVSADB')
             if not datadir:
                 # go to default directory on pipeline
-                datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+                # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+                datadir=get_idbdir(tobj)+fdb['FILE'][gcidx][0][3:11]+'/'
             # List of GCAL files
             gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
         else:
             print 'CAL_QUAL: Error, no GAINCALTEST scan for previous day.'
             return
     # Find SOLPNTCAL scan for this date
-    fdb = dt.rd_fdb(Time(mjd,format='mjd'))
+    fdb = dt.rd_fdb(t)
     gcidx, = np.where(fdb['PROJECTID'] == 'SOLPNTCAL')
     if len(gcidx) > 0:
         datadir=os.getenv('EOVSADB')
         if not datadir:
             # go to default directory on pipeline
-            datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+            datadir=get_idbdir(t)+fdb['FILE'][gcidx][0][3:11]+'/'
         # List of SOLPNTCAL files
         solpntfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:

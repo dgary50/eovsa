@@ -13,7 +13,7 @@
 #    when 62 dB is inserted in the front end (i.e. is the receiver
 #    contribution to the noise).
 #
-from util import Time
+from util import Time,get_idbdir
 import numpy as np
 import dump_tsys as dt
 import read_idb as ri
@@ -64,7 +64,8 @@ def get_attncal(trange, do_plot=False):
                 ax[j+2,i].set_ylim(3,5)
     outdict = []
     for mjd in range(mjd1,mjd2+1):
-        fdb = dt.rd_fdb(Time(mjd,format='mjd'))
+        tobj =Time(mjd,format='mjd')
+        fdb = dt.rd_fdb(tobj)
         gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
         if len(gcidx) == 1:
             print fdb['FILE'][gcidx]
@@ -72,7 +73,8 @@ def get_attncal(trange, do_plot=False):
             datadir=os.getenv('EOVSADB')
             if not datadir:
                 # go to default directory on pipeline
-                datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+                # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
+                datadir=get_idbdir(tobj)+fdb['FILE'][gcidx][0][3:11]+'/'
 
             file = datadir+fdb['FILE'][gcidx][0]
             out = ri.read_idb([file])

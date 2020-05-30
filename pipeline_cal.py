@@ -74,10 +74,9 @@
 
 import dbutil as db
 import numpy as np
-from util import Time, nearest_val_idx, common_val_idx, lobe, bl2ord
+from util import Time, nearest_val_idx, common_val_idx, lobe, bl2ord, get_idbdir
 import stateframe
 import cal_header as ch
-
 
 
 def get_sql_info(trange):
@@ -617,7 +616,8 @@ def allday_udb_corr(trange, outpath='./'):
         fdir = '/data1/eovsa/fits/UDB/'+year+'/'
         getdate = False
     elif flist[0][:3] == 'IDB':
-        fdir = '/data1/eovsa/fits/IDB/'
+        # fdir = '/data1/eovsa/fits/IDB/'
+        fidr = get_idbdir(t=t0)
         getdate = True
     for i,file in enumerate(flist[idx]):
         if getdate:

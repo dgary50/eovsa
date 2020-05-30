@@ -60,7 +60,6 @@ from numpy import pi, sqrt, array, mat, matrix, dot, where, ndarray
 import datetime as dt
 from time import gmtime
 
-
 class Angle:
     """General angle class, converts input to radians, but handles input
        and output in various units."""
@@ -1184,6 +1183,8 @@ def get_idbdir(t=None, usejsonfile=True):
         # Return default directory on pipeline
         datadir = '/data1/eovsa/fits/IDB/'
         print('GET_IDBDIR: Environment variable', envar, 'is not defined. Returning root of latest data.')
+    if datadir[-1] !='/':
+        datadir = ''.join([datadir,'/'])
     return datadir
 
 

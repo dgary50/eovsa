@@ -106,7 +106,7 @@
 
 import aipy
 import os
-from util import Time, nearest_val_idx, bl2ord, ant_str2list, common_val_idx, lobe
+from util import Time, nearest_val_idx, bl2ord, ant_str2list, common_val_idx, lobe, get_idbdir
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1074,7 +1074,8 @@ def get_trange_files(trange):
     datadir=os.getenv('EOVSADB')
     if not datadir:
         # go to default directory on pipeline
-        datadir='/data1/eovsa/fits/IDB/'
+        # datadir='/data1/eovsa/fits/IDB/'
+        datadir=get_idbdir(trange[0])
 
     folder=datadir+fstr.replace('-','').split()[0]
     try:

@@ -60,7 +60,7 @@
 #      Fixed small bug that caused crash on error return from xdata_display()
 #
 import numpy as np
-from util import Time
+from util import Time,get_idbdir
 
 def flare_monitor(t):
     ''' Get all front-end power-detector voltages for the given day
@@ -216,7 +216,8 @@ def xdata_display(t,ax=None):
             if not os.path.isdir(path+files[0]):
                 # Look in /dppdata1
                 datstr = t.iso[:10].replace('-','')
-                path = '/data1/eovsa/fits/IDB/'+datstr+'/'
+                # path = '/data1/eovsa/fits/IDB/'+datstr+'/'
+                path = get_idbdir(t)+datstr+'/'
                 if not os.path.isdir(path+files[0]):
                     print 'No files found for this scan ID',scan
                     scan = None

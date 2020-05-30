@@ -28,7 +28,7 @@
 #
 import aipy
 import os
-from util import Time
+from util import Time,get_idbdir
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -210,7 +210,8 @@ def get_trange_files(trange):
         files.sort()
     if files == [] or glob.glob(folder) == []:
         datdir = trange[0].iso[:10].replace('-','')
-        folder = '/data1/eovsa/fits/IDB/'+datdir
+        # folder = '/data1/eovsa/fits/IDB/'+datdir
+        folder = get_idbdir(trange[0])+datdir
         files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
         files.sort()
     if files == [] or glob.glob(folder) == []:

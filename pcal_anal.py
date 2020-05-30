@@ -21,7 +21,7 @@
 #
 
 import numpy as np
-from util import Time, lobe
+from util import Time, lobe, get_idbdir
 ten_minutes = 600./86400.
 one_minute = 60./86400.
 
@@ -86,7 +86,8 @@ def findfile(trange):
     if host == 'dpp':
         fpath = '/data1/IDB/'
     else:
-        fpath = '/data1/eovsa/fits/IDB/'
+        # fpath = '/data1/eovsa/fits/IDB/'
+        fpath = get_idbdir(trange[0])
     t1 = str(trange[0].mjd)
     t2 = str(trange[1].mjd)
     tnow = Time.now()
@@ -134,10 +135,15 @@ def findfile(trange):
         print 'Found',k,'scans in timerange.'
         for i in range(k):
             f1 = fdb['FILE'][np.where(fdb['SCANID'] == scans[m+i])].astype('str')
-            if fpath == '/data1/eovsa/fits/IDB/':
-                f2 = [fpath + f[3:11] + '/' + f for f in f1]
-            else:
+            # if fpath == '/data1/eovsa/fits/IDB/':
+            #     f2 = [fpath + f[3:11] + '/' + f for f in f1]
+            # else:
+            #     f2 = [fpath + f for f in f1]
+
+            if host == 'dpp':
                 f2 = [fpath + f for f in f1]
+            else:
+                f2 = [fpath + f[3:11] + '/' + f for f in f1]
             flist.append(f2)
             tstlist.append(tslist[m+i])
             ted = telist[m+i]
