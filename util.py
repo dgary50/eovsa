@@ -53,6 +53,9 @@
 #    Use the json file defined by EOVSADBJSON to control the date-dependant data location.
 #  2020-May-11  DG
 #    Fixed failure of get_idbdir() when EOVSADBJSON is not defined.
+#  2020-May-23  DG
+#    get_idbdir() was returning a uencoded string, which killed aipy. Now
+#    converted to an ASCII string.
 # *
 
 import StringUtil as su
@@ -1184,7 +1187,7 @@ def get_idbdir(t=None, usejsonfile=True):
         # Return default directory on pipeline
         datadir = '/data1/eovsa/fits/IDB/'
         print('GET_IDBDIR: Environment variable', envar, 'is not defined. Returning root of latest data.')
-    return datadir
+    return str(datadir)
 
 
 def fname2mjd(filename):

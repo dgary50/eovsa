@@ -94,7 +94,10 @@
 #      Updated Refcal and Phasecal types to version 2.0, increasing from 34 to 52 bands (xml defs written to 2019-02-22)
 #   2020-05-12  DG
 #      Added copy_cal() routine for copying SQL records of a given type from one time to another.
-#
+#   2020-05-21 OG
+#      Added rstnflux2xml() routine for writing header information for RSTN noon flux values.
+#      Added cal_type 12 for the RSTN flux values
+
 import struct, util
 import stateframe as sf
 import numpy as np
@@ -121,7 +124,8 @@ def cal_types():
             8: ['Reference calibration', 'refcal2xml', 2.0],   # Version 2.0 (2019-02-22)
             9: ['Daily phase calibration', 'phacal2xml', 2.0],  # Version 2.0 (2019-02-22)
            10: ['Total power calibration', 'tpcal2xml', 1.0],
-           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0]}  # Changed the definition of this, so version is 2.0 (2018-01-01)
+           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0],  # Changed the definition of this, so version is 2.0 (2018-01-01)
+           12: ['RSTN noon flux', 'rstnflux2xml', 1.0]}
 
 
 def str2bin(string):
@@ -2175,3 +2179,76 @@ def phacal2sql(phcal, timestamp=None):
     print 'sending phacal of {} to SQL database.'.format(t.iso)
     return write_cal(typedef, buf, t)
     # return buf
+
+def rstnflux2xml():
+    ''' Writes the XML description of the RSTN noon flux table.
+        Returns a binary representation of the xml
+        text file, for putting into the SQL database.  The version number
+        must be incremented each time there is a change to the structure 
+        of this header.
+    '''
+    version = cal_types()[12][2]
+
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>RSTNflux</Name>')
+    buf += str2bin('<NumElts>4</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Time of creation of the table (precise time not critical)
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>' + str(version) + '</Val>')
+    buf += str2bin('</DBL>')
+    
+    # List of frequencies (9 element array).
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FGHz</Name>')
+    buf += str2bin('<Dimsize>9</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+    
+    # List of fluxes (9 x 7).
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Flux</Name>')
+    buf += str2bin('<Dimsize>7</Dimsize><Dimsize>9</Dimsize>\n<I16>\n<Name></Name>\n<Val></Val>\n</I16>')
+    buf += str2bin('</Array>')
+
+    # End cluster
+    buf += str2bin('</Cluster>')  # End RSTNflux cluster
+
+    return buf
+
+def rstnflux2sql(data, t=None):
+    ''' Write the RSTN frequencies and fluxes to SQL server table abin
+        with the timestamp given by Time() object t (or current time, if none)
+
+        This kind of record is type definition 12.
+    '''
+    typedef = 12
+    ver = cal_types()[typedef][2]
+    if t is None:
+        t = util.Time.now()
+    
+    # Write timestamp
+    buf = struct.pack('d', int(data[0].lv))
+    # Write version number
+    buf += struct.pack('d', ver)
+    # Write the frequency list
+    buf += struct.pack('I', 9)
+    buf += struct.pack('9f', *data[1])
+    # Write the flux values 
+    buf += struct.pack('I', 9)
+    buf += struct.pack('I', 7)
+    for i in range(9):
+        buf += struct.pack('7h', *data[2][i])
+    return write_cal(typedef, buf, t)
+
+    
+

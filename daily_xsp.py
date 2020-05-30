@@ -20,6 +20,9 @@
 #    which grabs the latest 7 days of GOES data from NOAA.  If that fails or the
 #    requested date is more than 7 days from the current date, then it falls back
 #    to the original code and tries to get the data from Goddard.
+#  2020-05-23  DG
+#    A classic blunder, using median() instead of nanmedian() on GOES data with nans!
+#    Now fixed.
 #
 
 if __name__ == "__main__":
@@ -198,13 +201,13 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
                 if not goes_t is None:
                     goes_data = 2* (np.log10(goes_data + 1.e-9)) + 26
                     ax.plot_date(goes_t, goes_data,'-',color='yellow')
-                    ytext = np.median(goes_data) - 1
+                    ytext = np.nanmedian(goes_data) - 1
                 else:
                     ytext = None
                 if not goes_t2 is None:
                     goes_data2 = 2* (np.log10(goes_data2 + 1.e-9)) + 26
                     ax.plot_date(goes_t2, goes_data2,'-',color='yellow')
-                    ytext2 = np.median(goes_data2) - 1
+                    ytext2 = np.nanmedian(goes_data2) - 1
                     if ytext:
                         ytext = (ytext+ytext2)/2
                     else:
