@@ -46,6 +46,7 @@ def get_attncal(trange, do_plot=False):
               tell which of the 2 are good.
     '''
     from util import get_idbdir
+    import socket
     if type(trange.mjd) == np.float:
         # Interpret single time as both start and end time
         mjd1 = int(trange.mjd)
@@ -75,7 +76,10 @@ def get_attncal(trange, do_plot=False):
 
             datadir = get_idbdir(Time(mjd,format='mjd'))
             # Add date path if on pipeline
-            if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+            # if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+
+            host = socket.gethostname()
+            if host == 'pipeline': datadir += fdb['FILE'][gcidx][0][3:11]+'/'
 
             file = datadir + fdb['FILE'][gcidx][0]
             out = ri.read_idb([file])

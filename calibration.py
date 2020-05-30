@@ -534,15 +534,16 @@ def skycal_anal(t=None, do_plot=False, last=False):
     '''
     from gaincal2 import get_fem_level
     import read_idb as ri
+    import socket
 
-    
-#    lev = get_fem_level(trange,300)
-#    levs = np.zeros((13,2), dtype=int)
-#    levs[:,0] = lev['hlev'][:13,0]
-#    levs[:,1] = lev['vlev'][:13,0]
+
+    #    lev = get_fem_level(trange,300)
+    #    levs = np.zeros((13,2), dtype=int)
+    #    levs[:,0] = lev['hlev'][:13,0]
+    #    levs[:,1] = lev['vlev'][:13,0]
     if t is None:
         t = Time.now()
-    if t.mjd < 58623: 
+    if t.mjd < 58623:
         print 'SKYCAL_ANAL: No valid SKYCALTEST scans for dates prior to 2019-05-20'
         # Do a "poor-man's" skycal background by using the gaincal 62 dB setting.
         # This should be almost as good for receiver noise subtraction as a true SKYCAL
@@ -551,6 +552,7 @@ def skycal_anal(t=None, do_plot=False, last=False):
         return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
     fdb = dump_tsys.rd_fdb(t)
     gcidxes, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
+    host = socket.gethostname()
     if len(gcidxes) != 0:
         if last:
             gcidx = gcidxes[-1]
@@ -559,7 +561,9 @@ def skycal_anal(t=None, do_plot=False, last=False):
 
         datadir = get_idbdir(t)
         # Add date path if on pipeline
-        if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][3:11]+'/'
+        # if datadir.find('eovsa') != -1:
+        #     datadir += fdb['FILE'][gcidx][3:11]+'/'
+        if host == 'pipeline': datadir += fdb['FILE'][gcidx][3:11]+'/'
 
         file = datadir+fdb['FILE'][gcidx]
         out = ri.read_idb([file])

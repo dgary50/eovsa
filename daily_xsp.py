@@ -300,6 +300,7 @@ def cal_qual(t=None, savfig=False):
     import matplotlib.pylab as plt
     import rstn
     from util import get_idbdir
+    import socket
     
     if t is None:
         t = Time.now()
@@ -324,7 +325,9 @@ def cal_qual(t=None, savfig=False):
         if len(gcidx) == 1:
             datadir = get_idbdir(t)
             # Add date path if on pipeline
-            if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+            # if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+            host = socket.gethostname()
+            if host == 'pipeline': datadir += fdb['FILE'][gcidx][0][3:11]+'/'
             # List of GCAL files
             gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
         else:
@@ -336,7 +339,9 @@ def cal_qual(t=None, savfig=False):
     if len(gcidx) > 0:
         datadir = get_idbdir(t)
         # Add date path if on pipeline
-        if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+        # if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+        host = socket.gethostname()
+        if host == 'pipeline': datadir += fdb['FILE'][gcidx][0][3:11]+'/'
         # List of SOLPNTCAL files
         solpntfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:

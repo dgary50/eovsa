@@ -1062,13 +1062,13 @@ def get_trange_files(trange):
     #  that time range, put them in a list, and return that list.
     #  This function is used in get_X_data(data).
     from util import get_idbdir, fname2mjd
-    import socket
     
     fstr = trange[0].iso
     # Get path to root of IDB data
     datadir = get_idbdir(trange[0])
 
     # Add date path if on pipeline
+    import socket
     host = socket.gethostname()
     if host == 'pipeline': datadir += fstr.replace('-','').split()[0]+'/'
     # if datadir.find('eovsa') != -1: datadir += fstr.replace('-','').split()[0]+'/'
