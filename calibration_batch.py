@@ -117,6 +117,8 @@
 #    calpnt_multi() that occurred in ax array when nrows is 1.
 #  2020-05-10  DG
 #    Updated skycal_anal() to use util.get_idbdir() to find IDB root path.
+#  2020-05-29 SY
+#    update calpntanal() to use util.get_idbdir() to find IDB root path.
 #
 
 if __name__ == "__main__":
@@ -128,7 +130,7 @@ if __name__ == "__main__":
 
 import numpy as np
 import solpnt
-from util import Time, nearest_val_idx, lobe, ant_str2list
+from util import Time, nearest_val_idx, lobe, ant_str2list,get_idbdir
 import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
@@ -277,7 +279,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     bl2ord = read_idb.bl2ord
     tdate = t.iso.replace('-','')[:8]
     if fdir is None:
-        fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
+        fdir = get_idbdir(t)+tdate+'/'
     else:
         if fdir[-1] != '/': 
             fdir += '/'

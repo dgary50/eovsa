@@ -18,10 +18,12 @@
 #    Fixed a bug in filenames when running on pipeline.
 #  2020-Jan-26  DG
 #    mv_pcal_files() only worked for years 201*, so now works for 20*
+#  2020-05-29 SY
+#    update calpntanal() to use util.get_idbdir() to find IDB root path.
 #
 
 import numpy as np
-from util import Time, lobe, fname2mjd
+from util import Time, lobe, fname2mjd,get_idbdir
 ten_minutes = 600./86400.
 one_minute = 60./86400.
 
@@ -86,7 +88,7 @@ def findfile(trange):
     if host == 'dpp':
         fpath = '/data1/IDB/'
     else:
-        fpath = '/data1/eovsa/fits/IDB/'
+        fpath = get_idbdir(trange[0])
     t1 = str(trange[0].mjd)
     t2 = str(trange[1].mjd)
     tnow = Time.now()
@@ -134,10 +136,14 @@ def findfile(trange):
         print 'Found',k,'scans in timerange.'
         for i in range(k):
             f1 = fdb['FILE'][np.where(fdb['SCANID'] == scans[m+i])].astype('str')
-            if fpath == '/data1/eovsa/fits/IDB/':
-                f2 = [fpath + f[3:11] + '/' + f for f in f1]
-            else:
+            # if fpath == '/data1/eovsa/fits/IDB/':
+            #     f2 = [fpath + f[3:11] + '/' + f for f in f1]
+            # else:
+            #     f2 = [fpath + f for f in f1]
+            if host == 'dpp':
                 f2 = [fpath + f for f in f1]
+            else:
+                f2 = [fpath + f[3:11] + '/' + f for f in f1]
             flist.append(f2)
             tstlist.append(tslist[m+i])
             ted = telist[m+i]

@@ -1187,6 +1187,8 @@ def get_idbdir(t=None, usejsonfile=True):
         # Return default directory on pipeline
         datadir = '/data1/eovsa/fits/IDB/'
         print('GET_IDBDIR: Environment variable', envar, 'is not defined. Returning root of latest data.')
+    if not datadir.endswith('/'):
+        datadir = ''.join([datadir,'/'])
     return str(datadir)
 
 
