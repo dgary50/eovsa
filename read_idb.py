@@ -102,6 +102,10 @@
 #    in read_npz().  Looks like a new security "feature" of Python.
 #  2020-Jan-25  DG
 #    Suppress warnings about imaginary total power data in a file, after the first one.
+#  2020-05-10  DG
+#    Updated cal_qual() to use util.get_idbdir() to find IDB root path.
+#  2020-05-11  DG
+#    Further update to make this work on the DPP.
 #
 
 import aipy
@@ -817,20 +821,6 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=Fals
             # plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
     # return out
         
-def get_IDBfiles(showthelast=10):
-    #This will return the most recent IDB files saved to the 
-    #  directory /data1/IDB/. They will be returned in a list
-    #  with the format '/data1/IDB/IDByyyymmddhhmmss'
-    #  We can adjust the number of files shown with 'showthelast' optional variable.
-    #  It will not show the file being written currently
-    s = showthelast
-    IDBfiles = os.listdir('/dppdata1/IDB/')
-    IDBfiles.sort()
-    IDBfiles = IDBfiles[-(s+2):-2]
-    for i in range(len(IDBfiles)):
-        IDBfiles[i] = '/dppdata1/IDB/'+IDBfiles[i] 
-    return IDBfiles
-    
 def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_only=False):
     ''' This finds the IDB files within a given time range and concatenates 
         the times into a single dictionary.  If trange is not a Time() object,
@@ -1059,37 +1049,33 @@ def flag_sk(out):
         out['a'][i,sk_flag[i]] = np.nan
     return out
 
-def fname2mjd(filename):
-    fstem = filename.split('/')[-1]
-    fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
-    t = Time(fstr)
-    return t.mjd
+#def fname2mjd(filename):
+#    fstem = filename.split('/')[-1]
+#    fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
+#    t = Time(fstr)
+#    return t.mjd
 
 def get_trange_files(trange):
     #Given a timerange, this routine will take all relevant IDBfiles from
     #  that time range, put them in a list, and return that list.
     #  This function is used in get_X_data(data).
+    from util import get_idbdir, fname2mjd
+    
     fstr = trange[0].iso
-    # look for environmental variable EOVSADB first
-    datadir=os.getenv('EOVSADB')
-    if not datadir:
-        # go to default directory on pipeline
-        # datadir='/data1/eovsa/fits/IDB/'
-        datadir=get_idbdir(trange[0])
+    # Get path to root of IDB data
+    datadir = get_idbdir(trange[0])
 
-    folder=datadir+fstr.replace('-','').split()[0]
+    # Add date path if on pipeline
+    if datadir.find('eovsa') != -1: datadir += fstr.replace('-','').split()[0]+'/'
+    folder=datadir
     try:
         os.listdir(folder)
     except:
-        try:
-            folder = '/data1/IDB'
-            os.listdir(folder)
-        except:
-            print 'Something wrong with the definition of EOVSA data directory.'
-            print 'Best to define a EOVSADB variable in .cshrc (c-shell) or .bashrc (bash)'
-            return
+        print 'Something wrong with the definition of path to root of IDB files.'
+        print 'See util.get_idbdir() for details.'
+        return
 
-    files = glob.glob(folder+'/IDB'+fstr.replace('-','').split()[0]+'*')
+    files = glob.glob(folder+'IDB'+fstr.replace('-','').split()[0]+'*')
     files.sort()
     mjd1, mjd2 = trange.mjd.astype('int')
     if mjd2 != mjd1:
@@ -1097,15 +1083,15 @@ def get_trange_files(trange):
             usage('Second date must differ from first by at most 1 day')
         else:
             fstr2 = trange[1].iso
-            files2 = glob.glob(folder+'/IDB'+fstr2.replace('-','').split()[0]+'*')
+            files2 = glob.glob(folder+'IDB'+fstr2.replace('-','').split()[0]+'*')
             files2.sort()
             files += files2
 
-    def fname2mjd(filename):
-        fstem = filename.split('/')[-1]
-        fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
-        t = Time(fstr)
-        return t.mjd
+#    def fname2mjd(filename):
+#        fstem = filename.split('/')[-1]
+#        fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
+#        t = Time(fstr)
+#        return t.mjd
 
     filelist = []
     for filename in files:
@@ -1114,83 +1100,6 @@ def get_trange_files(trange):
             filelist.append(filename)
     return filelist
     
-# def show_selfcalibrated(index, trange, plot='multipanel', antennas=0):
-    # #for index, choose a time when the flare starting, with a large slope. 
-    # #the options for plot are 'multipanel' , 'saturation' , and 'uncalibrated'
-    # #antennas controls which pair the saturation plot shows. 
-  
-    # data = get_trange_files(trange)
-    # IDBdata, uvw, freq, times = get_X_data(data)
-    
-    # s = sp.Spectrogram(trange)
-    # s.fidx = [0,IDBdata.shape[2]]
-    # tsys, std = s.get_median_data()
-    
-    # pcal = np.angle(IDBdata[:,:, :, index])
-    # acal = abs(IDBdata[:,:, :, index])
-    # calout = copy.copy(IDBdata)
-    # # Calibrate for time 'index', just before the initial peak of the flare.
-    # for i in range(IDBdata.shape[3]):
-        # calout[:,:,:,i] = calout[:,:,:,i]*(np.cos(pcal)-1j*np.sin(pcal))/acal
-    # # Normalize to the total power spectrum at the same time, with reference
-    # # to the shortest baseline (preserves the relative amplitudes on various
-    # # baselines and polarizations.
-    # norm = abs(calout[:,:, :, index])
-    # for i in range(12):
-        # for j in range(2):
-            # norm[i,j,:] = tsys[:,index]*abs(calout[i,j,:,index]) / abs(calout[0,0,:,index])
-    # for i in range(IDBdata.shape[3]):
-        # calout[:,:,:,i] = calout[:,:,:,i]*norm       
-    # if plot == 'multipanel':
-        # # Multi-panel Plot
-        # f, ax = plt.subplots(4,5)
-        # sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
-        # for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
-            # if (i > 4):
-                # ax[2,i % 5].imshow(abs(calout[ibl,0,50:,:]))
-                # ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                # ax[3,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
-                # ax[3,i % 5].text(100,10,sbl[i]+' Phase')
-            # else:
-                # ax[0,i % 5].imshow(abs(calout[ibl,0,50:,:]))
-                # ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                # ax[1,i % 5].imshow(np.angle(calout[ibl,0,50:,:]))
-                # ax[1,i % 5].text(100,10,sbl[i]+' Phase')
-            # ax[2,4].imshow(tsys[50:,:])
-            # ax[2,4].text(100,10,'Total Power',color='white')
-            # plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
-    # else:
-        # if plot == 'saturation':
-            # # Saturation Plot
-            # ants_ = 'Ants ' + str(antennas+1) + '-' + str(antennas+2)
-            # plt.figure()
-            # plt.plot(tsys[IDBdata.shape[2]-110,:],abs(calout[antennas, 0, IDBdata.shape[2]-110,:]),'.',label=str(freq[IDBdata.shape[2]-110])[:5]+' GHz')
-            # plt.plot(tsys[IDBdata.shape[2]-60,:],abs(calout[antennas, 0, IDBdata.shape[2]-60,:]),'.',label=str(freq[IDBdata.shape[2]-60])[:5]+' GHz')
-            # plt.plot(tsys[IDBdata.shape[2]-10,:],abs(calout[antennas, 0, IDBdata.shape[2]-10,:]),'.',label=str(freq[IDBdata.shape[2]-10])[:5]+' GHz')
-            # plt.xlabel('Total Power [sfu]')
-            # plt.ylabel('Correlated Power (' + ants_ + ') [sfu]')
-            # plt.legend(loc='lower right')    
-        # else:
-            # if plot == 'uncalibrated':                          
-                # #"uncalibrated" 
-                # f, ax = plt.subplots(4,5)
-                # sbl = ['1-2','1-3','1-4','2-3','2-4','3-4','5-7','5-8','7-8']
-                # for i,ibl in enumerate([0,1,2,3,4,5,7,8,11]):
-                    # if (i > 4):
-                        # ax[2,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
-                        # ax[2,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                        # ax[3,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
-                        # ax[3,i % 5].text(100,10,sbl[i]+' Phase')
-                    # else:
-                        # ax[0,i % 5].imshow(abs(IDBdata[ibl,0,50:,:]))
-                        # ax[0,i % 5].text(100,10,sbl[i]+' Amp',color='white')
-                        # ax[1,i % 5].imshow(np.angle(IDBdata[ibl,0,50:,:]))
-                        # ax[1,i % 5].text(100,10,sbl[i]+' Phase')
-                # ax[2,4].imshow(tsys[50:,:])
-                # ax[2,4].text(100,10,'Total Power',color='white')
-                # plt.subplots_adjust(left=0.02, bottom=0.03, right=0.99, top=0.97, wspace=0.20, hspace=0.20)
-            # else:
-                # print 'please choose valid plot type'
 
 def unrot(data, azeldict=None):
     ''' Apply the correction to differential feed rotation to data, and return

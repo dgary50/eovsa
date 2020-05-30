@@ -10,7 +10,20 @@
 #    Also added a FITS argument to command line, for optional output of FITS file.
 #    FITS-ONLY means make a FITS file and stop.  FITS by itself means make a FITS file
 #    in addition to a plot.
-
+#  2020-05-10  DG
+#    Updated cal_qual() to use util.get_idbdir() to find IDB root path.
+#  2020-05-11  DG
+#    Further update to make this work on the DPP.
+#  2020-05-17  DG
+#    The GOES data continues to be problematic because the Goddard respositories
+#    are not kept up to date.  I added a call to by new goes.py routine get_goes(),
+#    which grabs the latest 7 days of GOES data from NOAA.  If that fails or the
+#    requested date is more than 7 days from the current date, then it falls back
+#    to the original code and tries to get the data from Goddard.
+#  2020-05-23  DG
+#    A classic blunder, using median() instead of nanmedian() on GOES data with nans!
+#    Now fixed.
+#
 
 if __name__ == "__main__":
     import matplotlib
@@ -24,9 +37,10 @@ if __name__ == "__main__":
 
 
 import read_idb as ri
-from util import Time,get_idbdir
+from util import Time
 import numpy as np
 import glob
+from goes import get_goes
 
 def get_goes_data(t=None,sat_num=None):
     ''' Reads GOES data from https://umbra.nascom.nasa.gov/ repository, for date
@@ -39,6 +53,14 @@ def get_goes_data(t=None,sat_num=None):
            goes_t    GOES time array in plot_date format
            goes_data GOES 1-8 A lightcurve
         '''
+    # Can short-circuit the entire code below this block by using my goes.get_goes() routine
+    lo, hi, goes_t = get_goes()
+    if len(goes_t) != 0:
+        # Got the data, now isolate the requested day
+        good, = np.where(np.floor(goes_t.mjd) == np.floor(t.mjd))
+        if len(good) != 0:
+            return goes_t.plot_date,lo
+                
     from sunpy.util.config import get_and_create_download_dir
     import shutil
     from astropy.io import fits
@@ -179,13 +201,13 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
                 if not goes_t is None:
                     goes_data = 2* (np.log10(goes_data + 1.e-9)) + 26
                     ax.plot_date(goes_t, goes_data,'-',color='yellow')
-                    ytext = np.median(goes_data) - 1
+                    ytext = np.nanmedian(goes_data) - 1
                 else:
                     ytext = None
                 if not goes_t2 is None:
                     goes_data2 = 2* (np.log10(goes_data2 + 1.e-9)) + 26
                     ax.plot_date(goes_t2, goes_data2,'-',color='yellow')
-                    ytext2 = np.median(goes_data2) - 1
+                    ytext2 = np.nanmedian(goes_data2) - 1
                     if ytext:
                         ytext = (ytext+ytext2)/2
                     else:
@@ -276,7 +298,8 @@ def cal_qual(t=None, savfig=False):
     import dump_tsys as dt
     import pipeline_cal as pc
     import matplotlib.pylab as plt
-    import os, rstn
+    import rstn
+    from util import get_idbdir
     
     if t is None:
         t = Time.now()
@@ -288,41 +311,32 @@ def cal_qual(t=None, savfig=False):
     if mjd - tp_mjd > 0.5:
         print 'CAL_QUAL: Warning, TP Calibration not (yet) available for this date.'
     # Find GCAL scan for this date
-    fdb = dt.rd_fdb(t)
+    fdb = dt.rd_fdb(Time(mjd,format='mjd'))
     gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
     if len(gcidx) == 1:
-        datadir=os.getenv('EOVSADB')
-        if not datadir:
-            # go to default directory on pipeline
-            # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
-            datadir=get_idbdir(t)+fdb['FILE'][gcidx][0][3:11]+'/'
+        datadir = get_idbdir(t) + fdb['FILE'][gcidx][0][3:11]+'/'
         # List of GCAL files
         gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:
         print 'CAL_QUAL: Warning, no GAINCALTEST scan for this date.  Will try using the GAINCALTEST from previous day.'
-        tobj = Time(mjd-1,format='mjd')
-        fdb = dt.rd_fdb(tobj)
+        fdb = dt.rd_fdb(Time(mjd-1,format='mjd'))
         gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
         if len(gcidx) == 1:
-            datadir=os.getenv('EOVSADB')
-            if not datadir:
-                # go to default directory on pipeline
-                # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
-                datadir=get_idbdir(tobj)+fdb['FILE'][gcidx][0][3:11]+'/'
+            datadir = get_idbdir(t)
+            # Add date path if on pipeline
+            if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
             # List of GCAL files
             gcalfile = [datadir+i for i in fdb['FILE'][gcidx]]
         else:
             print 'CAL_QUAL: Error, no GAINCALTEST scan for previous day.'
             return
     # Find SOLPNTCAL scan for this date
-    fdb = dt.rd_fdb(t)
+    fdb = dt.rd_fdb(Time(mjd,format='mjd'))
     gcidx, = np.where(fdb['PROJECTID'] == 'SOLPNTCAL')
     if len(gcidx) > 0:
-        datadir=os.getenv('EOVSADB')
-        if not datadir:
-            # go to default directory on pipeline
-            # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][0][3:11]+'/'
-            datadir=get_idbdir(t)+fdb['FILE'][gcidx][0][3:11]+'/'
+        datadir = get_idbdir(t)
+        # Add date path if on pipeline
+        if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
         # List of SOLPNTCAL files
         solpntfile = [datadir+i for i in fdb['FILE'][gcidx]]
     else:

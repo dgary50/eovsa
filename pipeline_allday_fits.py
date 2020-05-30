@@ -1,3 +1,5 @@
+# Script to analyze an entire day of data and generate the all-day fits files and
+# spectrogram images.
 if __name__ == '__main__':
     import matplotlib
     matplotlib.use("Agg")
@@ -29,6 +31,9 @@ if __name__ == '__main__':
     # Reread year month day to preserve leading 0, and make time an array
     year, month, day = t.iso.split('-')
     day = day.split(' ')[0]
+    t1 = Time(t.mjd+1,format='mjd')   # Have to keep information about next UT date
+    year1, month1, day1 = t1.iso.split('-')
+    day1 = day1.split(' ')[0]
     t = Time([t.iso])
     # Change to standard working directory and delete any existing IDB files there
     datstr = t[0].iso[:10].replace('-','')+'/'
@@ -44,11 +49,15 @@ if __name__ == '__main__':
     pc.allday_process(path=outpath)
     print outpath,year,month,day,'Finding files:',outpath+year+'/'+month+'/'+day+'/*_TP_*.fts'
     files = glob.glob(outpath+year+'/'+month+'/'+day+'/*_TP_*.fts')
+    files1 = glob.glob(outpath+year1+'/'+month1+'/'+day1+'/*_TP_*.fts')  # Returns empty list if no such folder
+    files = files+files1  # Concatenate the two lists
     files.sort()
     print len(files),'files found'
     spec = ef.eovsa_combinefits(files, freqgaps=True, outpath=fitsoutpath, ac_corr=True, savfig=True)
     print outpath,year,month,day,'Finding files:',outpath+year+'/'+month+'/'+day+'/*_XP_*.fts'
     files = glob.glob(outpath+year+'/'+month+'/'+day+'/*_XP_*.fts')
+    files1 = glob.glob(outpath+year1+'/'+month1+'/'+day1+'/*_XP_*.fts')  # Returns empty list if no such folder
+    files = files+files1  # Concatenate the two lists
     files.sort()
     print len(files),'files found'
     spec = ef.eovsa_combinefits(files, freqgaps=True, outpath=fitsoutpath, ac_corr=True, savfig=True)

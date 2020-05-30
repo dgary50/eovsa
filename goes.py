@@ -10,6 +10,8 @@
 # History
 #  2020-03-21  DG
 #    Initial complete version
+#  2020-05-13  DG
+#    Removed calls to EOVSA local routines
 #
 
 if __name__ == '__main__':
@@ -18,13 +20,69 @@ if __name__ == '__main__':
     
 import urllib2
 import json
-from util import Time
+from astropy.time import Time
 import matplotlib.pylab as plt
 import numpy as np
 from matplotlib.dates import DateFormatter
-from autocorrect_tp import smooth
 
-def get_goes(url='https://services.swpc.noaa.gov/json/goes/primary/xrays-3-day.json'):
+def smooth(x,window_len=11,window='hanning'):
+    """smooth the data using a window with requested size.
+
+    This method is based on the convolution of a scaled window with the signal.
+    The signal is prepared by introducing reflected copies of the signal
+    (with the window size) in both ends so that transient parts are minimized
+    in the begining and end part of the output signal.
+
+    input:
+        x: the input signal
+        window_len: the dimension of the smoothing window; should be an odd integer
+        window: the type of window from 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'
+            flat window will produce a moving average smoothing.
+
+    output:
+        the smoothed signal
+
+    example:
+
+    t=linspace(-2,2,0.1)
+    x=sin(t)+randn(len(t))*0.1
+    y=smooth(x)
+
+    see also:
+
+    numpy.hanning, numpy.hamming, numpy.bartlett, numpy.blackman, numpy.convolve
+    scipy.signal.lfilter
+
+    TODO: the window parameter could be the window itself if an array instead of a string
+    NOTE: length(output) != length(input), to correct this: return y[(window_len/2-1):-(window_len/2)] instead of just y.
+    """
+
+    if x.ndim != 1:
+        raise ValueError, "smooth only accepts 1 dimension arrays."
+
+    if x.size < window_len:
+        raise ValueError, "Input vector needs to be bigger than window size."
+
+
+    if window_len<3:
+        return x
+
+
+    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+        raise ValueError, "Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'"
+
+
+    s = np.r_[x[window_len-1:0:-1], x, x[-2:-window_len-1:-1]]
+    #print(len(s))
+    if window == 'flat': #moving average
+        w = np.ones(window_len,'d')
+    else:
+        w = eval('np.'+window+'(window_len)')
+
+    y = np.convolve(w/w.sum(), s, mode='valid')
+    return y
+
+def get_goes(url='https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json'):
     ''' Read a single one of the standard GOES files (determined by the value of the
         url string.)
         
@@ -53,11 +111,14 @@ def get_goes(url='https://services.swpc.noaa.gov/json/goes/primary/xrays-3-day.j
         return [], [], []
     return goeslo, goeshi, Time(goestime)
 
-def goes_std_plots():
+def goes_std_plots(outpath='./'):
     ''' Generates the urls of the standard files of GOES data, reads them in sequence,
         and makes well-formed plots of the data.  No arguments.  Nothing is returned.
         
-        Generates two plots in /common/webplots/flaremon/ as .png files.
+        Inputs:
+           outpath    Path to folder in which two plots (as .png files) are created,
+                         with names goes3-day.png and goes6-hour.png. Default location
+                         is the current folder.
     '''
     types = ['3-day','6-hour']
     sources = ['primary','secondary']
@@ -107,7 +168,8 @@ def goes_std_plots():
         ax.grid(linestyle='--')
         ax.legend()
         f.set_tight_layout(True)
-        plt.savefig('/common/webplots/flaremon/goes'+type+'.png',bbox_inches='tight')
+        plt.savefig(outpath+'goes'+type+'.png',bbox_inches='tight')
 
 if __name__ == '__main__':
-    goes_std_plots()
+    outpath = '/common/webplots/flaremon/'
+    goes_std_plots(outpath)

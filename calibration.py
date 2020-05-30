@@ -115,6 +115,10 @@
 #    to append '2m' to output filename if calpnt2m = True and outfile is not specified, 
 #    to avoid mixing 2-m and 27-m results in the same file.  Also fixed a bug in
 #    calpnt_multi() that occurred in ax array when nrows is 1.
+#  2020-05-10  DG
+#    Updated skycal_anal() to use util.get_idbdir() to find IDB root path.
+#  2020-05-11  DG
+#    Further update to make this work on the DPP.
 #
 
 if __name__ == "__main__":
@@ -126,7 +130,7 @@ if __name__ == "__main__":
 
 import numpy as np
 import solpnt
-from util import Time, nearest_val_idx, lobe, ant_str2list,get_idbdir
+from util import Time, nearest_val_idx, lobe, ant_str2list
 import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
@@ -275,8 +279,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     bl2ord = read_idb.bl2ord
     tdate = t.iso.replace('-','')[:8]
     if fdir is None:
-        # fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
-        fdir = get_idbdir(t)+tdate+'/'
+        fdir = '/data1/eovsa/fits/IDB/'+tdate+'/'
     else:
         if fdir[-1] != '/': 
             fdir += '/'
@@ -529,6 +532,7 @@ def skycal_anal(t=None, do_plot=False, last=False):
     '''
     from gaincal2 import get_fem_level
     import read_idb as ri
+    from util import get_idbdir
     
 #    lev = get_fem_level(trange,300)
 #    levs = np.zeros((13,2), dtype=int)
@@ -551,11 +555,9 @@ def skycal_anal(t=None, do_plot=False, last=False):
         else:
             gcidx = gcidxes[0]
 
-        datadir=os.getenv('EOVSADB')
-        if not datadir:
-            # go to default directory on pipeline
-            # datadir='/data1/eovsa/fits/IDB/'+fdb['FILE'][gcidx][3:11]+'/'
-            datadir=get_idbdir(t)+fdb['FILE'][gcidx][3:11]+'/'
+        datadir = get_idbdir(t)
+        # Add date path if on pipeline
+        if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][3:11]+'/'
 
         file = datadir+fdb['FILE'][gcidx]
         out = ri.read_idb([file])

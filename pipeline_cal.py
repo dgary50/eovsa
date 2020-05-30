@@ -70,6 +70,9 @@
 #    antenna has all-zero ActualAzimuth (i.e. missing data)
 #  2020-01-25  DG
 #    Skip over bad/missing files in allday_udb_corr(), instead of crashing!
+#  2020-05-09  DG
+#    Fixed a problem with nans in the data.  Replaced all instances of 
+#    median with nanmedian, and mean with nanmean.  Ah, needed nansum for XP.
 #
 
 import dbutil as db
@@ -128,7 +131,7 @@ def apply_fem_level(data, gctime=None, skycal=None):
     if gctime is None:
         gctime = trange[0]
     # Get time cadence
-    dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
+    dt = np.int(np.round(np.nanmedian(data['time'][1:] - data['time'][:-1]) * 86400))
     if dt == 1: dt = None
     # Get the FEM levels of the requested timerange
     src_lev = get_fem_level(trange, dt)  # solar gain state for timerange of file
@@ -242,15 +245,15 @@ def apply_attn_corr(data, tref=None):
     trefrange = Time([tref.iso, Time(tref.lv + 60, format='lv').iso])
     ref_gs = get_gain_state(trefrange)  # refcal gain state for 60 s
     # Get median of refcal gain state (which should be constant anyway)
-    ref_gs['h1'] = np.median(ref_gs['h1'], 1)
-    ref_gs['h2'] = np.median(ref_gs['h2'], 1)
-    ref_gs['v1'] = np.median(ref_gs['v1'], 1)
-    ref_gs['v2'] = np.median(ref_gs['v2'], 1)
+    ref_gs['h1'] = np.nanmedian(ref_gs['h1'], 1)
+    ref_gs['h2'] = np.nanmedian(ref_gs['h2'], 1)
+    ref_gs['v1'] = np.nanmedian(ref_gs['v1'], 1)
+    ref_gs['v2'] = np.nanmedian(ref_gs['v2'], 1)
 
     # Get timerange from data
     trange = Time([data['time'][0], data['time'][-1]], format='jd')
     # Get time cadence
-    dt = np.int(np.round(np.median(data['time'][1:] - data['time'][:-1]) * 86400))
+    dt = np.int(np.round(np.nanmedian(data['time'][1:] - data['time'][:-1]) * 86400))
     if dt == 1: dt = None
     # Get the gain state of the requested timerange
     src_gs = get_gain_state(trange, dt)  # solar gain state for timerange of file
@@ -635,6 +638,8 @@ def allday_process(path=None):
     ''' Process an all day list of corrected data files to create total power 
         and baseline amplitude FITS spectrograms (planned for submission to
         NASA SDAC for support of the Parker Solar Probe).
+        
+        Fixed a problem when nans appear in the data--use nanmean() and nanmedian()
     '''
     import glob
     import read_idb as ri
@@ -648,14 +653,14 @@ def allday_process(path=None):
         nant,npol,nf,nt = out['p'].shape
         nant = 13
         # Determine best 8 antennas
-        med = np.mean(np.median(out['p'][:nant],3),1)   # size nant,nf
-        medspec = np.median(med,0)                      # size nf
+        med = np.nanmean(np.nanmedian(out['p'][:nant],3),1)   # size nant,nf
+        medspec = np.nanmedian(med,0)                      # size nf
         p = np.polyfit(out['fghz'], medspec, 2)
         spec = np.polyval(p, out['fghz']).repeat(nant).reshape(nf,nant)   # size nf, nant
         stdev = np.std(med - np.transpose(spec),1)   # size nant
         idx = stdev.argsort()[:8]     # List of 8 best-fitting antennas
         # Use list of antennas to get final median total power dynamic spectrum
-        med = np.mean(np.median(out['p'][idx],0),0)
+        med = np.nanmean(np.nanmedian(out['p'][idx],0),0)
         # Write the total power spectrum to a FITS file
         tp_writefits(out, med.astype(np.float32), filestem='TP_',outpath='./')
         # Form sum of intermediate baselines
@@ -665,7 +670,7 @@ def allday_process(path=None):
         # Sort from low to high uv distance
         #bah = uvdist.argsort()
         # Use "intermediate" lengths, i.e. 20th to 39th in list, and sum amplitudes
-        med = abs(sum(sum(out['x'][baseidx],0),0))
+        med = np.abs(np.nansum(np.nansum(out['x'][baseidx],0),0))
         # Write the baseline amplitude spectrum to a FITS file
         tp_writefits(out, med.astype(np.float32), filestem='XP_',outpath='./')
         

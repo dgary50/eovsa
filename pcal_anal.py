@@ -21,7 +21,7 @@
 #
 
 import numpy as np
-from util import Time, lobe, get_idbdir
+from util import Time, lobe, fname2mjd
 ten_minutes = 600./86400.
 one_minute = 60./86400.
 
@@ -86,8 +86,7 @@ def findfile(trange):
     if host == 'dpp':
         fpath = '/data1/IDB/'
     else:
-        # fpath = '/data1/eovsa/fits/IDB/'
-        fpath = get_idbdir(trange[0])
+        fpath = '/data1/eovsa/fits/IDB/'
     t1 = str(trange[0].mjd)
     t2 = str(trange[1].mjd)
     tnow = Time.now()
@@ -135,15 +134,10 @@ def findfile(trange):
         print 'Found',k,'scans in timerange.'
         for i in range(k):
             f1 = fdb['FILE'][np.where(fdb['SCANID'] == scans[m+i])].astype('str')
-            # if fpath == '/data1/eovsa/fits/IDB/':
-            #     f2 = [fpath + f[3:11] + '/' + f for f in f1]
-            # else:
-            #     f2 = [fpath + f for f in f1]
-
-            if host == 'dpp':
-                f2 = [fpath + f for f in f1]
-            else:
+            if fpath == '/data1/eovsa/fits/IDB/':
                 f2 = [fpath + f[3:11] + '/' + f for f in f1]
+            else:
+                f2 = [fpath + f for f in f1]
             flist.append(f2)
             tstlist.append(tslist[m+i])
             ted = telist[m+i]
@@ -176,7 +170,7 @@ def graph(f,navg=None,path=None):
         # This file is no good, so skip it
         return
     fig, ax = plt.subplots(4,13,sharex=True, sharey=True)
-    trange = Time([ri.fname2mjd(f[0]),ri.fname2mjd(f[-1]) + ten_minutes],format='mjd')
+    trange = Time([fname2mjd(f[0]),fname2mjd(f[-1]) + ten_minutes],format='mjd')
     times, wscram, avgwind = db.a14_wscram(trange)
     nwind = len(wscram)
     nbad = np.sum(wscram)
@@ -243,12 +237,13 @@ def pcal_anal(trange,path=None):
     import os.path
     import socket
     import glob
-    import read_idb as ri
 
     if path is None:
         path = ''
 
     out = findfile(trange)
+    if out is None:
+        return
     host = socket.gethostname()
     filelist = out['scanlist']
     statuslist = out['status']
@@ -260,11 +255,11 @@ def pcal_anal(trange,path=None):
         flist = np.array(filelist[i])[good].tolist()   # List of "done" files
         first_file = filelist[i][0]
         last_file = filelist[i][-1]
-        mjd = ri.fname2mjd(last_file)
+        mjd = fname2mjd(last_file)
         tdif = Time.now().mjd - mjd
         if len(good) == len(filelist[i]) and tdif > ten_minutes:
             # All files in this scan are marked "done", so process the scan only if the plots do not already exist
-            tmark = ri.fname2mjd(first_file)
+            tmark = fname2mjd(first_file)
             tmarkp = tmark+one_minute
             tmarkn = tmark-one_minute
             tmark = Time(tmark,format='mjd').iso.replace('-','').replace(':','').replace(' ','')[:12]

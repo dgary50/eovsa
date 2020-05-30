@@ -11,12 +11,19 @@
 #    Converted from using datime() to using Time() based on astropy
 #  2016-May-07  DG
 #    All of a sudden, closing a urlopen() file handle is hanging, so skip it.
-#
+#  2019-May-29  OG
+#    Added 5 new funtions to extract the RSTN data from NOAA or from the archive file
+#    These are: getfrom45dayflux(), extractfrom45daylist(), extractfromarchive() and
+#    writecur2database().
+#    There is also a routine called split string which splits a string with
+#    fields separated by multiple spaces.
 
 import urllib2
 import numpy as np
 from util import Time
 import sun_pos
+from time import strptime
+import math
 
 def rd_rstnflux(t=None,f=None,recur=False):
     ''' Reads the RSTN/Penticton quiet Sun solar flux density for the date specified
@@ -220,3 +227,189 @@ def noaa2db(infile,outfile):
         
     mjds = np.array(mjds)
     
+
+def splitstring(s):
+    """This method splits a string with multiple spaces between each field and returns the fields in a list. Note that single spaced words are combined into one field"""
+    while s.replace("   ", "  ") != s:
+        s = s.replace("   ", "  ")
+    
+    return s.split("  ")
+
+freq = np.array([0.245, 0.41, 0.61, 1.415, 2.695, 2.8, 4.995, 8.8, 15.4], dtype = np.float32)
+        
+def getfrom45dayflux(dt):
+    """This extracts the requested day's RSTN noon flux data from:
+        ftp://ftp.swpc.noaa.gov/pub/lists/radio/45day_rad.txt
+    A list is returned with each element as follows:
+    
+    0 - timestamp: Astropy Time which is the date on which the data was
+        collected. This should match dt
+        
+    1 - freq: A float32 numpy array containing the 9 frequencies in GHz
+    
+    2 - data: The flux data which is a 9x7 int16 numpy array.
+    
+    If the ftp failed or the specified date is not found then the
+    an empty list (0 length) is returned."""
+    
+    data = []
+    success = True
+    try:
+        noaa_url = 'ftp://ftp.swpc.noaa.gov/pub/lists/radio/45day_rad.txt'
+        f = urllib2.urlopen(noaa_url)
+        lines = f.readlines()
+    except:
+        success = False
+    
+    if success:
+        i = 0
+        done = False
+        n = len(lines)
+        while not done:
+            if i == n:
+                done = True
+            else:
+                l = lines[i].strip()
+                if l[:3] == "MHZ": done=True
+            i += 1
+        
+        if i == n:
+            lines = []
+        else:
+            del lines[:i]
+            
+        n = len(lines)
+        for i in range(n-1, -1, -1):
+            if lines[i] == '\n': del lines[i]
+        
+        n = len(lines)
+        if n>0:
+            data = extractfrom45daylist(lines, dt)
+            
+    return data
+
+def extractfrom45daylist(lines, dt):
+    """This method extracts flux data for a given date from the lines
+    supplied. dt is a Time object. This should be called from 
+    get45dayflux().
+    The returned list contains the extracted data with each element
+    as follows:
+     
+       0 - timestamp: Astropy Time which is the date on which the data was
+        collected. This should match dt
+        
+    1 - freq: A float32 numpy array containing the 9 frequencies in GHz
+    
+    2 - data: The flux data which is a 9x7 int16 numpy array.
+    
+    If the specified date is not found then an empty list (0 length) is 
+    returned."""
+       
+    data = []
+    n = len(lines)
+    i = 0
+    done = False
+    while not done:
+        if i >= n:
+            done = True
+        else:
+            l = lines[i].strip('\n')
+            year = int(l[0:4])
+            day = int(l[9:len(l)])
+            month = strptime(l[5:8], '%b').tm_mon
+            datestr = "%04d-%02d-%02d" % (year, month, day)
+            timestamp = Time(datestr, out_subfmt = 'date')
+            
+            if math.floor(dt.mjd) == math.floor(timestamp.mjd):
+                d = np.zeros((9, 7), dtype = np.int16)
+                for j in range(1, 10):
+                    l = lines[i+j].strip('\n')
+                    dataline = splitstring(l.lstrip())
+                    for k in range(1, 8):
+                        d[j - 1, k - 1] = int(dataline[k])
+                
+                data.append(timestamp)
+                data.append(freq)
+                data.append(d)
+        i += 10
+    return data
+
+def extractfromarchive(startdt, enddt):
+    """This function extracts RSTN noon flux data from the old archive
+    text file (/common/tmp/txt/radioflux.noa). It extracts data from the
+    dates spanning startdt up to but not including enddt. It returns a
+    list of the data in the date range. Each element in the list is
+    another list as follows:
+    
+    The returned list contains the extracted data with each element
+    as follows:
+     
+       0 - timestamp: Astropy Time which is the date on which the data was
+        collected. This should match dt
+        
+    1 - freq: A float32 numpy array containing the 9 frequencies in GHz
+    
+    2 - data: The flux data which is a 9x7 int16 numpy array.
+    
+    If no data in the specified date range is found then an empty list 
+    (0 length) is returned."""
+    
+    archfile = '/common/tmp/txt/radioflux.noa'
+    data = []
+    success = True
+    try:
+        f = open(archfile,'r')
+        #print 'Data will be retrieved from archive file',archfile,'.'
+        lines = f.readlines()
+        f.close()
+    except:
+        success = False
+    
+    if success:
+        n = len(lines)
+        for i in range(n-1, -1, -1):
+            if lines[i] == '\n' or lines[i] == '\r\n' or lines[i][0:1] == '#': 
+                del lines[i]
+        n = len(lines)
+                    
+        for i in range(0, n, 10):
+            l = lines[i].strip('\n')
+            if l[:17] == ':Solar_Radio_Flux':
+                found = True
+                year = int(l[19:23])
+                day = int(l[28:])
+                month = strptime(l[24:27], '%b').tm_mon
+                count = 0
+                datestr = "%04d-%02d-%02d" % (year, month, day)
+                timestamp = Time(datestr, out_subfmt='date')
+                fluxarr = np.zeros((9,7), dtype = np.int16)
+                if math.floor(timestamp.mjd) >= math.floor(startdt.mjd) and math.floor(timestamp.mjd) < math.floor(enddt.mjd):
+                    for j in range(1, 10):
+                        flux = splitstring(lines[i+j].strip())
+                        for k in range(1,8):
+                            fluxarr[j - 1][k - 1] = int(flux[k])
+                        
+                    d = [timestamp, freq, fluxarr]
+                    data.append(d)
+                        
+    return data
+    
+def writecur2database():
+    """This routine extracts and writes the most recent RSTN flux values
+    from NOAA to the database."""
+    
+    nt = Time.now()
+    datatime = Time(math.floor(nt.mjd) - 0.875, format = 'mjd')
+    data = r.getfrom45dayflux(datatime)
+    if len(data) == 0:
+        #No data extracted, display error message
+        print datatime.iso + ": No data found."
+    else:
+        #Data successfully extracted
+        if rstnflux2sql(data, datatime):
+            #If data written to database, display success message
+            print datatime + ": Data successfully written to database."
+        else:
+            #If data failed to write, show fail message
+            print datatime + ": Failed to write data to database."
+
