@@ -83,8 +83,6 @@
 #     of the opening window to 950 pixels, and set ROACH status to be expanded by default
 #   2020-May-02  DG
 #     Cleaned up some garbage in the "Task" string
-#   2020-Jun-05
-#	  Added yellow (warning) to power and attenuation if first atennuator on H or V is non zero.
 
 from Tkinter import *
 from ttk import *
