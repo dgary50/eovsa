@@ -6,6 +6,7 @@
 #     Started this history log, on the occasion of adding routine xydelay_anal()
 #
 import numpy as np
+from util import lobe, Time
 
 def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
     ''' Analyze a pair of parallel and cross polarization calibration scans and
@@ -22,7 +23,6 @@ def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
         print 'Must provide a list of 2 NPZ files.'
         return None, None
     import read_idb as ri
-    from util import lobe, Time
         
     if doplot: import matplotlib.pylab as plt
 
@@ -73,27 +73,50 @@ def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
         for i in range(14): ax[i].set_ylim(-4,4)
         f.suptitle('Multicolor: Measurements, Black: Final Results')
     np.savez('/common/tmp/Feed_rotation/'+npzlist[0].split('/')[-1][:14]+'_delay_phase.npz',fghz=fghz,dph=dph,xi_rot=xi_rot)
-    xy_phase = {'timestamp':Time(out0['time'][0],format='jd').lv,'fghz':fghz,'xyphase':dph,'xi_rot':xi_rot}
+    xy_phase = {'timestamp':Time(out0['time'][0],format='jd').lv,'fghz':fghz,'xyphase':dph,'xi_rot':xi_rot, 'dphi':dphi, 'dph14':dph14}
     return xy_phase
 
-def xydelay_anal(npzfiles):
+def xydelay_anal(npzfiles, tau_lo=0):
     ''' Analyze a "standard" X vs. Y delay calibration, consisting of four observations
         on a strong calibrator near 0 HA, in the order:
            90-degree  Low-frequency  receiver,
            90-degree  High-frequency receiver,
             0-degree  High-frequency receiver,
             0-degree  Low-frequency  receiver
+            
+        I found on at least one occasion that the low-frequency receiver had an extra
+        unexplained delay in the 90-degree position (~0.195 ns), so I added the tau_lo
+        delay parameter, normally zero, that can be set if needed.
     '''
     import matplotlib.pylab as plt
     from util import common_val_idx
     npzfiles = np.array(npzfiles)
     dph_lo = get_xy_corr(npzfiles[[3,0]], doplot=False)
     dph_hi = get_xy_corr(npzfiles[[2,1]])
-    ax = plt.figure('XY_Phase').get_axes()
-    for i in range(14): 
-        ax[i].plot(dph_lo['fghz'],dph_lo['xyphase'][i],'r.')
-        ax[i].set_xlim(0,20)
     fghz = np.union1d(dph_lo['fghz'],dph_hi['fghz'])
+    # Check for LO and HI being off by pi due to pi-ambiguity in xi_rot
+    lo_com, hi_com = common_val_idx(dph_lo['fghz'],dph_hi['fghz'])
+    # Average xi_rot angle difference over common frequencies
+    a = dph_hi['xi_rot'][hi_com]-dph_lo['xi_rot'][lo_com] # angle difference
+    xi_rot_diff = np.angle(np.sum(np.exp(1j*a)))  # Average angle difference
+    if np.abs(xi_rot_diff) > np.pi/2:
+        # Looks like shifting by pi will get us closer, so shift both xyphase and xi_rot
+        # This does not actually change any phase relationships, it only makes the plots
+        # and HI/LO data comparison more consistent.
+        dph_lo['xyphase'] += np.pi
+        dph_lo['xi_rot'] += np.pi
+        dph_lo['dphi'] += np.pi
+        dph_lo['dph14'] += np.pi
+    ax = plt.figure('XY_Phase').get_axes()
+    dp = dph_lo['fghz']*2*np.pi*tau_lo
+    for i in range(13):
+        ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][0,i]+dp), '.',color='C0')    
+        ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][1,i]+dp), '.',color='C1')    
+        ax[i].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][i]+dp),'r.')
+        ax[i].set_xlim(0,20)
+    for i in range(26):
+        ax[13].plot(dph_lo['fghz'],lobe(dph_lo['dph14'][i]+dp),'.')
+    ax[13].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][13]+dp),'r.')
     nf, = fghz.shape
     flo_uniq = np.setdiff1d(dph_lo['fghz'],dph_hi['fghz'])  # List of frequencies in LO not in HI
     idx_lo_not_hi, idx2 = common_val_idx(fghz, flo_uniq)    # List of indexes of unique LO frequencies

@@ -29,16 +29,17 @@
 #       - sql2rstn(t): extracts the rstn flux values and SQL_timestamp from
 #         the SQL database
 #
-#    There is also a routine called split string which splits a string with
-#    fields separated by multiple spaces.
 #    rd_rstndata() has been updated to allow reading from SQL.
+#  2020-Jun-13  DG
+#    Fixed some problems with rstnfluxfromnoaa() no longer being defined, and
+#    rd_rstnflux now allows data to be returned from "yesterday" if current
+#    date has not been written yet.
 
 import urllib2
 import numpy as np
 from util import Time
 import sun_pos
 from time import strptime
-import math
 import cal_header as ch
 from stateframe import extract
 
@@ -58,37 +59,41 @@ def rd_rstnflux(t=None,f=None,recur=False):
         If it finds data from another source other than SQL it will update the SQL
     '''    
 
+    today = Time.now()
     if t is None:
-        t = Time.now()
+        t = today
         
     datstr = t.datetime.strftime("%Y %b %d")
     if f is None:
         #try to get data from SQL
         data, sqlt = sql2rstn(t)
         if sqlt is None:
-            #if data is not in data base
-            print "Error: Could not find ", datstr, " in SQL."
-            today = Time.now()
+            print "RD_RSTNFLUX: SQL database error!"
+        elif today.mjd - sqlt.mjd < 2:
+            print "RD_RSTNFLUX: Today's flux data are not available yet--using yesterday's"
+        else:
+            # Data for this date is not in data base
+            print "RD_RSTNFLUX: Error: Could not find ", datstr, " in SQL."
             if today.mjd - t.mjd > 44:
                 recur = True  # Set this to prevent unneeded recursive call
+            # Try to get data from NOAA
+            data = rstnfluxfromnoaa(t)
+            if data is not None:
+                sqlt = Time(np.floor(data[0].mjd)+0.125,format='mjd')
+                writerstn2sql(data, sqlt)
             else:
-                data = rstnfluxfromnoaa(t)
-                if data is not None:
-                    sqlt = Time(math.floor(data[0].mjd)+0.125,format='mjd')
-                    writerstn2sql(data, sqlt)
-                else:
-                    print "Error: Could not retrieve ", datstr, " from NOAA"
-                    recur = True  # Set this to prevent unneeded recursive call
+                print "RD_RSTNFLUX: Error: Could not retrieve ", datstr, " from NOAA"
+                recur = True  # Set this to prevent unneeded recursive call
 
         if recur:
             enddt = t + TimeDelta(86400.0, format='sec')
             d = rstnfluxfromtextarchive(t, enddt)
             if d is None:
-                print "Error: Could not find ", datstr, "in text archive"
+                print "RD_RSTNFLUX: Error: Could not find ", datstr, "in text archive"
                 return None, None
             else:
                 data=d[0]
-                sqlt = Time(math.floor(data[0].mjd)+0.125,format='mjd')
+                sqlt = Time(np.floor(data[0].mjd)+0.125,format='mjd')
                 writerstn2sql(data, sqlt)
     else:
         lines = f.readlines()
@@ -109,7 +114,7 @@ def rd_rstnflux(t=None,f=None,recur=False):
                     break
                    
         if frq[0] == 0:
-            print 'Error: Date',datstr,'not found.'
+            print 'RD_RSTNFLUX: Error: Date',datstr,'not found.'
             return None, None
         else:
             return frq, flux
@@ -251,20 +256,18 @@ def noaa2db(infile,outfile):
         
     mjds = np.array(mjds)
     
-
-def splitstring(s):
-    """This method splits a string with multiple spaces between each field
-       and returns the fields in a list. Note that single spaced words are
-       combined into one field"""
-       
-    while s.replace("   ", "  ") != s:
-        s = s.replace("   ", "  ")
-    
-    return s.split("  ")
-
 freq = np.array([0.245, 0.41, 0.61, 1.415, 2.695, 2.8, 4.995, 8.8, 15.4], dtype = np.float32)
 
-def rstnfluxfromnoaa(dt):
+def rstnfluxfromnoaa(t):
+    ''' If given date is today, attempts to read from current NOAA file, otherwise
+        reads from 45day file. Fails (returns None) if date are more than 45 days ago.
+    '''
+    if Time.now().mjd - t.mjd < 1:
+        return rstnfluxfromcurrentnoaa()
+    else:
+        return rstnfluxfrom45daynoaa(t)
+        
+def rstnfluxfrom45daynoaa(dt):
     """This extracts the requested day's RSTN noon flux data from:
         ftp://ftp.swpc.noaa.gov/pub/lists/radio/45day_rad.txt
     A list is returned with each element as follows:
@@ -278,8 +281,6 @@ def rstnfluxfromnoaa(dt):
     
     If the ftp failed or the specified date is not found None is returned."""
     
-    data = []
-    success = True
     noaa_url = 'ftp://ftp.swpc.noaa.gov/pub/lists/radio/45day_rad.txt'
     try:
         f = urllib2.urlopen(noaa_url)
@@ -288,67 +289,89 @@ def rstnfluxfromnoaa(dt):
         print "Could not read from ",noaa_url
         return None
     
-    i = 0
-    done = False
-    n = len(lines)
-    while not done:
-        if i == n:
-            done = True
-        else:
-            l = lines[i].strip()
-            if l[:3] == "MHZ": done=True
-        i += 1
-    
-    if i == n:
+    # The next several blocks below can be shortened by the more pythonic code:
+    for i,line in enumerate(lines):     # Provides counter "i"
+        line = line.strip()
+        if line[:3] == 'MHZ':
+            break
+        
+    if i+1 == len(lines):
         print "No data found in ",noaa_url
         return None
-    else:
-        del lines[:i]
-            
-    n = len(lines)
-    for i in range(n-1, -1, -1):
-        if lines[i] == '\n': del lines[i]
         
-    n = len(lines)
-    if n==0:
-        print "No data found in ",noaa_url
-        return
+    lines = lines[i+1:]
+    lines = np.array(lines)             # Converts to numpy array, for where()
+    clean_lines = lines[np.where(lines != '\n')]  # Eliminates all empty lines
+    clean_lines = [l.replace('\n','') for l in clean_lines] # Removes \n in remaining lines
+    
+    for i in range(0, len(clean_lines), 10):
+        datestr = "%04d-%02d-%02d" % (int(clean_lines[i][0:4]), strptime(clean_lines[i][5:8], '%b').tm_mon, int(clean_lines[i][9:]))
+        timestamp = Time(datestr, out_subfmt = 'date')
+        if np.floor(dt.mjd) == np.floor(timestamp.mjd):
+            data = np.zeros((9, 7), dtype = np.int16)
+            for j in range(1, 10):
+                d = clean_lines[i + j].split()
+                data[j - 1] = list(map(int, d[1:8]))
+                    
+            print "Data successfully read from ",noaa_url," for date ",dt.iso
+            return [timestamp, freq, data]
+    
+    print "No data found for data ",dt.iso," in ",noaa_url
+    return None
+    
+def rstnfluxfromcurrentnoaa():
+    """This extracts the first RSTN data block from:
+        ftp://ftp.swpc.noaa.gov/pub/lists/radio/rad.txt
+    A list is returned with each element as follows:
+    
+    0 - timestamp: Astropy Time which is the date on which the data was
+        collected. This should match dt
+        
+    1 - freq: A float32 numpy array containing the 9 frequencies in GHz
+    
+    2 - data: The flux data which is a 9x7 int16 numpy array.
+    
+    If the ftp failed or the specified date is not found None is returned."""
     
     data = []
-    i = 0
-    done = False
-    while not done:
-        if i >= n:
-            done = True
-        else:
-            l = lines[i].strip('\n')
-            year = int(l[0:4])
-            day = int(l[9:len(l)])
-            month = strptime(l[5:8], '%b').tm_mon
-            datestr = "%04d-%02d-%02d" % (year, month, day)
-            timestamp = Time(datestr, out_subfmt = 'date')
-            
-            if math.floor(dt.mjd) == math.floor(timestamp.mjd):
-                d = np.zeros((9, 7), dtype = np.int16)
-                for j in range(1, 10):
-                    l = lines[i+j].strip('\n')
-                    dataline = splitstring(l.lstrip())
-                    for k in range(1, 8):
-                        d[j - 1, k - 1] = int(dataline[k])
-                
-                data.append(timestamp)
-                data.append(freq)
-                data.append(d)
-                done=True
-        i += 10
-    
-    if len(data)==0:
-        print "No data found for data ",dt.iso," in ",noaa_url
+    success = True
+    noaa_url = 'ftp://ftp.swpc.noaa.gov/pub/lists/radio/rad.txt'
+    try:
+        f = urllib2.urlopen(noaa_url)
+        lines = f.readlines()
+    except:
+        print "Could not read from ",noaa_url
         return None
-    else:
-        print "Data successfule read from ",noaa_url," for date ",dt.iso
-        return data
+        
+    for i,line in enumerate(lines):     # Provides counter "i"
+        line = line.strip()
+        if line[:3] == 'MHZ':
+            break
 
+    if i+1 == len(lines):
+        print "No data found in ",noaa_url
+        return None
+
+    lines = lines[i+1:]
+    lines = np.array(lines)             # Converts to numpy array, for where()
+    clean_lines = lines[np.where(lines != '\n')]  # Eliminates all empty lines
+    clean_lines = [l.replace('\n','') for l in clean_lines] # Removes \n in remaining lines
+    
+    datestr = "%04d-%02d-%02d" % (int(clean_lines[0][0:4]), strptime(clean_lines[0][5:8], '%b').tm_mon, int(clean_lines[0][9:]))
+    timestamp = Time(datestr, out_subfmt = 'date')
+    
+    t = Time.now()
+    if np.floor(timestamp.mjd) != np.floor(t.mjd-1.0):
+        print "No data found for previous day (", Time(t.mjd-1.0, 'mjd', out_subfmt = 'date'), ")"
+        return None
+        
+    data = np.zeros((9, 7), dtype = np.int16)
+    for j in range(1, 10):
+        d = clean_lines[j].split()
+        data[j - 1] = list(map(int, d[1:8]))
+    
+    return [timestamp, freq, data]
+    
 def rstnfluxfromtextarchive(startdt, enddt):
     """This function extracts RSTN noon flux data from the old archive
     text file (/common/tmp/txt/radioflux.noa). It extracts data from the
@@ -370,42 +393,43 @@ def rstnfluxfromtextarchive(startdt, enddt):
     
     archfile = '/common/tmp/txt/radioflux.noa'
     data = []
-    success = True
     try:
         f = open(archfile,'r')
         #print 'Data will be retrieved from archive file',archfile,'.'
         lines = f.readlines()
         f.close()
     except:
+        print "Could not open",archfile
         return None
     
-    n = len(lines)
-    for i in range(n-1, -1, -1):
-        if lines[i] == '\n' or lines[i] == '\r\n' or lines[i][0:1] == '#': 
-            del lines[i]
+    for i,line in enumerate(lines):     # Provides counter "i"
+        line = line.strip()
+        if line[:5] == '# MHz':
+            break
+        
+    if i+1 == len(lines):
+        print "No data found in ",archfile
+        return None
+        
+    lines = lines[i+1:]
+    lines = np.array(lines)             # Converts to numpy array, for where()
+    clean_lines = lines[np.where(lines != '\r\n')]  # Eliminates all empty lines
+    clean_lines = [l.replace('\r\n','') for l in clean_lines] # Removes \n in remaining lines
     
-    n = len(lines)
-                    
-    for i in range(0, n, 10):
-        l = lines[i].strip('\n')
-        if l[:17] == ':Solar_Radio_Flux':
-            found = True
-            year = int(l[19:23])
-            day = int(l[28:])
-            month = strptime(l[24:27], '%b').tm_mon
-            datestr = "%04d-%02d-%02d" % (year, month, day)
-            timestamp = Time(datestr, out_subfmt='date')
-            fluxarr = np.zeros((9,7), dtype = np.int16)
-            if math.floor(timestamp.mjd) >= math.floor(startdt.mjd) and math.floor(timestamp.mjd) < math.floor(enddt.mjd):
+    for i in range(0, len(clean_lines), 10):
+        print clean_lines[i][:17]
+        if clean_lines[i][:17] == ':Solar_Radio_Flux':
+            datestr = "%04d-%02d-%02d" % (int(clean_lines[i][19:23]), strptime(clean_lines[i][24:27], '%b').tm_mon, int(clean_lines[i][28:]))
+            timestamp = Time(datestr, out_subfmt = 'date')
+            if np.floor(timestamp.mjd) >= np.floor(startdt.mjd) and np.floor(timestamp.mjd) < np.floor(enddt.mjd):
+                fluxarr = np.zeros((9,7), dtype = np.int16)
                 for j in range(1, 10):
-                    flux = splitstring(lines[i+j].strip())
-                    for k in range(1,8):
-                        fluxarr[j - 1][k - 1] = int(flux[k])
-                        
-                d = [timestamp, freq, fluxarr]
-                data.append(d)
+                    d = clean_lines[i+j].split()
+                    fluxarr[j - 1] = list(map(int, d[1:8]))
+                data.append([timestamp, freq, fluxarr])
     
     if len(data)==0:
+        print "No data found in specified date range."
         return None
     else:
         return data
@@ -438,8 +462,8 @@ def writerstnprev2sql():
     from NOAA and writes them to SQL."""
     
     nt = Time.now()
-    t = Time(math.floor(nt.mjd) - 0.875, format = 'mjd')
-    data = rstnfluxfromnoaa(t)
+    t = Time(np.floor(nt.mjd) - 0.875, format = 'mjd')
+    data = rstnfluxfromcurrentnoaa()
     if data is None:
         #No data extracted, display error message
         print t.iso + ": No data found."
@@ -474,21 +498,21 @@ def rstntext2sql(startdt, enddt, logfile = None):
     
     print "Processing data from: ", startdt.iso, " to ", enddt.iso
      
-    offset = int(math.floor(startdt.mjd))
-    days = int(math.floor(enddt.mjd)) - offset
+    offset = int(np.floor(startdt.mjd))
+    days = int(np.floor(enddt.mjd)) - offset
     
     processed = np.zeros((days), dtype=bool)
     recordswritten=0
     existingrecords=0
     for d in data:
         print "Processing Date: ", d[0].iso
-        i = int(math.floor(d[0].mjd)) - offset
+        i = int(np.floor(d[0].mjd)) - offset
         processed[i] = True
-        sqltime = Time(math.floor(d[0].mjd) + 0.125, format = 'mjd')
+        sqltime = Time(np.floor(d[0].mjd) + 0.125, format = 'mjd')
         xml, buf = ch.read_cal(12, sqltime)
         if buf is not None:
             sqltime_read = Time(extract(buf, xml['SQL_timestamp']),format='lv')
-            if math.floor(sqltime_read.mjd) != math.floor(sqltime.mjd): buf = None
+            if np.floor(sqltime_read.mjd) != np.floor(sqltime.mjd): buf = None
         
         if buf is None:
             if ch.rstnflux2sql(d, sqltime): 
@@ -512,7 +536,7 @@ def rstntext2sql(startdt, enddt, logfile = None):
     print "Records Written:            ", recordswritten
     print "Missing Records:            ", days-(recordswritten+existingrecords)
 
-def sql2rstn(t):
+def sql2rstn(t=None):
     """This function extracts the RSTN data from SQL with SQL_timestamp 
     0300 on the date supplied. If the values could be extracted then the
     data is returned in a list as follows:
@@ -529,13 +553,13 @@ def sql2rstn(t):
     
     if t is None: t=Time.now()
     
-    sqlt=Time(math.floor(t.mjd)+0.125,format='mjd')
+    sqlt=Time(np.floor(t.mjd)+0.125,format='mjd')
     xml, buf = ch.read_cal(12, sqlt)
     
     if buf is None: return None, None
     
     sqlt_read=Time(extract(buf, xml['SQL_timestamp']), format='lv')
-    if math.floor(sqlt.mjd) != math.floor(sqlt_read.mjd): return None, None
+    #if np.floor(sqlt.mjd) != np.floor(sqlt_read.mjd): return None, None
     
     data=[]
     data.append(Time(extract(buf,xml['Timestamp']),format='lv'))
