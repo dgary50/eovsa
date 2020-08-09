@@ -10,44 +10,34 @@
 #     pi ambiguity.
 #   2020-Aug-09  DG
 #     More adjustments to xydelay_anal() for making low- and high-frequency receiver 
-#     corrections agree.
+#     corrections agree.  To fix a glitch in the low-frequency receiver observations
+#     that was sometimes occurring, I changed xydelay_anal() to read the npzfiles and
+#     correct the offending scan, and then changed get_xy_corr() accordingly to take
+#     the already read-in data as input.
 #
 import numpy as np
 from util import lobe, Time
+import read_idb as ri
 
-def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
+def get_xy_corr(out, doplot=True):
     ''' Analyze a pair of parallel and cross polarization calibration scans and
         return the X vs. Y delay phase corrections on all antennas 1-14.
         
         Required keyword:
-           npzlist   a list of 2 NPZ filenames, the first being the 
-                       parallel-feed scan, and the second being the
+           out   a 2-element array of dicts representing two scans, the first 
+                       being the parallel-feed scan, and the second being the
                        crossed-feed scan.
         Optional keyword:
            doplot    True => plot the final result, False => no plot
     '''
-    if npzlist is None:
-        print 'Must provide a list of 2 NPZ files.'
-        return None, None
-    import read_idb as ri
-        
     if doplot: import matplotlib.pylab as plt
 
-    out0 = ri.read_npz([npzlist[0]])  # Parallel scan
-    out1 = ri.read_npz([npzlist[1]])  # Perpendicular scan
-    if npzlist2 is None:
-        pass
-    else:
-        # Interpret second list as a set of additional files to be concatenated to the first
-        for file in npzlist2:
-            outx = ri.read_npz([file])
-            out0['x'] = np.concatenate((out0['x'],outx['x']),3)
-            out1['x'] = np.concatenate((out1['x'],outx['x']),3)
-    ph0 = np.angle(np.sum(out0['x'][ri.bl2ord[:13,13]],3))
-    ph1 = np.angle(np.sum(out1['x'][ri.bl2ord[:13,13]],3))
+    tstr = Time(out[0]['time'][0],format='jd').iso[:19].replace('-','').replace(' ','').replace(':','')
+    ph0 = np.angle(np.sum(out[0]['x'][ri.bl2ord[:13,13]],3))
+    ph1 = np.angle(np.sum(out[1]['x'][ri.bl2ord[:13,13]],3))
     ph0[:,2:] = ph1[:,2:]  # Insert crossed-feed phases from ph1 into ph0
 
-    fghz = out0['fghz']
+    fghz = out[0]['fghz']
     nf = len(fghz)
     dph = np.zeros((14,nf),np.float)
     # Determine xi_rot
@@ -79,11 +69,11 @@ def get_xy_corr(npzlist=None, doplot=True, npzlist2=None):
         ax[13].plot(fghz,dph[13],'k.')
         for i in range(14): ax[i].set_ylim(-4,4)
         f.suptitle('Multicolor: Measurements, Black: Final Results')
-    np.savez('/common/tmp/Feed_rotation/'+npzlist[0].split('/')[-1][:14]+'_delay_phase.npz',fghz=fghz,dph=dph,xi_rot=xi_rot)
-    xy_phase = {'timestamp':Time(out0['time'][0],format='jd').lv,'fghz':fghz,'xyphase':dph,'xi_rot':xi_rot, 'dphi':dphi, 'dph14':dph14}
+    np.savez('/common/tmp/Feed_rotation/'+tstr+'_delay_phase.npz',fghz=fghz,dph=dph,xi_rot=xi_rot)
+    xy_phase = {'timestamp':Time(out[0]['time'][0],format='jd').lv,'fghz':fghz,'xyphase':dph,'xi_rot':xi_rot, 'dphi':dphi, 'dph14':dph14}
     return xy_phase
 
-def xydelay_anal(npzfiles, tau_lo=0):
+def xydelay_anal(npzfiles, fix_tau_lo=None):
     ''' Analyze a "standard" X vs. Y delay calibration, consisting of four observations
         on a strong calibrator near 0 HA, in the order:
            90-degree  Low-frequency  receiver,
@@ -91,26 +81,45 @@ def xydelay_anal(npzfiles, tau_lo=0):
             0-degree  High-frequency receiver,
             0-degree  Low-frequency  receiver
             
-        I found on at least one occasion that the low-frequency receiver had an extra
-        unexplained delay in the 90-degree position (~0.195 ns), so I added the tau_lo
-        delay parameter, normally zero, that can be set if needed.
+        It has happened that the low-frequency receiver delays were not set for one
+        of the observation sets.  This can be fixed by reading the delay-center table
+        for the relevant date and applying a phase correction according to the delay
+        difference.  Setting fix_tau_lo to "first" means correct first scan, and to
+        "last" means correct last scan.
     '''
     import matplotlib.pylab as plt
     from util import common_val_idx
+
     npzfiles = np.array(npzfiles)
-    dph_lo = get_xy_corr(npzfiles[[3,0]], doplot=False)
-    if tau_lo != 0:
-        # Correct for low-frequency delay, if requested
-        dp = dph_lo['fghz']*2*np.pi*tau_lo
-        for i in range(13):
-            dph_lo['dphi'][0,i] = lobe(dph_lo['dphi'][0,i]+dp)    
-            dph_lo['dphi'][1,i] = lobe(dph_lo['dphi'][1,i]+dp)    
-        for i in range(14):
-            dph_lo['xyphase'][i] = lobe(dph_lo['xyphase'][i]+dp)
-        for i in range(26):
-            dph_lo['dph14'][i] = lobe(dph_lo['dph14'][i]+dp)
-        
-    dph_hi = get_xy_corr(npzfiles[[2,1]])
+    out = []
+    for file in npzfiles:
+        out.append(ri.read_npz([file]))
+    out = np.array(out)
+    if fix_tau_lo != None:
+        # Correct for low-frequency delay error, if requested
+        import cal_header as ch
+        from stateframe import extract
+        if fix_tau_lo == 'first':
+            icorr=0
+        elif fix_tau_lo == 'last':
+            icorr=3
+        else:
+            print 'Invalid value for fix_tau_lo.  Must be "first" or "last"'
+            return
+        xml, buf = ch.read_cal(4,t=Time(out[icorr]['time'][0],format='jd'))
+        dlatbl = extract(buf,xml['Delaycen_ns'])
+        dtau_x, dtau_y = dlatbl[14] - dlatbl[13]
+        dp_x = out[icorr]['fghz']*2*np.pi*dtau_x
+        dp_y = out[icorr]['fghz']*2*np.pi*dtau_y
+        nt, = out[icorr]['time'].shape
+        for i in range(nt):
+            for iant in range(13):
+                out[icorr]['x'][ri.bl2ord[iant,13],0,:,i] *= np.exp(1j*dp_x)
+                out[icorr]['x'][ri.bl2ord[iant,13],1,:,i] *= np.exp(1j*dp_y)
+                out[icorr]['x'][ri.bl2ord[iant,13],2,:,i] *= np.exp(1j*dp_y)
+                out[icorr]['x'][ri.bl2ord[iant,13],3,:,i] *= np.exp(1j*dp_x)
+    dph_lo = get_xy_corr(out[[3,0]], doplot=False)
+    dph_hi = get_xy_corr(out[[2,1]])
     fghz = np.union1d(dph_lo['fghz'],dph_hi['fghz'])
     # Check for LO and HI being off by pi due to pi-ambiguity in xi_rot
     lo_com, hi_com = common_val_idx(dph_lo['fghz'],dph_hi['fghz'])
