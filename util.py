@@ -56,6 +56,11 @@
 #  2020-May-23  DG
 #    get_idbdir() was returning a uencoded string, which killed aipy. Now
 #    converted to an ASCII string.
+#  2020-Aug-02  DG
+#    Apparently the IERS bulletin URL changed some time ago and finally today
+#    the old file no longer had information for today's date (the stale file
+#    from about October of last year was being used since then!).  I found the
+#    new URL and updated the UT1-UTC() function.  No other change was needed.
 # *
 
 import StringUtil as su
@@ -954,7 +959,8 @@ def UT1_UTC(mjd):
        placing the file.
        '''
     IERS_file = path.join(environ['HOME'], 'IERS.txt')
-    IERS_url = 'http://maia.usno.navy.mil/ser7/ser7.dat'
+    #IERS_url = 'http://maia.usno.navy.mil/ser7/ser7.dat'
+    IERS_url = 'https://datacenter.iers.org/data/latestVersion/6_BULLETIN_A_V2013_016.txt'
 
     try:
         h = urllib2.urlopen(IERS_url, timeout=1)

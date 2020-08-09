@@ -295,6 +295,11 @@
 #      Added $PLUSDELAY command to add a given delay to the current ANT 14 LO-FRQ 
 #      RCVR delays (both X and Y).  This does write a new delay-center record to
 #      the SQL database, so use cal_header.delete_cal() to remove it if desired.
+#    2020-Aug-09  DG
+#      Changed the way the low-frequency receiver delays for Ant 14 get set.  It
+#      was just checking for the receiver position, but that failed whenever there
+#      was a glitch in the stateframe at the moment of a $SCAN-START command.
+#      Now it sets self.lorx to True whenever there is a command RX-SELECT LO.
 #
 
 import os, signal
@@ -2407,27 +2412,29 @@ class App():
                     # Do any tasks here that are required to start a new scan
                     sys.stdout.write('Started new scan\n')
 
-                    # Check for Ant 14 low-frequency receiver status
-                    self.lorx = False   # Default (normal) position is high frequency receiver
-                    # Check Ant 14 Receiver Position Status
-                    data, msg = stateframe.get_stateframe(self.accini)
-                    FEMA = self.accini['sf']['FEMA']
-                    if stateframe.extract(data,FEMA['Timestamp']) != 0:
-                        # This is a valid record, so proceed
-                        if stateframe.extract(data,FEMA['PowerStrip']['RFSwitchStatus']) == 0:
-                            # The switch position is right for LoRX
-                            RX_pos = stateframe.extract(data,FEMA['FRMServo']['RxSelect']['Position']) + stateframe.extract(data,FEMA['FRMServo']['RxSelect']['PositionError'])
-                            if RX_pos < 150.:
-                                # Consistent with LoRX being in position, or heading there, so set as True
-                                self.lorx = True
-                                print 'Ant 14 delays will be set for LO-Frequency Receiver'
-                            else:
-                                print 'Ant 14 outlet set for LO-Frequency Receiver, but RxSelect position is wrong.'
-                                print 'Ant 14 delays will be set for HI-Frequency Receiver.'
-                        else:
-                            print 'Ant 14 delays will be set for HI-Frequency Receiver.'
-                    else:
-                        print 'LO-Frequency Receiver check failed due to bad (0) stateframe.'
+                    # This block commented out 2020-08-09 due to too-likely failure.  The setting of
+                    #   self.lorx is now done on sending an RX-SELECT LO command
+                    # # Check for Ant 14 low-frequency receiver status
+                    # self.lorx = False   # Default (normal) position is high frequency receiver
+                    # # Check Ant 14 Receiver Position Status
+                    # data, msg = stateframe.get_stateframe(self.accini)
+                    # FEMA = self.accini['sf']['FEMA']
+                    # if stateframe.extract(data,FEMA['Timestamp']) != 0:
+                        # # This is a valid record, so proceed
+                        # if stateframe.extract(data,FEMA['PowerStrip']['RFSwitchStatus']) == 0:
+                            # # The switch position is right for LoRX
+                            # RX_pos = stateframe.extract(data,FEMA['FRMServo']['RxSelect']['Position']) + stateframe.extract(data,FEMA['FRMServo']['RxSelect']['PositionError'])
+                            # if RX_pos < 150.:
+                                # # Consistent with LoRX being in position, or heading there, so set as True
+                                # self.lorx = True
+                                # print 'Ant 14 delays will be set for LO-Frequency Receiver'
+                            # else:
+                                # print 'Ant 14 outlet set for LO-Frequency Receiver, but RxSelect position is wrong.'
+                                # print 'Ant 14 delays will be set for HI-Frequency Receiver.'
+                        # else:
+                            # print 'Ant 14 delays will be set for HI-Frequency Receiver.'
+                    # else:
+                        # print 'LO-Frequency Receiver check failed due to bad (0) stateframe.'
 
                     # Fetch current delay centers from SQL database, and write them to
                     # the ACC file /parm/delay_centers.txt, which is used by the dppxmp program
@@ -2864,6 +2871,11 @@ class App():
                         sh_dict.update({'chan2wide':numpy.array(item)*sh_dict['chanmask']})
                         self.sequence2roach(fsequence[:-1])
                         self.sequence2dcmtable(fsequence[:-1])
+                elif cmds[0].upper() == 'RX-SELECT':
+                    if cmds[1].upper() == 'LO':
+                        self.lorx = True # Next $SCAN-START will use low-frequency receiver delays for Ant14
+                    else:
+                        self.lorx = False # Next $SCAN-START will use high-frequency receiver delays for Ant14
 
     def update_status(self):
         # Read the current schedule from the list window and write to output file

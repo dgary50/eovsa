@@ -67,11 +67,9 @@ def rd_rstnflux(t=None,f=None,recur=False):
     if f is None:
         #try to get data from SQL
         data, sqlt = sql2rstn(t)
+        print sqlt.iso
+                
         if sqlt is None:
-            print "RD_RSTNFLUX: SQL database error!"
-        elif today.mjd - sqlt.mjd < 2:
-            print "RD_RSTNFLUX: Today's flux data are not available yet--using yesterday's"
-        else:
             # Data for this date is not in data base
             print "RD_RSTNFLUX: Error: Could not find ", datstr, " in SQL."
             if today.mjd - t.mjd > 44:
@@ -84,6 +82,8 @@ def rd_rstnflux(t=None,f=None,recur=False):
             else:
                 print "RD_RSTNFLUX: Error: Could not retrieve ", datstr, " from NOAA"
                 recur = True  # Set this to prevent unneeded recursive call
+        elif today.mjd - sqlt.mjd < 2:
+            print "RD_RSTNFLUX: Today's flux data are not available yet--using yesterday's"
 
         if recur:
             enddt = t + TimeDelta(86400.0, format='sec')
@@ -470,7 +470,7 @@ def writerstnprev2sql():
     else:
         #See if data already in database
         pd, sqlt = sql2rstn(t)
-        if sqlt is None:
+        if sqlt is None or np.floor(t.mjd) != np.floor(sqlt.mjd):
             if ch.rstnflux2sql(data, t):
                 #If data written to database, display success message
                 print t.iso + ": Data successfully written to database."
@@ -494,8 +494,8 @@ def rstntext2sql(startdt, enddt, logfile = None):
     data=rstnfluxfromtextarchive(startdt, enddt)
     if data is None:
         print "No RSTN data found in range ", startdt.iso, " to ", enddt.iso
-        return None
-    
+        return
+        
     print "Processing data from: ", startdt.iso, " to ", enddt.iso
      
     offset = int(np.floor(startdt.mjd))

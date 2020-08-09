@@ -27,7 +27,7 @@ def reload_crio_ini(ant_str=None):
         return 0
     
     ants = ant_str2list(ant_str)
-    crio = ['crio'+str(i+1) for i in ant_str2list('ant1-5 ant7 ant9-12')]
+    crio = ['crio'+str(i+1) for i in ants]
     folder="/home/sched/Dropbox/PythonCode/Current/crio_inis/"
     os.chdir(folder)
     ncrio=0

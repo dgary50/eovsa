@@ -4,6 +4,13 @@
 # History:
 #   2018-Jun-13  DG
 #     Started this history log, on the occasion of adding routine xydelay_anal()
+#   2020-Jun-21  DG
+#     Updated xydelay_anal() to adjust the low-frequency receiver xyphase and xi_rot
+#     to make them consistent with the high-frequency receiver by correcting for the
+#     pi ambiguity.
+#   2020-Aug-09  DG
+#     More adjustments to xydelay_anal() for making low- and high-frequency receiver 
+#     corrections agree.
 #
 import numpy as np
 from util import lobe, Time
@@ -92,12 +99,23 @@ def xydelay_anal(npzfiles, tau_lo=0):
     from util import common_val_idx
     npzfiles = np.array(npzfiles)
     dph_lo = get_xy_corr(npzfiles[[3,0]], doplot=False)
+    if tau_lo != 0:
+        # Correct for low-frequency delay, if requested
+        dp = dph_lo['fghz']*2*np.pi*tau_lo
+        for i in range(13):
+            dph_lo['dphi'][0,i] = lobe(dph_lo['dphi'][0,i]+dp)    
+            dph_lo['dphi'][1,i] = lobe(dph_lo['dphi'][1,i]+dp)    
+        for i in range(14):
+            dph_lo['xyphase'][i] = lobe(dph_lo['xyphase'][i]+dp)
+        for i in range(26):
+            dph_lo['dph14'][i] = lobe(dph_lo['dph14'][i]+dp)
+        
     dph_hi = get_xy_corr(npzfiles[[2,1]])
     fghz = np.union1d(dph_lo['fghz'],dph_hi['fghz'])
     # Check for LO and HI being off by pi due to pi-ambiguity in xi_rot
     lo_com, hi_com = common_val_idx(dph_lo['fghz'],dph_hi['fghz'])
     # Average xi_rot angle difference over common frequencies
-    a = dph_hi['xi_rot'][hi_com]-dph_lo['xi_rot'][lo_com] # angle difference
+    a = lobe(dph_hi['xi_rot'][hi_com]-dph_lo['xi_rot'][lo_com]) # angle difference
     xi_rot_diff = np.angle(np.sum(np.exp(1j*a)))  # Average angle difference
     if np.abs(xi_rot_diff) > np.pi/2:
         # Looks like shifting by pi will get us closer, so shift both xyphase and xi_rot
@@ -108,15 +126,14 @@ def xydelay_anal(npzfiles, tau_lo=0):
         dph_lo['dphi'] += np.pi
         dph_lo['dph14'] += np.pi
     ax = plt.figure('XY_Phase').get_axes()
-    dp = dph_lo['fghz']*2*np.pi*tau_lo
     for i in range(13):
-        ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][0,i]+dp), '.',color='C0')    
-        ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][1,i]+dp), '.',color='C1')    
-        ax[i].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][i]+dp),'r.')
+        ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][0,i]), '.',color='C0')    
+        ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][1,i]), '.',color='C1')    
+        ax[i].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][i]),'r.')
         ax[i].set_xlim(0,20)
     for i in range(26):
-        ax[13].plot(dph_lo['fghz'],lobe(dph_lo['dph14'][i]+dp),'.')
-    ax[13].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][13]+dp),'r.')
+        ax[13].plot(dph_lo['fghz'],lobe(dph_lo['dph14'][i]),'.')
+    ax[13].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][13]),'r.')
     nf, = fghz.shape
     flo_uniq = np.setdiff1d(dph_lo['fghz'],dph_hi['fghz'])  # List of frequencies in LO not in HI
     idx_lo_not_hi, idx2 = common_val_idx(fghz, flo_uniq)    # List of indexes of unique LO frequencies
@@ -128,7 +145,8 @@ def xydelay_anal(npzfiles, tau_lo=0):
     xyphase[:14,idx_lo_not_hi] = dph_lo['xyphase'][:14,idx_lo_not_hi]  # For unique low-receiver frequencies, insert LO xyphases
     
     xi_rot[idx_hi] = dph_hi['xi_rot']   # Insert all high-receiver xi_rot
-    xi_rot[idx_lo_not_hi] = dph_lo['xi_rot'][idx_lo_not_hi]   # For unique low-receiver frequencies, insert LO xi_rot
+    xi_rot[idx_lo_not_hi] = lobe(dph_lo['xi_rot'][idx_lo_not_hi])   # For unique low-receiver frequencies, insert LO xi_rot
+    ax[14].plot(fghz,xi_rot)
     dph_hi.update({'xi_rot':xi_rot, 'xyphase':xyphase, 'fghz':fghz})
     print 'Referring to the output of this routine as "xyphase,"'
     print 'run cal_header.xy_phasecal2sql(xyphase) to write the SQL record.' 
@@ -278,3 +296,100 @@ def apply_unrot_new(filename):
             ax[j,i].plot(fghz, ph0[i,j],'.',color='lightgreen')
             ax[j,i].plot(fghz, ph2[i,j],'k.')
             
+def sat_xy_corr(out0, out1, band=0, ant_str='ant1-13', doplot=True):
+    ''' Analyze a pair of parallel and cross polarization calibration packet captures
+        on a Geosat in K-band (bands 33, 34, 35, 36, 37) and
+        return the X vs. Y delay phase corrections on all antennas 1-14.
+        
+        Required keyword:
+           prtlist   a list of 2 PRT filenames, the first being the 
+                       parallel-feed scan, and the second being the
+                       crossed-feed scan.
+           band      the band index (0-4) corresponding to the above 5 bands
+        Optional keyword:
+           doplot    True => plot the final result, False => no plot
+    '''
+    import pcapture2 as p
+    from util import bl2ord, ant_str2list
+        
+    if doplot: import matplotlib.pylab as plt
+
+    antlist = ant_str2list(ant_str)
+    nant = len(antlist)
+#    out0 = p.rd_jspec(prtlist[0])  # Parallel scan
+#    out1 = p.rd_jspec(prtlist[1])  # Perpendicular scan
+    # Integrate over (10) repeated records for the desired band
+    ph0 = np.angle(np.sum(out0['x'][:,:,:,10*band:10*(band+1)],3))
+    ph1 = np.angle(np.sum(out1['x'][:,:,:,10*band:10*(band+1)],3))
+    # Determine secular change in phase at the two times, relative to ant 1
+    for i in antlist:
+        if i == antlist[0]:
+            dp = np.zeros_like(ph0[0,0])
+        else:
+            dp = lobe(ph1[bl2ord[antlist[0],i],0] - ph0[bl2ord[antlist[0],i],0])
+        ph0[bl2ord[i,13],2:] = lobe(ph1[bl2ord[i,13],2:]-dp)     # Insert crossed-feed phases from ph1 into ph0, corrected for secular change
+
+    ph0 = ph0[bl2ord[antlist,13]]          # Now restrict to only baselines with ant 14
+    fstart = (band+32)*0.325 + 1.1 - 0.025
+    fghz = np.linspace(fstart,fstart+0.400,4096)
+    nf = len(fghz)
+    dph = np.zeros((nant+1,nf),np.float)
+    # Determine xi_rot
+    xi2 = ph0[:,2] - ph0[:,0] + ph0[:,3] - ph0[:,1]  # This is 2 * xi, measured separately on each of 13 antennas
+    xi_rot = lobe(np.unwrap(np.angle(np.sum(np.exp(1j*xi2),0)))/2.)   # Very clever average does not suffer from wrapping issues
+    #xi_rot = np.zeros_like(xi_rot) + np.pi/2.    # *********** Zero out xi_rot for now ****************
+    # Form differential delay phase from channels, and average them
+    # dph14 = XY - XX - xi_rot and YY - YX + xi_rot
+    dph14 = np.concatenate((lobe(ph0[:,2] - ph0[:,0] - xi_rot),lobe(ph0[:,1] - ph0[:,3] + xi_rot)))  # 26 values for Ant 14
+    dph[nant] = np.angle(np.sum(np.exp(1j*dph14),0))  # Very clever average does not suffer from wrapping issues
+    # dphi = XX - YX + xi_rot and XY - YY - xi_rot 
+    dphi = np.array((lobe(ph0[:,0] - ph0[:,3] + xi_rot),lobe(ph0[:,2] - ph0[:,1] - xi_rot)))  # 2 values for Ant 14
+    dph[:nant] = np.angle(np.sum(np.exp(1j*dphi),0))
+    
+    if doplot:
+        figlabel = 'XY_Phase_'+str(band+33)
+        if figlabel in plt.get_figlabels():
+            f = plt.figure(figlabel)
+            ax = f.get_axes()
+        else:
+            f, ax = plt.subplots(4, 4, num=figlabel)
+            ax.shape = (16,)
+        for i in range(nant): 
+            ax[antlist[i]].plot(fghz,dphi[0,i],',')
+            ax[antlist[i]].plot(fghz,dphi[1,i],',')
+            ax[antlist[i]].plot(fghz,dph[i],'k,')
+            ax[antlist[i]].set_title('Ant '+str(antlist[i]+1),fontsize=9)
+        for i in range(2*nant):
+            ax[13].plot(fghz,dph14[i],',')
+            ax[13].set_title('Ant 14',fontsize=9)
+        ax[13].plot(fghz,dph[nant],'k,')
+        for i in range(14): ax[i].set_ylim(-4,4)
+        f.suptitle('Multicolor: Measurements, Black: Final Results')
+        ax[14].plot(fghz,xi_rot)
+        for i in range(nant):
+            ax[15].plot(fghz,xi2[i],',')
+#    np.savez('/common/tmp/Feed_rotation/' + npzlist[0].split('/')[-1][:14] + '_delay_phase.npz', fghz=fghz, dph=dph, xi_rot=xi_rot)
+    time = Time.now().lv
+    xy_phase = {'antlist':antlist, 'timestamp':time, 'fghz':fghz, 'xyphase':dph, 'xi_rot':xi_rot, 'dphi':dphi, 'dph14':dph14}
+    return xy_phase
+
+def sat_unrot(data,xyphase,band=0):
+    from util import bl2ord
+    xi_rot = xyphase['xi_rot']
+    dph = xyphase['xyphase']
+    nf = 4096
+    fidx2 = np.arange(nf)
+    for i in range(13):
+        for j in range(i + 1, 14):
+            k = bl2ord[i, j]
+            if j == 13:                  # xi_rot was applied for all antennas, but this
+                xi = xi_rot[fidx2]       # is wrong.  Now it is only done for ant14.
+            else:
+                xi = 0.0                 # xi_rot for other antennas is just zero.
+            a1 = lobe(dph[i, fidx2] - dph[j, fidx2])
+            a2 = -dph[j, fidx2] - xi
+            a3 = dph[i, fidx2] - xi + np.pi
+            data['x'][k, 1, fidx2, 10*band:10*(band+1)] *= np.repeat(np.exp(1j * a1), 10).reshape(nf, 10)
+            data['x'][k, 2, fidx2, 10*band:10*(band+1)] *= np.repeat(np.exp(1j * a2), 10).reshape(nf, 10)
+            data['x'][k, 3, fidx2, 10*band:10*(band+1)] *= np.repeat(np.exp(1j * a3), 10).reshape(nf, 10)
+    return data

@@ -33,7 +33,7 @@
 #     Removed the above attenuation for Ant14, which is no longer in
 #     effect.  Also fixed a bug in updating table for missing antennas.
 #   2019-04-06  DG
-#     Changes were made in February to add DMC_calnew() routine to handle
+#     Changes were made in February to add DCM_calnew() routine to handle
 #     new 52-band gain tables, but not recorded here.  Today I also noted
 #     some code that had to be uncommented, which is now done.
 #   2020-05-08  DG

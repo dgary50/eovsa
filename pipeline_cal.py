@@ -73,6 +73,12 @@
 #  2020-05-09  DG
 #    Fixed a problem with nans in the data.  Replaced all instances of 
 #    median with nanmedian, and mean with nanmean.  Ah, needed nansum for XP.
+#  2020-06-21  DG
+#    Changed udb_corr() to read the SKYCAL for the date of the total power calibration,
+#    which is normally the same date as the data unless a TP calibration was
+#    copied from a different day.
+#  2020-06-25  DG
+#    Fix bug with dissimilar frequencies in data and skycal
 #
 
 import dbutil as db
@@ -178,6 +184,7 @@ def apply_fem_level(data, gctime=None, skycal=None):
     if skycal:
         sna, snp, snf = skycal['rcvr_bgd_auto'].shape
         bgd = skycal['rcvr_bgd_auto'].repeat(nt).reshape((sna,snp,snf,nt))
+        bgd = bgd[:,:,idx2]  # Extract only frequencies matching the data
         # Reorder axes
         bgd = np.swapaxes(bgd,0,2)
         bslice = bgd[:,:,:,idx]
@@ -194,6 +201,7 @@ def apply_fem_level(data, gctime=None, skycal=None):
     if skycal:
         sna, snp, snf = skycal['rcvr_bgd'].shape
         bgd = skycal['rcvr_bgd'].repeat(nt).reshape((sna,snp,snf,nt))
+        bgd = bgd[:,:,idx2]  # Extract only frequencies matching the data
         # Reorder axes
         bgd = np.swapaxes(bgd,0,2)
         bslice = bgd[:,:,:,idx]
@@ -544,7 +552,22 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
         if attncal:
             from calibration import skycal_anal
             t1 = time.time()
-            skycal = skycal_anal(t=trange[0],do_plot=False)
+            if calibrate:
+                # For the skycal, use the date that the total power calibration was taken
+                if trange[0].datetime.hour < 7:
+                    # Data time is earlier than 7 UT (i.e. on previous local day) so
+                    # use previous date at 20 UT.
+                    mjd = int(trange[0].mjd) - 1 + 20. / 24
+                else:
+                    # Use current date at 20 UT
+                    mjd = int(trange[0].mjd) + 20. / 24
+                calfac = get_calfac(Time(mjd, format='mjd'))
+                caltime = Time(calfac['timestamp'],format='lv')
+                skycal = skycal_anal(t=caltime,do_plot=False)
+                if np.abs(caltime - trange[0]) > 0.5:
+                    print 'Note, SKYCAL is being read from',caltime.iso[:10],'to match TP calibration date.'
+            else:
+                skycal = skycal_anal(t=trange[0],do_plot=False)
             if new:
                 # Subtract receiver noise, then correct for front end attenuation
                 cout = apply_fem_level(out, gctime, skycal=skycal)

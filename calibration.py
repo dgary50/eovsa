@@ -545,6 +545,7 @@ def skycal_anal(t=None, do_plot=False, last=False):
         t = Time.now()
     if t.mjd < 58623:
         print 'SKYCAL_ANAL: No valid SKYCALTEST scans for dates prior to 2019-05-20'
+        print 'SKYCAL_ANAL: Using GAINCALTEST 62 dB setting instead.'
         # Do a "poor-man's" skycal background by using the gaincal 62 dB setting.
         # This should be almost as good for receiver noise subtraction as a true SKYCAL
         from attncal import get_attncal
@@ -615,7 +616,12 @@ def skycal_anal(t=None, do_plot=False, last=False):
                 ax[ant % nrow, ant/nrow].plot(rcvr[ant,1])
     else:
         print 'SKYCAL_ANAL: No SKYCALTEST scan for this date'
-        return None
+        print 'SKYCAL_ANAL: Using GAINCALTEST 62 dB setting instead.'
+        # Do a "poor-man's" skycal background by using the gaincal 62 dB setting.
+        # This should be almost as good for receiver noise subtraction as a true SKYCAL
+        from attncal import get_attncal
+        outdict = get_attncal(t)
+        return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
     return {'offsun': offsun, 'rcvr_bgd': rcvr, 'offsun_auto': offsun_auto, 'rcvr_bgd_auto': rcvr_auto}
     
 def sp_get_calfac(x,y, do_plot=True):
