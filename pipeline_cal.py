@@ -79,6 +79,9 @@
 #    copied from a different day.
 #  2020-06-25  DG
 #    Fix bug with dissimilar frequencies in data and skycal
+#  2020-10-31  DG
+#    Fix bug in allday_udb_corr() that occurred when no data after
+#    0 UT was available (and so FDB file did not exist for the next day).
 #
 
 import dbutil as db
@@ -632,8 +635,9 @@ def allday_udb_corr(trange, outpath='./'):
     flist = fdb['FILE'][np.where(fdb['PROJECTID']=='NormalObserving')]
     if int(t1.mjd) != int(t0.mjd):
         fdb = dt.rd_fdb(t1)
-        flist2 = fdb['FILE'][np.where(fdb['PROJECTID']=='NormalObserving')]
-        flist = np.concatenate((flist,flist2))
+        if fdb != {}:
+            flist2 = fdb['FILE'][np.where(fdb['PROJECTID']=='NormalObserving')]
+            flist = np.concatenate((flist,flist2))
     mjd = fname2mjd(flist)
     idx, = np.where(np.logical_and(mjd >= t0.mjd, mjd <= t1.mjd))
     # Assume we are working on Pipeline, and branch according to filename prefix

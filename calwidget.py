@@ -424,7 +424,7 @@ class App():
                         k = (nlines-1)/2 - 1  #  Either 0 or 1, depending on nlines
                         if allants and (allbands or higherbands):
                             if higherbands:
-                                tflags[:,bands:,1,k] = t2
+                                tflags[:,band:,1,k] = t2
                             else:
                                 tflags[:,:,1,k] = t2
                         elif allants:
@@ -953,14 +953,15 @@ class App():
         j = self.ref2_selected
         lodict = None
         hidict = None
-        print np.sum(np.array(self.pc_dictlist[i]['flags'][:13,:2]).astype(int)), np.sum(np.array(self.pc_dictlist[j]['flags'][:13,:2]).astype(int))
-        if np.sum(np.array(self.pc_dictlist[i]['flags'][:13,:2]).astype(int)) > 500:
+        nflagged_i = np.sum(np.array(self.pc_dictlist[i]['flags'][:13,:2]).astype(int))
+        nflagged_j = np.sum(np.array(self.pc_dictlist[j]['flags'][:13,:2]).astype(int))
+        if nflagged_i > 1000:
             lodict = self.pc_dictlist[i]
             loscan = i
         else:
             hidict = self.pc_dictlist[i]
             hiscan = i
-        if np.sum(np.array(self.pc_dictlist[j]['flags'][:13,:2]).astype(int)) > 500:
+        if nflagged_j > 1000:
             lodict = self.pc_dictlist[j]
             loscan = j
         else:
@@ -968,6 +969,8 @@ class App():
             hiscan = j
         if lodict is None or hidict is None:
             print 'Selected Refcal scans do not form a LO-HI pair.'
+            print 'Scan 1 has',nflagged_i,'flagged points and Scan 2 has',nflagged_j,'flagged points.'
+            print 'The LO receiver scan should have >1000 flagged datapoints and the HI receiver should have <1000.'
             return
         # The LO and HI receiver dicts have been identified.  Now determine phase slope of LO
         # relative to HI, and apply to correct the LO phases

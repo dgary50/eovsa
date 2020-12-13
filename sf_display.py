@@ -85,6 +85,8 @@
 #     Cleaned up some garbage in the "Task" string
 #   2020-Jun-05
 #	  Added yellow (warning) to power and attenuation if first atennuator on H or V is non zero.
+#   2020-Nov-13 OG
+#      Added red (error) to power an attenuation if any Power reports NAN
 
 from Tkinter import *
 from ttk import *
@@ -1433,9 +1435,12 @@ class App():
                     # Antennas out of service (color gray)
                     self.L3.itemconfig(END,bg=self.colors['na'])
                 if stf.extract(data,fe['HPol']['Attenuation']['First']) !=0 or stf.extract(data,fe['VPol']['Attenuation']['First']) !=0:
-					# First attenuator is non zero (possible problem or burst). 
-					self.L3.itemconfig(END,bg=self.colors['warn'])
-
+                    # First attenuator is non zero (possible problem or burst). 
+                    self.L3.itemconfig(END,bg=self.colors['warn'])
+                if np.isnan(stf.extract(data,fe['HPol']['Power'])) or np.isnan(stf.extract(data,fe['VPol']['Power'])):
+                    # Any FEM powers that are not a number (GAINCAL or problem). 
+                    self.L3.itemconfig(END,bg=self.colors['error'])
+                    
         # ================= Section 6: Front End Temperature Controller ===================
         nsubarray = 0
         nlbad = 0
@@ -1562,7 +1567,7 @@ class App():
             self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
             for i in antindex:
                 parser = sf['Antenna'][i]['Parser']
-                an='  '+'{:2d}'.format(i)+":   "
+                an='  '+'{:2d}'.format(i+1)+":   "
                 self.L3.insert(END,an+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
 
     def cryo_display(self,data):

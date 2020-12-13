@@ -38,6 +38,10 @@
 #    Strangely, when a SQL attncal was not found, and it was then calculated from the
 #    data, the code did not then write it to SQL.  It seems obvious that once it is
 #    calculated a new SQL record should be written, so that is now added.
+#  2020-08-24  DG
+#    Change apply_gain_corr() to use the first PHASECAL of the requested date to
+#    determine reference gain state.  This will be wrong if $FEM_INIT is issued
+#    subsequent to that PHASECAL...
 #
 import dbutil as db
 import read_idb as ri
@@ -481,17 +485,20 @@ def apply_gain_corr(data, tref=None):
           cdata    A dictionary with the gain-corrected data.  The keys
                      p, x, p2, and a are all updated.
     '''
-    from util import common_val_idx, nearest_val_idx
+    from util import fname2mjd, common_val_idx, nearest_val_idx
     import copy
     if tref is None:
-        # No reference time specified, so get nearest earlier REFCAL
-        trange = Time(data['time'][[0,-1]],format='jd')
-        xml, buf = ch.read_cal(8,t=trange[0])
-        if xml == {}:
-            # No refcal for this date, so just use an early time as reference
+        # No reference time specified, so get nearest PHASECAL scan (should guarantee femauto-off state)
+        mjd = int(Time(data['time'][0],format='jd').mjd)
+        trange = Time([mjd+10./24.,mjd+1.], format='mjd')
+        import pcal_anal as pa
+        try:
+            # Get filename of first PHASECAL on this day, and use it to get reference time
+            scanfile = pa.findfile(trange)['scanlist'][0][0]
+            tref = Time(fname2mjd(scanfile)+60./86400,format='mjd')  # Add one minute to ensure scan is active
+        except:
+            # No phasecal in timerange, so just use an early time as reference
             tref = Time(trange[0].iso[:10]+' 13:30')
-        else:
-            tref = Time(stf.extract(buf,xml['Timestamp']),format='lv')
         if trange[0].mjd - tref.mjd > 2:
             # Reference calibration is too old, so just use an early time as reference
             tref = Time(trange[0].iso[:10]+' 13:30')

@@ -97,6 +97,9 @@
 #   2020-05-21 OG
 #      Added rstnflux2xml() routine for writing header information for RSTN noon flux values.
 #      Added cal_type 12 for the RSTN flux values
+#   2020-08-22  DG
+#      Since I often want to check the date/time of a calibration record, I added a "verbose"
+#      keyword to read_cal(), to print this information if desired (i.e. if verbose=True).
 
 import struct, util
 import stateframe as sf
@@ -1173,7 +1176,7 @@ def read_cal_xmlX(caltype, t=None, verbose=True, neat=False, gettime=False):
                 return xmldict, thisver
 
 
-def read_cal(type, t=None):
+def read_cal(type, t=None, verbose=False):
     ''' Read the calibration data of the given type, for the given time (as a Time() object),
         or for the current time if None.
 
@@ -1203,6 +1206,9 @@ def read_cal(type, t=None):
             # This can be useful for error checking.
             xmldict.update({'SQL_timestamp':['d',len(buf)]})   # Adds new keyword and double definition
             buf += struct.pack('d',sqldict['Timestamp'][0])    # Appends SQL timestamp to buffer
+            tstr = util.Time(sf.extract(buf,xmldict['Timestamp']),format='lv').iso[:19]
+            sstr = util.Time(sf.extract(buf,xmldict['SQL_timestamp']),format='lv').iso[:19]
+            if verbose: print 'Read',typdict[type][0],'at SQL time',sstr,'taken at',tstr
             return xmldict, str(buf)
         else:
             print 'Unknown error occurred reading', typdict[type][0]

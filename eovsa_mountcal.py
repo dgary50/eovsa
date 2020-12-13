@@ -15,6 +15,8 @@
 #  2019-06-24  DG
 #    Added Ant 14 broken pointing model (it was a very easy update to the
 #    EQ mount type).
+#  2020-11-29  DG
+#    Added '.' for path in case of path == '' when creating plot.
 #
 from util import Time
 import numpy as np
@@ -413,6 +415,7 @@ def checkfit(indict):
     # Save figure
     filename = indict['filename']
     path = os.path.dirname(filename)
+    if path == '': path = '.'
     fname = os.path.basename(filename)[:8]+'-ant'+str(indict['ant'])+'-pnt.png'
     plt.savefig(path+os.sep+fname)
     plt.close()

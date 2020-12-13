@@ -115,12 +115,15 @@
 #    to append '2m' to output filename if calpnt2m = True and outfile is not specified, 
 #    to avoid mixing 2-m and 27-m results in the same file.  Also fixed a bug in
 #    calpnt_multi() that occurred in ax array when nrows is 1.
-#  2020-05-10  DG
+#  2020-May-10  DG
 #    Updated skycal_anal() to use util.get_idbdir() to find IDB root path.
-#  2020-05-11  DG
+#  2020-May-11  DG
 #    Further update to make this work on the DPP.
-#  2020-05-29 SY
+#  2020-May-29 SY
 #    update calpntanal() to use util.get_idbdir() to find IDB root path.
+#  2020-Dec-12 DG
+#    Added sp_explore() routine for investigating the data and fits for
+#    a given antenna and frequency.
 #
 
 if __name__ == "__main__":
@@ -1025,6 +1028,38 @@ def sp_offsets(x,y,save_plot=False):
         tstr = t1.iso.replace('-','').replace(':','').replace(' ','')[:14]
         plt.savefig('/common/webplots/PTG/PTG'+tstr+'.png',bbox_inches='tight')
     return xout,yout,dxout,dyout
+
+def sp_explore(x, y, aidx, fidx, ax=None):
+    ''' Makes a 2x2 plot for one antenna and frequency, showing the data as dots,
+        the fit as an orange line, and the nominal beam as green for comparison.
+    
+        To reuse the same plot, call first as 
+            ax = sp_explore(x,y,ant,frq),
+        then as
+            ax = sp_explore(x,y,ant,frq,ax=ax)
+        It is MUCH faster and more efficient that way!
+    '''
+    if ax is None:
+        f, ax = plt.subplots(2,2)
+        import disk_conv as dc
+        fghz, a, aout = dc.disk_conv(x['fghz'])
+        ax[0,0].aout = aout
+    anom = ax[0,0].aout[fidx]/(2*np.sqrt(np.log(2)))*10000.
+    lbl = [[' X-RA',' X-DEC'],[' Y-RA',' Y-DEC']]
+    axis = ['ra','dec']
+    ax[0,0].get_figure().suptitle('Ant '+str(aidx+1)+' '+str(x['fghz'][fidx])[:4]+' GHz')
+    for i,src in enumerate([x,y]):
+        for j,a in enumerate(axis):
+            ax[i,j].cla()
+            ax[i,j].plot(np.concatenate(([-100000],src[a],[100000]))/10000.,src[a+'o'][fidx,:,aidx],'.',label=lbl[i][j])
+            xarr = np.linspace(-100000.,100000,100)
+            s1,x0,a1,o1 = src[a+'parms'][:,fidx,aidx]   # pk flux, offset, 1/e half-width
+            yarr = s1*np.exp(-((xarr-x0)/a1)**2) + o1
+            ynom = s1*np.exp(-(xarr/anom)**2) + o1
+            ax[i,j].plot(xarr/10000.,yarr,label='Fit')
+            ax[i,j].plot(xarr/10000.,ynom,label='Nominal')
+            ax[i,j].legend(loc='lower right', fontsize=9)
+    return ax
 
 def send_cmds(cmds,acc):
     ''' Sends a series of commands to ACC.  The sequence of commands

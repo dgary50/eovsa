@@ -2468,7 +2468,7 @@ class App():
                         sh_dict['dlacen']  = dcenters[:,0]
                         sh_dict['dlaceny'] = dcenters[:,1]
                     except:
-                        print t.iso,'SQL connection for delay centers failed.  Delay center not updated'
+                        print util.Time.now().iso,'SQL connection for delay centers failed.  Delay center not updated'
 
                     if self.subarray_name == 'Subarray1':
                         try:

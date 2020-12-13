@@ -13,6 +13,15 @@
 #    make_sched() to use a wider window.
 #  2019-05-20  DG
 #    Added a 1-min PHASECAL with sequence solar.fsq just before the SKYCALTEST.
+#  2020-10-01  DG
+#    Added a check for day numbers 259-287, when 3C273 (1229+020) is too close
+#    to the Sun.  On those dates, replace any 1229+020 lines with 1331+305.
+#  2020-10-29  DG
+#    Comment out a bunch of lines due to 27-m not working--lines are commented
+#    out using #**.  Note that two lines were added that have to be removed,
+#    and they also have #** in a comment on those lines.
+#  2020-10-31  DG
+#    Looks like the 27-m is back, so I reverted the code back to the original.
 
 import os
 from util import Time
@@ -302,7 +311,7 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
     caldur = 35.
     # Get calibrator reference time.  Rather than calculating exact timing for
     # calibrators for each day, we just get it at one reference time and then
-    # calculate if for additional days by subtracting 0.0027387*dday
+    # calculate it for additional days by subtracting 0.0027387*dday
     out = whenup(sun['date'][0])
     t0 = out['teq'][1][0].mjd % 1   # Reference time for all calibrators
     # Calibrator windows, as fraction of a day
@@ -485,4 +494,19 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         print Time(imjd + rc2start + 85./1440.,format='mjd').iso[:19],'STOW'
     if ax:
         ax.plot([rc2start,rc2start+refdur/1440.],[imjd,imjd],color='C0',alpha=0.25)
+    lines = chk_sched(lines)
     return lines
+
+def chk_sched(lines):
+    # Post-creation check on the schedule to address the fact that
+    # 3C273 is too close to the Sun from 9/15 to 10/13 each year (day-of-year 259-287).
+    doy = int(Time(lines[0][:10]).yday[5:8])
+    if doy >= 259 and doy <= 287:
+        # This is a date range when the 27-m antenna should not point at source 1229+020
+        # Simply replace 1229+020 with 1331+305 (3C286).  That is a much weaker source, but it
+        # may be okay for a PHASECAL
+        for i in range(len(lines)):
+            lines[i] = lines[i].replace('1229+020','1331+305')
+    return lines
+                    
+        

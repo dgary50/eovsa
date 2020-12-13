@@ -30,11 +30,17 @@
 #   2017-Aug-06  DG
 #      Changed get_dbrecs() so that timerange is inclusive, i.e.
 #      returns data for both start and end second.
-#
-
+#   2020-Dec-04  OG
+#      Added a retrieval routine loadsfdata and a plotting routine
+#      plotsfdata
+#   2020-Dec-10  DG
+#      Moved import of matplotlib to inside plotsfdata--otherwise it
+#      caused problems for some pipeline processing.
+     
 import stateframedef
 import util
 from util import Time
+import numpy as np
 
 def get_cursor():
     ''' Connect to the SQL database and return a cursor for access to it
@@ -247,3 +253,73 @@ def get_reboot(trange,previous=False):
             t_reboot = t_reboot[1:]
     return Time(t_reboot,format='mjd')
 
+
+def loadsfdata(fld,trange,ant):
+    '''This function takes in a list of stateframe parameters, a time
+    range and an antenna number, and retrieves the parameters as well as
+    the timestamps.
+    
+    fld is a list of parameters
+    trange is a list of two times represted as an iso string, the start 
+        of the data end end of the data to be retrieved.
+    ant is the antenna number. At the moment it only retrieves data from
+        one antenna.
+    
+    It returns the retrieved data as a dictionary and an error mesage on
+    failure 'Success' on successful data read.
+    
+    Example: to retrieve both the TEC and FEM temperatures from ant5 for
+        the time range 00:00:00 to 04:00:00 on 2020-11-29 you would 
+        issue the command:
+        data, msg = dbutil.loadsfdata(['Ante_Fron_TEC_Temperature','Ante_Fron_FEM_Temperature'],
+        ['2020-11-29 00:00:00','2020-11-29 04:00:00'],5)'''
+    
+    cursor = get_cursor()
+    query='select Timestamp'
+    tr=Time(trange).lv.astype(int)
+    
+    for f in fld:
+        query+=','+f
+    query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+    data,msg=do_query(cursor,query)
+    
+    return data,msg
+
+def plotsfdata(fld,trange,ant,plottitle=None):
+    '''This function takes in a list of stateframe parameters, a time
+    range, an antenna number and an optional title, and plots the
+    parameters against time.
+    
+    fld is a list of parameters
+    trange is a list of two times represted as an iso string, the start 
+        of the data end end of the data to be retrieved.
+    ant is the antenna number. At the moment it only retrieves data from
+        one antenna.
+    plottitle is an optional title that is to be display on the plot.
+    
+    It returns a dictionary with the extracted data. If an error ocuured it 
+    returns None
+    
+    Example: to plot both the TEC and FEM temperatures from ant5 for
+        the time range 00:00:00 to 04:00:00 on 2020-11-29 you would 
+        issue the command:
+        data=dbutile.plotsfdata(['Ante_Fron_TEC_Temperature','Ante_Fron_FEM_Temperature'],
+        ['2020-11-29 00:00:00','2020-11-29 04:00:00'],5,'TEC and FEM Temperature')'''
+        
+    import matplotlib.pyplot as plt
+    data,msg=loadsfdata(fld,trange,ant)
+    print msg
+    if msg != "Success":
+        return None
+    
+    dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
+    handles=[]   
+    for f in fld:
+        a, =plt.plot(dt,data[f].astype(float),label=f)
+        handles.append(a)
+    plt.ylabel('Value')
+    plt.xlabel('Universal Time')
+    if plottitle is not None:
+        plt.title(plottitle)
+    plt.legend(handles=handles)
+    return data

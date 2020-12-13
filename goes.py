@@ -91,7 +91,11 @@ def get_goes(url='https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.j
         Returns arrays of the GOES low energy (1-8 A) flux, the GOES high-energy (0.5-4 A) flux,
         and a Time object that is the array of UT times.
     '''
-    f = urllib2.urlopen(url)
+    try:
+        f = urllib2.urlopen(url)
+    except:
+        print 'http url error for',url
+        return [], [], []
     txt = f.readline()
     goes = json.loads(txt)
     goeshi = []

@@ -70,6 +70,9 @@
 #   2019-Jun-20  DG
 #      Forgot to subtract SKYCAL receiver noise from offsun before applying as
 #      10-degree offsets.  Now corrected.
+#   2020-Dec-12  DG
+#      Changes to improve fitting at low frequencies (< 2 GHz) where there is often 
+#      a lot of RFI and the off-Sun value is not available due to the large beam size.
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -258,15 +261,20 @@ def process_solpnt(soldata,trj=None,antlist=None):
             'hrao': hpol[:,:13], 'vrao': vpol[:,:13],
             'hdeco':hpol[:,13:], 'vdeco':vpol[:,13:], 'mask':mask}
 
-def gausfit(X,data):
+def gausfit(X,data, bounds=None):
     ''' Given a set of locations X and amplitude data at each location
         fit the data with a gaussian and return the fit parameters and
         x,y arrays of smooth, fitted data '''
-    def peval(x,p):
-        return p[0]*np.exp(-(x - p[1])**2/p[2]**2) + p[3]
-    def residuals(p,y,x):
-        A, x0, w, b = p
-        return y - A*np.exp(-(x - x0)**2/w**2) - b
+    from scipy.optimize import curve_fit
+    def func(x, a, b, c, d):
+        return a*np.exp(-((x-b)/c)**2) + d
+    if bounds is None:
+        bounds=(-np.inf,np.inf)
+#    def peval(x,p):
+#        return p[0]*np.exp(-(x - p[1])**2/p[2]**2) + p[3]
+#    def residuals(p,y,x):
+#        A, x0, w, b = p
+#        return y - A*np.exp(-(x - x0)**2/w**2) - b
 
     # This dies horribly if there are nans in the data, so remove them first
     X = X[~np.isnan(data)]
@@ -276,19 +284,19 @@ def gausfit(X,data):
         return [0.0,0.0,0.0,0.0],np.zeros(100),np.zeros(100)
     xmax = X.max()
     xmin = X.min()
-    wid = (xmax-xmin)*0.1  # initial width set at a 10th of the range
-    p0 = [np.max(data) - np.min(data), X[np.argmax(data)], wid, np.min(data)]
+#    wid = (xmax-xmin)*0.1  # initial width set at a 10th of the range
+#    p0 = [np.max(data) - np.min(data), X[np.argmax(data)], wid, np.min(data)]
 
-    if len(data) < len(p0):
-        return np.zeros(4),[0,1],[0,1]
+#    if len(data) < 4:
+#        return np.zeros(4),[0,1],[0,1]
 
-    plsq = leastsq(residuals, p0, args=(data, X))
+#    plsq = leastsq(residuals, p0, args=(data, X))
+    popt, pcov = curve_fit(func, X, data, bounds=bounds)
 
-    xstep = (xmax-xmin)*0.01  # step is 100th of range
-    x = np.arange(xmin,xmax+xstep,xstep)
-    y = peval(x,plsq[0])
+    x = np.linspace(xmin,xmax,100)
+    y = func(x, *popt)
     #plt.plot(x,peval(x, plsq[0]), X, data, 'o')
-    return plsq[0],x,y
+    return popt,x,y
 
 def fitall(proc,plot=False,pp=None):
     ''' Fits SOLPNT data for all antennas contained in 
@@ -570,10 +578,14 @@ def process_tsys(otp, proc, pol=None, skycal=None):
             scans use the same frequencies and antennas, which should always be the case.
              
     '''
+    from disk_conv import disk_conv
+    fghz, a, aout = disk_conv(otp['fghz'])
+    aout *= 10000./(2*np.sqrt(np.log(2)))
+    
     tsec1 = proc['tstamps']
     # The otp times, if from miriad, are slightly off from exact times, so round to the ms
     tsec2 = (util.Time(otp['ut_mjd'],format='mjd').lv + 0.001).astype('int64').astype('float')
-    idx1, idx2 = common_val_idx(tsec1, tsec2)
+    idx1, idx2 = util.common_val_idx(tsec1, tsec2)
     if pol is None:
         nant, nf, nt = otp['tsys'].shape
     else:
@@ -622,19 +634,20 @@ def process_tsys(otp, proc, pol=None, skycal=None):
             deco = np.concatenate((faroff,hpol[:,13:,:],faroff),1)
     for iant in range(nant):
         for ifreq in range(nf):
-            pra[:,ifreq,iant], x, y = gausfit(raopts,rao[ifreq,:,iant])
-            pdec[:,ifreq,iant], x, y = gausfit(decopts,deco[ifreq,:,iant])
+            ydata = rao[ifreq,:,iant]
+            xdata = raopts
+            low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
+            high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
+            bounds = (low_bounds,high_bounds)
+            pra[:,ifreq,iant], x, y = gausfit(xdata, ydata, bounds=bounds)
+            ydata = deco[ifreq,:,iant]
+            xdata = decopts
+            low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
+            high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
+            bounds = (low_bounds,high_bounds)            
+            pdec[:,ifreq,iant], x, y = gausfit(xdata, ydata, bounds=bounds)
     return pra, pdec, rao, deco
         
-def common_val_idx(array1,array2):
-    ''' Find the common values in two sorted arrays, and return the array
-        of indexes of those common values in the two arrays.
-    '''
-    common = np.intersect1d(array1,array2,True)
-    idx1 = np.searchsorted(array1,common)
-    idx2 = np.searchsorted(array2,common)
-    return idx1, idx2
-    
     # To calculate total power calibration factors for an antenna, just do
     # import solpnt, rstn
     # Get otp and proc dicts by appropriate means...

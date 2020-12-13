@@ -8,6 +8,8 @@
 #  2019-12-31  DG
 #    Check for how many good data points for a given frequecy in autocorrect_tp(),
 #    and skip that frequency is less than 10% of time samples.
+#  2020-10-27  DG
+#    Fix crash that occurred in tp_bgnd() where there were NO good data.
 #
 
 import pipeline_cal as pc
@@ -249,7 +251,10 @@ def tp_bgnd(tpdata):
             stdev = np.std(sig)
             # Final check for data quality
             good, = np.where(np.logical_and(sig < 2*stdev, sint_ok[good]))
-            p = np.polyfit(sint_i[good],sig[good],1)
+            if len(good) > nt*0.1:
+                p = np.polyfit(sint_i[good],sig[good],1)
+            else:
+                p = [1.,0.]
             # Apply correction for this frequency
             bgnd[i] = sint*p[0] + p[1]
     return bgnd

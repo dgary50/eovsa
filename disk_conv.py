@@ -30,7 +30,7 @@ def disk_conv(fghz=None,doplot=False):
         g = np.exp(-(x**2)/(alpha[i]**2))
         gdisk = np.convolve(g,disk,mode='same')
         [A,x0,w,b],x0,y0 = gausfit(x,gdisk)
-        aout[i] = w*2*np.sqrt(np.log(2.))
+        aout[i] = np.abs(w)*2*np.sqrt(np.log(2.))
     if doplot:
         plt.figure()
         plt.plot(fghz,a)
