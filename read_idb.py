@@ -108,6 +108,11 @@
 #    Further update to make this work on the DPP.
 #  2020-05-29  SY
 #    Fix bug with datadir.find('eovsa') in case of using /nas3/IDB/
+#  2020-12-13  DG
+#    Important change to honor flags in the IDB files by setting flagged data to NaN.
+#  2020-12-16  DG
+#    Commented out irrelevant (and potentially dangerous, because out of date) read_udb() 
+#    routine.  The standard read_idb() works fine for UDB files.
 #
 
 import aipy
@@ -126,95 +131,95 @@ import chan_util_52 as cu52
 
 #bl2ord = p.bl_list()
 
-def read_udb(filename):
-    ''' This routine reads the data from a UDB file.
-    '''
+# def read_udb(filename):
+    # ''' This routine reads the data from a UDB file.
+    # '''
 
-    # Open uv file for reading
-    uv = aipy.miriad.UV(filename)
-    nf = len(uv['sfreq'])
-    nt = uv['ntimes']
+    # # Open uv file for reading
+    # uv = aipy.miriad.UV(filename)
+    # nf = len(uv['sfreq'])
+    # nt = uv['ntimes']
 
-    print_warning = True     # Print a warning about imaginary total power data, if found.
-    freq = uv['sfreq']
-    npol = uv['npol']
-    nants = uv['nants']
-    nbl = nants*(nants-1)/2
-    outa = np.zeros((nants,npol,nf,nt),dtype=np.complex64)  # Auto-correlations
-    outx = np.zeros((nbl,npol,nf,nt),dtype=np.complex64)  # Cross-correlations
-    #outp = np.zeros((nants,2,nf,600),dtype=np.float)
-    #outp2 = np.zeros((nants,2,nf,600),dtype=np.float)
-    #outm = np.zeros((nants,2,nf,600),dtype=np.int)
-    uvwarray = np.zeros((nbl,nt,3),dtype=np.float)
-    timearray = []
-    lstarray = []
-    l = -1
-    tprev = 0
-    tsav = 0
-    # Use antennalist if available
-    ants = uv['antlist']
-    while ants[-1] == '\x00': ants = ants[:-1]
-    antlist = map(int, ants.split())
+    # print_warning = True     # Print a warning about imaginary total power data, if found.
+    # freq = uv['sfreq']
+    # npol = uv['npol']
+    # nants = uv['nants']
+    # nbl = nants*(nants-1)/2
+    # outa = np.zeros((nants,npol,nf,nt),dtype=np.complex64)  # Auto-correlations
+    # outx = np.zeros((nbl,npol,nf,nt),dtype=np.complex64)  # Cross-correlations
+    # #outp = np.zeros((nants,2,nf,600),dtype=np.float)
+    # #outp2 = np.zeros((nants,2,nf,600),dtype=np.float)
+    # #outm = np.zeros((nants,2,nf,600),dtype=np.int)
+    # uvwarray = np.zeros((nbl,nt,3),dtype=np.float)
+    # timearray = []
+    # lstarray = []
+    # l = -1
+    # tprev = 0
+    # tsav = 0
+    # # Use antennalist if available
+    # ants = uv['antlist']
+    # while ants[-1] == '\x00': ants = ants[:-1]
+    # antlist = map(int, ants.split())
 
-    src = uv['source']
-    while src[-1] == '\x00': src = src[:-1]
+    # src = uv['source']
+    # while src[-1] == '\x00': src = src[:-1]
 
-    for preamble, data in uv.all():
-        uvw, t, (i0,j0) = preamble
-        i = antlist.index(i0+1)
-        j = antlist.index(j0+1)
-        if i > j:
-            # Reverse order of indices
-            j = antlist.index(i0+1)
-            i = antlist.index(j0+1)
-        # Assumes uv['pol'] is one of -5, -6, -7, -8
-        k = -5 - uv['pol']
-        if t != tprev:
-            # New time 
-            l += 1
-            if l == nt:
-                break
-            tprev = t
-            timearray.append(t)
-            #xdata = uv['xsampler'].reshape(nf_orig,nants,3)
-            #ydata = uv['ysampler'].reshape(nf_orig,nants,3)
-            #outp[:,0,:,l] = np.swapaxes(xdata[:,:,0],0,1)
-            #outp[:,1,:,l] = np.swapaxes(ydata[:,:,0],0,1)
-            #outp2[:,0,:,l] = np.swapaxes(xdata[:,:,1],0,1)
-            #outp2[:,1,:,l] = np.swapaxes(ydata[:,:,1],0,1)
-            #outm[:,0,:,l] = np.swapaxes(xdata[:,:,2],0,1)
-            #outm[:,1,:,l] = np.swapaxes(ydata[:,:,2],0,1)
+    # for preamble, data in uv.all():
+        # uvw, t, (i0,j0) = preamble
+        # i = antlist.index(i0+1)
+        # j = antlist.index(j0+1)
+        # if i > j:
+            # # Reverse order of indices
+            # j = antlist.index(i0+1)
+            # i = antlist.index(j0+1)
+        # # Assumes uv['pol'] is one of -5, -6, -7, -8
+        # k = -5 - uv['pol']
+        # if t != tprev:
+            # # New time 
+            # l += 1
+            # if l == nt:
+                # break
+            # tprev = t
+            # timearray.append(t)
+            # #xdata = uv['xsampler'].reshape(nf_orig,nants,3)
+            # #ydata = uv['ysampler'].reshape(nf_orig,nants,3)
+            # #outp[:,0,:,l] = np.swapaxes(xdata[:,:,0],0,1)
+            # #outp[:,1,:,l] = np.swapaxes(ydata[:,:,0],0,1)
+            # #outp2[:,0,:,l] = np.swapaxes(xdata[:,:,1],0,1)
+            # #outp2[:,1,:,l] = np.swapaxes(ydata[:,:,1],0,1)
+            # #outm[:,0,:,l] = np.swapaxes(xdata[:,:,2],0,1)
+            # #outm[:,1,:,l] = np.swapaxes(ydata[:,:,2],0,1)
 
-        if i0 == j0:
-            # This is an auto-correlation
-            outa[i0,k,:,l] = data
-            if print_warning and k < 2 and np.sum(data != np.real(data)) > 0:
-                print preamble,uv['pol'], 'has imaginary data! Additional warnings suppressed.'
-                print_warning = False
-        else:
-            outx[bl2ord[i,j],k,:,l] = data
-            if k == 3: uvwarray[bl2ord[i,j],l] = uvw
+        # if i0 == j0:
+            # # This is an auto-correlation
+            # outa[i0,k,:,l] = data
+            # if print_warning and k < 2 and np.sum(data != np.real(data)) > 0:
+                # print preamble,uv['pol'], 'has imaginary data! Additional warnings suppressed.'
+                # print_warning = False
+        # else:
+            # outx[bl2ord[i,j],k,:,l] = data
+            # if k == 3: uvwarray[bl2ord[i,j],l] = uvw
 
-    # Truncate in case of early end of data
-    #nt = len(timearray)
-    #outp = outp[:,:,:,:nt]
-    #outp2 = outp2[:,:,:,:nt]
-    #outm = outm[:,:,:,:nt]
-    #if not tp_only:
-    #    outa = outa[:,:,:,:nt]
-    #    outx = outx[:,:,:,:nt]
+    # # Truncate in case of early end of data
+    # #nt = len(timearray)
+    # #outp = outp[:,:,:,:nt]
+    # #outp2 = outp2[:,:,:,:nt]
+    # #outm = outm[:,:,:,:nt]
+    # #if not tp_only:
+    # #    outa = outa[:,:,:,:nt]
+    # #    outx = outx[:,:,:,:nt]
 
-    if len(lstarray) != 0:
-        pass
-    else:
-        tarray = Time(timearray,format='jd')
-        for t in tarray:
-            lstarray.append(el.eovsa_lst(t))
-    ha = np.array(lstarray) - uv['ra']
-    ha[np.where(ha > np.pi)] -= 2*np.pi
-    ha[np.where(ha < -np.pi)] += 2*np.pi
-    out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}#,'p':outp,'p2':outp2,'m':outm
-    return out
+    # if len(lstarray) != 0:
+        # pass
+    # else:
+        # tarray = Time(timearray,format='jd')
+        # for t in tarray:
+            # lstarray.append(el.eovsa_lst(t))
+    # ha = np.array(lstarray) - uv['ra']
+    # ha[np.where(ha > np.pi)] -= 2*np.pi
+    # ha[np.where(ha < -np.pi)] += 2*np.pi
+    # out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}#,'p':outp,'p2':outp2,'m':outm
+    # return out
     
 def readXdata(filename, filter=False, tp_only=False, src=None):
     ''' This routine reads the data from a single IDBfile.
@@ -361,12 +366,12 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
             else:
                 if i0 == j0:
                     # This is an auto-correlation
-                    outa[i0,k,:,l] = data
+                    outa[i0,k,:,l] = data.filled(fill_value=np.nan+np.nan*1j)
                     if print_warning and k < 2 and np.sum(data != np.real(data)) > 0:
                         print preamble,uv['pol'], 'has imaginary data! Additional warnings suppressed.'
                         print_warning = False
                 else:
-                    outx[bl2ord[i,j],k,:,l] = data
+                    outx[bl2ord[i,j],k,:,l] = data.filled(fill_value=np.nan+np.nan*1j)
                     if k == 3: uvwarray[bl2ord[i,j],l] = uvw
 
     # Truncate in case of early end of data

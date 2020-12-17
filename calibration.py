@@ -1061,6 +1061,44 @@ def sp_explore(x, y, aidx, fidx, ax=None):
             ax[i,j].legend(loc='lower right', fontsize=9)
     return ax
 
+def sp_gaussfit(x, y, aidx, fidx, ax=None):
+    from scipy.optimize import curve_fit
+    def func(x, a, b, c, d):
+        return a*np.exp(-((x-b)/c)**2) + d
+    if ax is None:
+        f, ax = plt.subplots(2,2)
+        import disk_conv as dc
+        fghz, a, aout = dc.disk_conv(x['fghz'])
+        ax[0,0].aout = aout
+    anom = ax[0,0].aout[fidx]/(2*np.sqrt(np.log(2)))*10000.
+    lbl = [[' X-RA',' X-DEC'],[' Y-RA',' Y-DEC']]
+    axis = ['ra','dec']
+    ax[0,0].get_figure().suptitle('Ant '+str(aidx+1)+' '+str(x['fghz'][fidx])[:4]+' GHz')
+    for i,src in enumerate([x,y]):
+        for j,a in enumerate(axis):
+            ax[i,j].cla()
+            xdata = np.concatenate(([-100000],src[a],[100000]))
+            ydata = src[a+'o'][fidx,:,aidx]
+            ax[i,j].plot(xdata/10000.,ydata,'.',label=lbl[i][j])
+            low_bounds =  [0.1*np.max(ydata), -30000., anom*0.9, np.min(ydata)-0.1*np.max(ydata)]
+            high_bounds = [1.0*np.max(ydata),  30000., anom*1.1, np.min(ydata)+0.1*np.max(ydata)]
+            popt, pcov = curve_fit(func, xdata, ydata, bounds=(low_bounds,high_bounds))
+            xarr = np.linspace(-100000.,100000,100)
+            s1,x0,a1,o1 = src[a+'parms'][:,fidx,aidx]   # pk flux, offset, 1/e half-width
+            yarr = s1*np.exp(-((xarr-x0)/a1)**2) + o1
+            ynom = s1*np.exp(-(xarr/anom)**2) + o1
+            yfit = func(xarr, *popt)
+            ax[i,j].plot(xarr/10000.,yarr,label='Fit')
+            ax[i,j].plot(xarr/10000.,yfit,label='New Fit')
+            ax[i,j].legend(loc='lower right', fontsize=9)
+            print 'Fit       :  {:10.3f}, {:10.3f}, {:10.3f}, {:10.3f}'.format(s1, x0, a1, o1)
+            print 'New    Fit:  {:10.3f}, {:10.3f}, {:10.3f}, {:10.3f}'.format(*popt)
+            print 'Min Bounds: {:10.3f}, {:10.3f}, {:10.3f}, {:10.3f}'.format(*low_bounds)
+            print 'Max Bounds: {:10.3f}, {:10.3f}, {:10.3f}, {:10.3f}'.format(*high_bounds)
+    return ax
+
+    
+
 def send_cmds(cmds,acc):
     ''' Sends a series of commands to ACC.  The sequence of commands
         is not checked for validity!
