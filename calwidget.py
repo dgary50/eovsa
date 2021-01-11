@@ -43,6 +43,8 @@
 #    Set the fixdrift checkbox to default on checked.  Also added a color indicator on
 #    scans where there is a windscram state.  If greater than zero, but less than 20%, 
 #    the scan line is yellow.  If greater than 20%, it is red.
+#  2021-01-07  DG
+#    Handle error-return from dbutil.a14_wscram().
 #
 
 import matplotlib
@@ -614,15 +616,18 @@ class App():
 
             self.pc_scanbox.insert(Tk.END, line)
             trange = Time([st_time.mjd,en_time.mjd],format='mjd')
-            times, wscram, avgwind = db.a14_wscram(trange)
-            nwind = len(wscram)
-            nbad = np.sum(wscram)
-            if nbad*1./nwind > 0.2:
-                self.pc_scanbox.itemconfig(Tk.END,bg=self.colors['error'])
-                self.pc_dictlist[-1].update({'color': self.colors['error']})
-            elif nbad > 0:
-                self.pc_scanbox.itemconfig(Tk.END,bg=self.colors['warn'])
-                self.pc_dictlist[-1].update({'color': self.colors['warn']})
+            times, wscram, avgwind = db.a14_wscram(trange)  # Returns None for wscram (and avgwind) if an error
+            if wscram is None:
+                print times," WINDSCRAM check will be skipped for this scan."
+            else:
+                nwind = len(wscram)
+                nbad = np.sum(wscram)
+                if nbad*1./nwind > 0.2:
+                    self.pc_scanbox.itemconfig(Tk.END,bg=self.colors['error'])
+                    self.pc_dictlist[-1].update({'color': self.colors['error']})
+                elif nbad > 0:
+                    self.pc_scanbox.itemconfig(Tk.END,bg=self.colors['warn'])
+                    self.pc_dictlist[-1].update({'color': self.colors['warn']})
 
     def set_multi(self):
         ''' Set scanbox selection mode to multiple if set '''

@@ -503,7 +503,7 @@ def unrot(data, azeldict=None):
     return cdata
 
 
-def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, attncal=True):
+def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, attncal=True, desat=False):
     ''' Complete routine to read in an existing idb or udb file and output
         a new file of the same name in the local directory, with all corrections
         applied.
@@ -543,7 +543,7 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
     filecount = 0
     for filename in filelist:
         t1 = time.time()
-        out = uu.readXdata(filename)
+        out = uu.readXdata(filename, desat=desat)
         print 'Reading file took', time.time() - t1, 's'
         sys.stdout.flush()
         trange = Time(out['time'][[0, -1]], format='jd')

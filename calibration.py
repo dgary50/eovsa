@@ -457,7 +457,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
                    'rao':rao_fit,'deco':deco_fit,'time':midtime,'antidx':idx}
     
     
-def solpntanal(t, udb=False, auto=False, find=True):
+def solpntanal(t, udb=False, auto=False, find=True, desat=False):
     ''' Does a complete analysis of SOLPNTCAL, reading information from the SQL
         database, finding and dumping the corresponding Miriad IDB data, and 
         doing gaussian fit to beam to return the beam parameters.  The outputs
@@ -483,13 +483,13 @@ def solpntanal(t, udb=False, auto=False, find=True):
     elif trange[0].mjd < 58623:
         # The SKYCALTEST scans may have been taken, but they were not setting the DCM table correctly
         # until 2019-05-20, so earlier dates just do this almost as good approach.
-        poor_skycal = skycal_anal(trange[0], do_plot=False)
-        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=poor_skycal)        
+        poor_skycal = skycal_anal(trange[0], do_plot=False, desat=desat)
+        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=poor_skycal, desat=desat)
     else:
         # New code as of 2019-May-21, tries to read from SKYCALTEST and use it
         # for a far off-Sun background measurement.
-        skycal = skycal_anal(trange[0], do_plot=False, last=True)
-        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=skycal)
+        skycal = skycal_anal(trange[0], do_plot=False, last=True, desat=desat)
+        otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=skycal, desat=desat)
     if skycal:
         newskycal = deepcopy(skycal)
         if auto:
@@ -509,7 +509,7 @@ def solpntanal(t, udb=False, auto=False, find=True):
     qual = sp_check_qual(x,y)
     return x,y, qual
         
-def skycal_anal(t=None, do_plot=False, last=False):
+def skycal_anal(t=None, do_plot=False, last=False, desat=False):
     ''' Reads the daily SKYCALTEST data and returns the far "off Sun" background for use with
         total power calibration.  The SKYCALTEST observation can double as a GAINCAL if needed,
         but this has not yet been implemented.
@@ -570,7 +570,7 @@ def skycal_anal(t=None, do_plot=False, last=False):
         if host == 'pipeline': datadir += fdb['FILE'][gcidx][3:11]+'/'
 
         file = datadir+fdb['FILE'][gcidx]
-        out = ri.read_idb([file])
+        out = ri.read_idb([file], desat=desat)
         skytrange = Time(out['time'][[0,-1]],format='jd')
         nant, npol, nf, nt = out['p'].shape
         if nant > 13: nant = 13
@@ -1170,7 +1170,7 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         send_cmds([cmd1],acc)
         send_cmds([cmd7],acc)
         
-def solpnt2sql(t,tsql=None,prompt=True):
+def solpnt2sql(t,tsql=None,prompt=True, desat=False):
     ''' Handles the complete processing of a solar calibration, from analysis through
         writing the calibration data to the SQL database.  The SQL timestamp at which
         to write the record can be given as Time() object in tsql, or writes to
@@ -1179,7 +1179,7 @@ def solpnt2sql(t,tsql=None,prompt=True):
     import cal_header as ch
     x1, y1, qual1 = solpntanal(t)
     calfac1, offsun1 = sp_get_calfac(x1, y1)
-    x2, y2, qual2 = solpntanal(t,auto=True)
+    x2, y2, qual2 = solpntanal(t,auto=True, desat=desat)
     calfac2, offsun2 = sp_get_calfac(x2, y2)
     tpcal_dict = {'fghz':x1['fghz'],'timestamp':Time(x1['ut_mjd'][0],format='mjd').lv,
                   'tpcalfac':calfac1,'accalfac':calfac2,'tpoffsun':offsun1,'acoffsun':offsun2}

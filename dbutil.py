@@ -36,6 +36,10 @@
 #   2020-Dec-10  DG
 #      Moved import of matplotlib to inside plotsfdata--otherwise it
 #      caused problems for some pipeline processing.
+#   2021-Jan-07  DG
+#      Got a strange error in a14_wscram where the query gave a
+#      "success" message but there was not Timestamp.  I just
+#      use a try: except: clause and return an unknown error in this case.
      
 import stateframedef
 import util
@@ -176,8 +180,11 @@ def a14_wscram(trange):
     query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
     data, msg = do_query(cursor, query)
     if msg == 'Success':
-        times = Time(data['Timestamp'].astype('int'),format='lv')
-        wscram = data['Ante_Fron_Wind_State']
+        try:
+            times = Time(data['Timestamp'].astype('int'),format='lv')
+            wscram = data['Ante_Fron_Wind_State']
+        except:
+            return 'Error: Unknown Error', None, None
     else:
         return 'Error: '+msg, None, None
     query = 'select Timestamp,Sche_Data_Weat_AvgWind from fV'+ver+'_vD1 where Timestamp between '+tstart+' and '+tend

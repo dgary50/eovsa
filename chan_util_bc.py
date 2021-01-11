@@ -284,7 +284,8 @@ def freq2bdname(fghz):
             if len(bd) == 1:
                 bds.append(bd[0]+1)
             else:
-                print '{0:f} GHz is not found in any band'.format(fg)
+                if fg > 0.0:  # Suppress warning if the frequency is zero
+                    print '{0:f} GHz is not found in any band'.format(fghz)
                 bds.append(-1)
         return np.array(bds)
     else:
@@ -292,5 +293,6 @@ def freq2bdname(fghz):
         if len(bd) == 1:
             return bd[0]+1
         else:
-            print '{0:f} GHz is not found in any band'.format(fghz)
+            if fg > 0.0:  # Suppress warning if the frequency is zero
+                print '{0:f} GHz is not found in any band'.format(fghz)
             return -1

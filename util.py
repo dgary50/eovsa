@@ -61,6 +61,9 @@
 #    the old file no longer had information for today's date (the stale file
 #    from about October of last year was being used since then!).  I found the
 #    new URL and updated the UT1-UTC() function.  No other change was needed.
+#  2021-Jan-01  DG
+#    Added freq2bdname(), to call function of the same name from either chan_util_bc
+#    or chan_util_52, depending on the date.
 # *
 
 import StringUtil as su
@@ -1197,6 +1200,19 @@ def get_idbdir(t=None, usejsonfile=True):
         datadir = ''.join([datadir,'/'])
     return str(datadir)
 
+def freq2bdname(fghz,t=None):
+    '''Determine the band name from a given frequency in GHz, depending on date of observation.
+       Just calls a different module.
+    '''
+    import chan_util_52 as cu52
+    import chan_util_bc as cu34
+
+    if t is None:
+        t = Time.now()
+    if t.mjd > 58536:
+        return cu52.freq2bdname(fghz)
+    else:
+        return cu34.freq2bdname(fghz)
 
 def fname2mjd(filename):
     ''' Get modified julian date from a standard IDB or UDB filename.

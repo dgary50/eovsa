@@ -237,7 +237,7 @@ def rd_miriad_tsys(trange, udb=False):
     return {'source': src, 'fghz': fghz, 'ut_mjd': utd, 'tsys': tsys}
 
 
-def rd_miriad_tsys_16(trange, udb=False, auto=False, tref=None, skycal=None):
+def rd_miriad_tsys_16(trange, udb=False, auto=False, tref=None, skycal=None, desat=False):
     ''' Read total power data (TSYS) directly from Miriad files for time range
         given by trange.  This version works only for 16-ant correlator
         Simply calls read_idb and returns a subset of the data with new dictionary keys.
@@ -248,7 +248,7 @@ def rd_miriad_tsys_16(trange, udb=False, auto=False, tref=None, skycal=None):
     import gaincal2 as gc
     import read_idb
     import calibration as cal
-    out = read_idb.read_idb(trange)
+    out = read_idb.read_idb(trange, desat=desat)
     #cout = gc.apply_gain_corr(out, tref=tref)
     try:
         cout = gc.apply_fem_level(out, skycal=skycal)

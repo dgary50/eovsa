@@ -22,7 +22,7 @@ import numpy as np
 import dump_tsys as dt
 import read_idb as ri
 
-def get_attncal(trange, do_plot=False):
+def get_attncal(trange, do_plot=False, dataonly=False):
     ''' Finds GAINCALTEST scans from FDB files corresponding to the days
         present in trange Time() object (can be multiple days), calculates
         the attenuation differences for the various FEMATTN states 1-8 
@@ -44,6 +44,9 @@ def get_attncal(trange, do_plot=False):
         N.B.: Ignores days with other than one GAINCALTEST measurement, e.g. 0 or 2,
               the first is obvious, while the second is because there is no way to
               tell which of the 2 are good.
+        
+        The dataonly parameter tells the routine to skip calculating the attenuation
+        and only return the IDB data from the (first) gaincal.
     '''
     from util import get_idbdir
     import socket
@@ -83,6 +86,8 @@ def get_attncal(trange, do_plot=False):
 
             file = datadir + fdb['FILE'][gcidx][0]
             out = ri.read_idb([file])
+            if dataonly:
+                return out
             vx = np.mean(out['p'][:13,:,:,6:12],3)
             va = np.mean(out['a'][:13,:2,:,6:12],3)
             val0 = np.median(out['p'][:13,:,:,16:22],3) - vx
@@ -102,12 +107,33 @@ def get_attncal(trange, do_plot=False):
             attn6 = np.log10(val0/val6)*10.
             attn7 = np.log10(val0/val7)*10.
             attn8 = np.log10(val0/val8)*10.
+            # Do the same for auto-correlation
+            val0 = np.median(out['a'][:13,:2,:,16:22],3) - va
+            val1 = np.median(out['a'][:13,:2,:,26:32],3) - va
+            val2 = np.median(out['a'][:13,:2,:,36:42],3) - va
+            val3 = np.median(out['a'][:13,:2,:,46:52],3) - va
+            val4 = np.median(out['a'][:13,:2,:,56:62],3) - va
+            val5 = np.median(out['a'][:13,:2,:,66:72],3) - va
+            val6 = np.median(out['a'][:13,:2,:,76:82],3) - va
+            val7 = np.median(out['a'][:13,:2,:,86:92],3) - va
+            val8 = np.median(out['a'][:13,:2,:,96:102],3) - va
+            attna1 = np.log10(val0/val1)*10.
+            attna2 = np.log10(val0/val2)*10.
+            attna3 = np.log10(val0/val3)*10.
+            attna4 = np.log10(val0/val4)*10.
+            attna5 = np.log10(val0/val5)*10.
+            attna6 = np.log10(val0/val6)*10.
+            attna7 = np.log10(val0/val7)*10.
+            attna8 = np.log10(val0/val8)*10.
             if do_plot:
                 for i in range(13):
                     for j in range(2):
                         ax[j,i].plot(out['fghz'],attn1[i,j],'.')
+                        ax[j,i].plot(out['fghz'],attna1[i,j],'.')
                         ax[j+2,i].plot(out['fghz'],attn2[i,j],'.')
+                        ax[j+2,i].plot(out['fghz'],attna2[i,j],'.')
             outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 'rcvr':vx, 'rcvr_auto':va,
+                            'attna': np.array([attna1, attna2, attna3, attna4, attna5, attna6, attna7, attna8]),
                             'attn': np.array([attn1, attn2, attn3, attn4, attn5, attn6, attn7, attn8])})
     return outdict
     

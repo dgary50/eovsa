@@ -113,11 +113,15 @@
 #  2020-12-16  DG
 #    Commented out irrelevant (and potentially dangerous, because out of date) read_udb() 
 #    routine.  The standard read_idb() works fine for UDB files.
+#  2021-01-10  DG
+#    Important changes to add desat parameter to readXdata (and read_idb), to call the
+#    new routine autocorr_desat() to correct for correlator saturation.  Default is False
+#    right now, but will likely be changed to True after some tests.
 #
 
 import aipy
 import os
-from util import Time, nearest_val_idx, bl2ord, ant_str2list, common_val_idx, lobe, get_idbdir
+from util import Time, nearest_val_idx, bl2ord, ant_str2list, common_val_idx, lobe, get_idbdir, freq2bdname
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -126,8 +130,8 @@ from matplotlib.dates import DateFormatter
 #import pcapture2 as p
 import eovsa_lst as el
 import copy
-import chan_util_bc as cu
-import chan_util_52 as cu52
+#import chan_util_bc as cu
+#import chan_util_52 as cu52
 
 #bl2ord = p.bl_list()
 
@@ -221,7 +225,7 @@ import chan_util_52 as cu52
     # out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}#,'p':outp,'p2':outp2,'m':outm
     # return out
     
-def readXdata(filename, filter=False, tp_only=False, src=None):
+def readXdata(filename, filter=False, tp_only=False, src=None, desat=False):
     ''' This routine reads the data from a single IDBfile.
         
         Optiona Keywords:
@@ -394,11 +398,79 @@ def readXdata(filename, filter=False, tp_only=False, src=None):
     ha[np.where(ha > np.pi)] -= 2*np.pi
     ha[np.where(ha < -np.pi)] += 2*np.pi
     # Find out band name for each frequency
-    if Time(timearray[0],format='jd').mjd > 58536:
-        bd = np.array(cu52.freq2bdname(freq))
-    else:
-        bd = np.array(cu.freq2bdname(freq))
+    bd = freq2bdname(freq, Time(timearray[0],format='jd'))
     out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'band':bd,'time':np.array(timearray),'source':src,'p':outp,'p2':outp2,'m':outm,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}
+    if desat:
+        out = autocorr_desat(out)
+    return out
+
+def autocorr_desat(out):
+    ''' Corrects for correlator saturation effects.  Applies a correction to 
+        auto- and cross-correlation amplitudes based on total power amplitudes.
+        
+        Calculates the function eta = (x + d - c)/[(a*erf((x-c)/b) + d], where x = log(P),
+        a,b,c,d = [1.22552, 1.37369, 2.94536, 2.14838], and erf() is the error function.
+        However, eta is set to 1 for A < 50.
+        
+        Applies the function to autocorrelations A_i and cross-correlations xi_ij to obtain
+        A'_i = A**eta_i and xi'_ij = xi_ij**[(eta_i + eta_j)/2].
+    '''
+    from scipy.special import erf    
+    def eta_f(x, A):
+        a,b,c,d = [1.22552, 1.37369, 2.94536, 2.14838]  # Parameters define the invariant saturation curve
+        eta = (x + d - c)/(a*erf((x-c)/b) + d)
+        bad = np.where(A < 50)
+        eta[bad] = 1.0
+        return eta
+        
+    nant = 16
+    nf, = out['fghz'].shape
+    nt, = out['time'].shape
+    npol = 4
+    # Copy power for each polarization so modification below does not affect
+    # actual data
+    Px = copy.deepcopy(out['p'][:,0])
+    Py = copy.deepcopy(out['p'][:,1])
+    n0 = len(np.where(out['band'] == np.max(out['band']))[0])
+    # Modify measured power to correct for variable science-channel bandwidth
+    for i in range(nf):
+        bnd = out['band'][i]
+        n = np.float(len(np.where(out['band'] == bnd)[0]))
+        Px[:,i] *= n/n0
+        Py[:,i] *= n/n0
+    x = np.log10(Px)
+    # Calculate correction for X pol (returns size [nant, nf, nt])
+    eta_x = eta_f(x, abs(out['a'][:,0]))
+    x = np.log10(Py)
+    # Calculate correction for Y pol (returns size [nant, nf, nt])
+    eta_y = eta_f(x, abs(out['a'][:,1]))
+    eta = np.zeros_like(out['x'])
+    # Loop over baselines for cross-correlation and calculate correction for 
+    # different polarization states.
+    for i in range(nant-1):
+        for j in range(i+1,nant):
+            eta[bl2ord[i,j],0] = eta_x[i]+eta_x[j]
+            eta[bl2ord[i,j],1] = eta_y[i]+eta_y[j]
+            eta[bl2ord[i,j],2] = eta_x[i]+eta_y[j]
+            eta[bl2ord[i,j],3] = eta_x[j]+eta_y[i]
+    eta = eta/2.
+    # Correction is to log of values, so apply by raising amplitudes to eta power,
+    # but preserve the phase
+    amp = abs(out['x'])
+    pha = np.angle(out['x'])
+    amp = amp**eta
+    out['x'] = amp*np.exp(1j*pha)
+    # Repeat for auto-correlation by looping over antennas
+    # This "re-uses" eta to overwrite first nant values
+    for i in range(nant):
+        eta[i,0] = eta_x[i]
+        eta[i,1] = eta_y[i]
+        eta[i,2] = (eta_x[i] + eta_y[i])/2.
+        eta[i,3] = (eta_x[i] + eta_y[i])/2.
+    amp = abs(out['a'])
+    pha = np.angle(out['a'])
+    amp = amp**eta[:nant]
+    out['a'] = amp*np.exp(1j*pha)
     return out
 
 def readXdatmp(filename):
@@ -828,7 +900,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=Fals
             # plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
     # return out
         
-def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_only=False):
+def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_only=False, desat=False):
     ''' This finds the IDB files within a given time range and concatenates 
         the times into a single dictionary.  If trange is not a Time() object,
         assume that it is the list of files to read.
@@ -860,7 +932,7 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            out = readXdata(file,tp_only=tp_only,src=src)
+            out = readXdata(file,tp_only=tp_only,src=src, desat=desat)
             if type(out) is str:
                 print 'Source name:',out,'does not match requested name:',src+'.  Will skip',file
             else:
