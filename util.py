@@ -996,7 +996,12 @@ def UT1_UTC(mjd):
         # This is likely to happen only if DUT is undefined, i.e. MJD
         # was not found in the file.  This should never happen, but...
         h.close()
-        raise NameError("UT1_UTC: Today's MJD date not found in IERS Bulletin A.")
+        import os
+        print "UT1_UTC: os.stat of IERS Bulletin A file\n",os.stat(IERS_file)
+        print ""
+        print "UT1_UTC: Today's MJD date not found in IERS Bulletin A."
+        print "UT1_UTC: Setting DUT to zero"
+        dut = 0
 
     return dut
 

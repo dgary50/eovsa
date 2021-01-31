@@ -42,6 +42,16 @@
 #    Change apply_gain_corr() to use the first PHASECAL of the requested date to
 #    determine reference gain state.  This will be wrong if $FEM_INIT is issued
 #    subsequent to that PHASECAL...
+#  2021-01-21  DG
+#    Found a bug in apply_fem_level(), where polarization index for Vpol was set to 0.
+#    Also changed get_fem_level() to return times from the middle of dt rather than
+#    the start of dt.
+#  2021-01-23  DG
+#    Important change to get_fem_level() for non-None dt case (mainly UDB data that
+#    have a 60-s integration).  Now determines the proportion of time for each fem
+#    attenuation state within integration time dt and returns a dictionary for each 
+#    antenna and integrated time sample.  This required corresponding changes to
+#    apply_fem_level().
 #
 import dbutil as db
 import read_idb as ri
@@ -121,6 +131,14 @@ def get_fem_level(trange, dt=None):
                      If omitted, 1 s is assumed.
         
     '''
+    def proportion(seq):
+        '''Return dict of proportion of each value in "seq".'''
+        hist = {}
+        n = len(seq)
+        for i in seq:
+            hist[i] = hist.get(i, 0) + 1./n
+        return hist
+
     if dt is None:
         tstart,tend = [str(i) for i in trange.lv]
     else:
@@ -135,24 +153,25 @@ def get_fem_level(trange, dt=None):
             +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
+        nant = 15
         if dt:
             # If we want other than full cadence, get new array shapes and times
             n = len(data['Timestamp'])  # Original number of times
-            new_n = (n/15/dt)*15*dt     # Truncated number of times equally divisible by dt
-            new_shape = (n/15/dt,dt,15) # New shape of truncated arrays
-            times = Time(data['Timestamp'][:new_n].astype('int')[::15*dt],format='lv')
+            new_n = (n/nant/dt)*nant*dt     # Truncated number of times equally divisible by dt
+            new_shape = (n/nant/dt,nant) # New shape of truncated arrays
+            times = Time(data['Timestamp'][:new_n].astype('int')[int(nant*dt/2)::nant*dt],format='lv')
         else:
-            times = Time(data['Timestamp'].astype('int')[::15],format='lv')
-        hlev = data['Ante_Fron_FEM_HPol_Regi_Level']
-        vlev = data['Ante_Fron_FEM_VPol_Regi_Level']
+            times = Time(data['Timestamp'].astype('int')[::nant],format='lv')
+        hlev = data['Ante_Fron_FEM_HPol_Regi_Level'].astype(int)
+        vlev = data['Ante_Fron_FEM_VPol_Regi_Level'].astype(int)
         ms = data['Ante_Fron_FEM_Clockms']
-        nt = len(hlev)/15
-        hlev.shape = (nt,15)
-        vlev.shape = (nt,15)
-        ms.shape = (nt,15)
+        nt = len(hlev)/nant
+        hlev.shape = (nt,nant)
+        vlev.shape = (nt,nant)
+        ms.shape = (nt,nant)
         # Find any entries for which Clockms is zero, which indicates where no
         # gain-state measurement is available.
-        for i in range(15):
+        for i in range(nant):
             bad, = np.where(ms[:,i] == 0)
             if bad.size != 0 and bad.size != nt:
                 # Find nearest adjacent good value
@@ -161,9 +180,19 @@ def get_fem_level(trange, dt=None):
                 hlev[bad,i] = hlev[good[idx],i]
                 vlev[bad,i] = vlev[good[idx],i]
         if dt:
-            # If we want other than full cadence, find mean over dt measurements
-            hlev = np.mean(hlev[:new_n/15].reshape(new_shape),1)
-            vlev = np.mean(vlev[:new_n/15].reshape(new_shape),1)
+            # If we want other than full cadence, find proportion of each level
+            # during the dt time interval
+            hlevout = []
+            vlevout = []
+            # Determine proportion of each state within each dt time integration
+            for i in range(new_n/dt/nant):
+                for j in range(nant):
+                    hlevout.append(proportion(hlev[i*dt:(i+1)*dt,j]))
+                    vlevout.append(proportion(vlev[i*dt:(i+1)*dt,j]))
+            # Note, for the dt case hlev and vlev are an array of dicts with keys being
+            # the level and values being the proportion of that level within the integration
+            hlev = np.array(hlevout).reshape(new_shape)
+            vlev = np.array(vlevout).reshape(new_shape)
         # Put results in canonical order [nant, nt]
         hlev = hlev.T
         vlev = vlev.T
@@ -224,7 +253,7 @@ def get_fem_level(trange, dt=None):
         print 'Error reading DPPon state:',msg
         dcm_off = None
     cursor.close()
-    return {'times':times,'hlev':hlev.astype(int),'vlev':vlev.astype(int),'dcmattn':dcmattn,'dcmoff':dcm_off}
+    return {'times':times,'hlev':hlev,'vlev':vlev,'dcmattn':dcmattn,'dcmoff':dcm_off}
     
 def get_gain_state(trange, dt=None):
     ''' Get all gain-state information for a given timerange.  Returns a dictionary
@@ -423,10 +452,22 @@ def apply_fem_level(data, skycal=None, gctime=None):
         # Extend to levels 9-15 by adding 2 dB to each previous level
         a[i + 1] = a[i] + 2.
     a[15] = 62.  # Level 15 means 62 dB have been inserted.
-    for i in range(13):
-        for k,j in enumerate(idx1):
-            antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
-            antgain[i,1,j] = a[src_lev['vlev'][i],i,0,idx2[k]]
+    if dt:
+        # For this case, src_lev is an array of dictionaries where keys are levels and
+        # values are the proportion of that level for the given integration
+        for i in range(13):
+            for k,j in enumerate(idx1):
+                for m in range(nt):
+                    for lev, prop in src_lev['hlev'][i,m].items():
+                        antgain[i,0,j,m] += prop*a[lev,i,0,idx2[k]]
+                    for lev, prop in src_lev['vlev'][i,m].items():
+                        antgain[i,1,j,m] += prop*a[lev,i,1,idx2[k]]
+    else:
+        # For this case, src_lev is just an array of levels
+        for i in range(13):
+            for k,j in enumerate(idx1):
+                antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
+                antgain[i,1,j] = a[src_lev['vlev'][i],i,1,idx2[k]]
     cdata = copy.deepcopy(data)
     blgain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
     for i in range(14):

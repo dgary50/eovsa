@@ -87,6 +87,9 @@
 #	  Added yellow (warning) to power and attenuation if first atennuator on H or V is non zero.
 #   2020-Nov-13 OG
 #      Added red (error) to power an attenuation if any Power reports NAN
+#   2021-Jan-30 DG
+#      Add error case for writing stateframe log to disk--if write fails it just prints
+#      an error message to the screen.
 
 from Tkinter import *
 from ttk import *
@@ -816,8 +819,10 @@ class App():
                         # Looks like the version or date has changed, so open a new file
                         self.log_stateframe()
                         f = self.accini.get('sf_file')
-                    f.write(data)
-
+                    try:
+                        f.write(data)
+                    except:
+                        print Time.now().iso+' Error writing stateframe to log file'
         curtab = self.nb.tab(self.nb.select(),'text')
         if data:
             if curtab[0:3] == 'Ant':

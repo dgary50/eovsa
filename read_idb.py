@@ -117,6 +117,10 @@
 #    Important changes to add desat parameter to readXdata (and read_idb), to call the
 #    new routine autocorr_desat() to correct for correlator saturation.  Default is False
 #    right now, but will likely be changed to True after some tests.
+#  2021-01-12  DG
+#    I found a better way to determine the correction factor using the SK m values to
+#    adjust for variations in power level due to different numbers of subchannels.
+#    Also added a test for date that allows this to work for older and newer data.
 #
 
 import aipy
@@ -424,20 +428,27 @@ def autocorr_desat(out):
         return eta
         
     nant = 16
+    # Determine required "m" value for standardized power level.  The power changes
+    # depending on number of channels averaged, etc., and the SK m value keeps track
+    # of all of that.
+    if Time(out['time'][0],format='jd').mjd > 58536:
+        m0 = 745472.  # Standard for most recent data (325 MHz bandwidth)
+    else:
+        m0 = 721536.  # Standard for earlier data (ca. 2017)
     nf, = out['fghz'].shape
     nt, = out['time'].shape
     npol = 4
     # Copy power for each polarization so modification below does not affect
     # actual data
-    Px = copy.deepcopy(out['p'][:,0])
-    Py = copy.deepcopy(out['p'][:,1])
-    n0 = len(np.where(out['band'] == np.max(out['band']))[0])
-    # Modify measured power to correct for variable science-channel bandwidth
-    for i in range(nf):
-        bnd = out['band'][i]
-        n = np.float(len(np.where(out['band'] == bnd)[0]))
-        Px[:,i] *= n/n0
-        Py[:,i] *= n/n0
+    Px = out['p'][:,0]*m0/out['m'][:,0]
+    Py = out['p'][:,1]*m0/out['m'][:,0]
+#    n0 = len(np.where(out['band'] == np.max(out['band']))[0])
+#    # Modify measured power to correct for variable science-channel bandwidth
+#    for i in range(nf):
+#        bnd = out['band'][i]
+#        n = np.float(len(np.where(out['band'] == bnd)[0]))
+#        Px[:,i] *= n/n0
+#        Py[:,i] *= n/n0
     x = np.log10(Px)
     # Calculate correction for X pol (returns size [nant, nf, nt])
     eta_x = eta_f(x, abs(out['a'][:,0]))

@@ -82,6 +82,20 @@
 #  2020-10-31  DG
 #    Fix bug in allday_udb_corr() that occurred when no data after
 #    0 UT was available (and so FDB file did not exist for the next day).
+#  2021-01-13  DG
+#    Add desat keyword to udb_corr() to correct for correlator saturation.
+#    This can only be applied to IDB files, so it is ignored for UDB files.
+#  2021-01-21  DG
+#    Found a bug in apply_fem_level(), where polarization index for Vpol was set to 0.
+#    Also added an important check for zero UV coordinates, which indicates an error
+#    with the stateframe.  The data for any of these times is masked, so it will not
+#    appear in results from read_idb() or in ms files.
+#  2021-01-23  DG
+#    Important change to apply_fem_level() to reflect the change in gaincal2.py's
+#    get_fem_level() for non-None dt case (mainly UDB data that have a 60-s integration).  
+#    Now determines the proportion of time for each fem attenuation state within integration 
+#    time dt and returns a dictionary for each antenna and integrated time sample.  This 
+#    required corresponding changes to apply_fem_level().
 #
 
 import dbutil as db
@@ -162,10 +176,22 @@ def apply_fem_level(data, gctime=None, skycal=None):
         a[i + 1] = a[i] + 2.
     a[15] = 62.  # Level 15 means 62 dB have been inserted.
     #print 'Attn list (dB) for ant 1, pol xx, lowest frequency:',a[:,0,0,0]
-    for i in range(13):
-        for k, j in enumerate(idx1):
-            antgain[i, 0, j] = a[src_lev['hlev'][i], i, 0, j]
-            antgain[i, 1, j] = a[src_lev['vlev'][i], i, 0, j]
+    if dt:
+        # For this case, src_lev is an array of dictionaries where keys are levels and
+        # values are the proportion of that level for the given integration
+        for i in range(13):
+            for k,j in enumerate(idx1):
+                for m in range(nt):
+                    for lev, prop in src_lev['hlev'][i,m].items():
+                        antgain[i,0,j,m] += prop*a[lev,i,0,idx2[k]]
+                    for lev, prop in src_lev['vlev'][i,m].items():
+                        antgain[i,1,j,m] += prop*a[lev,i,1,idx2[k]]
+    else:
+        # For this case, src_lev is just an array of levels
+        for i in range(13):
+            for k, j in enumerate(idx1):
+                antgain[i, 0, j] = a[src_lev['hlev'][i], i, 0, idx2[k]]
+                antgain[i, 1, j] = a[src_lev['vlev'][i], i, 1, idx2[k]]
     cdata = copy.deepcopy(data)
     nblant = 136
     blgain = np.zeros((nf, nblant, 4, nt), float)  # Baseline-based gains vs. frequency
@@ -476,6 +502,7 @@ def unrot(data, azeldict=None):
             data['x'][fidx1, k, 3] *= np.repeat(np.exp(1j * a3), nt).reshape(nf, nt)
 
     # Correct data for differential feed rotation
+#    import pdb; pdb.set_trace()
     cdata = copy.deepcopy(data)
     for n in range(nt):
         for i in range(13):
@@ -487,6 +514,7 @@ def unrot(data, azeldict=None):
                     # If something goes wrong with chi difference calculation, just default to chi = 0
                     try:
                         dchi = chi[gd[i][ti], i] - chi[gd[j][tj], j]
+#                        dchi = -chi[gd[i][ti], i] + chi[gd[j][tj], j]  # Try opposite sign of rotation *****
                     except:
                         dchi = 0.0
                     cchi = np.cos(dchi)
@@ -543,9 +571,18 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
     filecount = 0
     for filename in filelist:
         t1 = time.time()
-        out = uu.readXdata(filename, desat=desat)
+        if desat and filename.find('UDB') != -1:
+            print('File',filename,'appears to be a UDB file, so desat=True will be ignored.')
+            out = uu.readXdata(filename)
+        else:
+            if desat: print('Correlator saturation correction will be applied.')
+            out = uu.readXdata(filename, desat=desat)
         print 'Reading file took', time.time() - t1, 's'
         sys.stdout.flush()
+        # Mask any cross-correlated data that have zero U coordinate (which indicates a stateframe error)
+        ubad, = np.where(out['uvw'][0,0] == 0)
+        out['x'][:,:,:,ubad] = np.ma.masked
+        
         trange = Time(out['time'][[0, -1]], format='jd')
         t1 = time.time()
         azeldict = get_sql_info(trange)

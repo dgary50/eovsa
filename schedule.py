@@ -300,6 +300,9 @@
 #      was just checking for the receiver position, but that failed whenever there
 #      was a glitch in the stateframe at the moment of a $SCAN-START command.
 #      Now it sets self.lorx to True whenever there is a command RX-SELECT LO.
+#    2021-Jan-31  DG
+#      Rename existing /tmp/schedule.log file to /tmp/schedule_old.log for debug
+#      purposes.
 #
 
 import os, signal
@@ -375,6 +378,15 @@ if match_pid != -1:
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
+    try:
+        # Rename existing log file for debug purposes
+        os.rename('/tmp/schedule.log','/tmp/schedule_old.log')
+    except:
+        os.remove('/tmp/schedule_old.log')
+        try:
+            os.rename('/tmp/schedule.log','/tmp/schedule_old.log')
+        except:
+            print 'Could not rename /tmp/schedule.log to /tmp/schedule_old.log'
     sys.stdout = open('/tmp/schedule.log','w')
 else: # use a different log file name for the 2nd subarray (schedule_Subarray2.log or schedule_Starburst.log)
     sys.stdout = open('/tmp/schedule_'+sys.argv[1]+'.log','w')

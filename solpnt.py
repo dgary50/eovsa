@@ -73,6 +73,11 @@
 #   2020-Dec-12  DG
 #      Changes to improve fitting at low frequencies (< 2 GHz) where there is often 
 #      a lot of RFI and the off-Sun value is not available due to the large beam size.
+#   2021-Jan-16  DG
+#      Program crashed if both low and high bounds of gausfit conspired to be zero
+#      in process_tsys().  Data are checked for all zeros and high bounds is artificially
+#      set to nonzero.  Fit still fails, but no crash (hopefully).
+#      
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -635,15 +640,23 @@ def process_tsys(otp, proc, pol=None, skycal=None):
     for iant in range(nant):
         for ifreq in range(nf):
             ydata = rao[ifreq,:,iant]
+            allzero = len(ydata.nonzero()[0]) == 0  # True if all data are zero
             xdata = raopts
             low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
             high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
+            if allzero:
+                high_bounds[0] = 1  # Ensure that high bounds are greater than low bounds
+                high_bounds[3] = 1
             bounds = (low_bounds,high_bounds)
             pra[:,ifreq,iant], x, y = gausfit(xdata, ydata, bounds=bounds)
             ydata = deco[ifreq,:,iant]
+            allzero = len(ydata.nonzero()[0]) == 0  # True if all data are zero
             xdata = decopts
             low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
             high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
+            if allzero:
+                high_bounds[0] = 1  # Ensure that high bounds are greater than low bounds
+                high_bounds[3] = 1
             bounds = (low_bounds,high_bounds)            
             pdec[:,ifreq,iant], x, y = gausfit(xdata, ydata, bounds=bounds)
     return pra, pdec, rao, deco

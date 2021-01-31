@@ -124,6 +124,10 @@
 #  2020-Dec-12 DG
 #    Added sp_explore() routine for investigating the data and fits for
 #    a given antenna and frequency.
+#  2021-Jan-11 DG
+#    Important change to default to correcting for correlator saturation
+#    (only affects the total power auto-correlation calibration).  This
+#    activates the correction in the read_idb.py function readXdata().
 #
 
 if __name__ == "__main__":
@@ -1297,7 +1301,7 @@ if __name__ == "__main__":
  #   if socket.gethostname() == 'pipeline':
  #       x, y, qual = solpntanal(t,udb=True)
  #   elif socket.gethostname() == 'dpp':
-    x, y, qual = solpntanal(t,udb=False)
+    x, y, qual = solpntanal(t,udb=False)  # NB: the desat keyword is irrelevant because udb=False
     xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
  #   else:
  #       print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
@@ -1306,7 +1310,7 @@ if __name__ == "__main__":
     if percent_good > 50:
 #        if socket.gethostname() == 'dpp':
 #            # If this is the DPP, write the results to the SQL database automatically.
-        solpnt2sql(t,prompt=False)
+        solpnt2sql(t,prompt=False, desat=True)
 #        else:
 #            # This is the old way of writing results to a disk file--should be removed...
 #            calfac, offsun = sp_get_calfac(x,y)
