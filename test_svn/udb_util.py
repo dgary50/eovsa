@@ -9,6 +9,10 @@ ysampler) rather than (xtyys, ytsys)'''
 # dg, 2021-01-10 -- Added autocorr_desat() routine to correct for correlator
 #                   saturation that was discovered recently.  This is a big
 #                   change, with more to come as we attempt to fix this.
+# dg, 2021-01-12 -- I found a better way to determine the correction factor using 
+#                   the SK m values to adjust for variations in power level due 
+#                   to different numbers of subchannels. Also added a test for
+#                   date that allows this to work for older and newer data.
 
 #needed for file creation
 import time, os
@@ -523,6 +527,13 @@ def autocorr_desat(out):
         eta[bad] = 1.0
         return eta
         
+    # Determine required "m" value for standardized power level.  The power changes
+    # depending on number of channels averaged, etc., and the SK m value keeps track
+    # of all of that.
+    if Time(out['time'][0],format='jd').mjd > 58536:
+        m0 = 745472.  # Standard for most recent data (325 MHz bandwidth)
+    else:
+        m0 = 721536.  # Standard for earlier data (ca. 2017)
     bl2ord = util.bl2ord
     nant = 16
     nf, = out['fghz'].shape
@@ -530,18 +541,20 @@ def autocorr_desat(out):
     npol, = out['pol'].shape
     Px = copy.deepcopy(out['px'].reshape(nf, nant, 3, nt))
     Py = copy.deepcopy(out['py'].reshape(nf, nant, 3, nt))
-    n0 = len(np.where(out['band'] == np.max(out['band']))[0])
-    # Modify measured power to correct for variable science-channel bandwidth
-    for i in range(nf):
-        bnd = out['band'][i]
-        n = np.float(len(np.where(out['band'] == bnd)[0]))
-        Px[i] *= n/n0
-        Py[i] *= n/n0
+#    n0 = len(np.where(out['band'] == np.max(out['band']))[0])
+#    # Modify measured power to correct for variable science-channel bandwidth
+#    for i in range(nf):
+#        bnd = out['band'][i]
+#        n = np.float(len(np.where(out['band'] == bnd)[0]))
+#        Px[i] *= n/n0
+#        Py[i] *= n/n0
+    Px = Px[:,:,0]*m0/Px[:,:,2]
+    Py = Py[:,:,0]*m0/Py[:,:,2]
     
-    x = np.log10(Px[:,:,0])
+    x = np.log10(Px)
     # Calculate correction for X pol (returns size [nf, nant, nt])
     eta_x = eta_f(x, abs(out['x'][:,np.arange(120,136),0]))
-    x = np.log10(Py[:,:,0])
+    x = np.log10(Py)
     # Calculate correction for Y pol (returns size [nf, nant, nt])
     eta_y = eta_f(x, abs(out['x'][:,np.arange(120,136),1]))
     eta = np.zeros_like(out['x'])

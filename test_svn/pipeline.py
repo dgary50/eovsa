@@ -5,6 +5,9 @@
 # 1-mar-2016. New version uses udb_util to create new-style UDB files
 # with no frequency averaging, but time averaged over 60 seconds, jmm,
 # 8-jan-2017.
+#
+# 13-Jan-2021 dg
+#   Commented out creation of FITS files and plots (long overdue!)
 
 from numpy import *
 import time
@@ -364,26 +367,24 @@ def udb_process(ndays=5,day0=None,reprocess=False):
                 #Update ifdb.pstatus for the processed files, output
                 #idbfits and copy IDB files if necessary
                 n1 = len(ifb_1)
-                have_antlist = False
+#                have_antlist = False
                 for j in range(n1):
                     if ifb_1[j].pstatus != 666: #check as bad files will crash
-                        if reprocess == False:
-                            if ifb_1[j].pstatus == 0:
-                                print 'UDB_PROCESS: Processing IDB: '+ifb_1[j].fileid
-                                fj, antlist = process_1ifb(ifb_1[j], reprocess=reprocess)
-                                have_antlist = True
-                            else: #only do this once for antlist
-                                if ifb_1[j].pstatus == 0 and have_antlist == False:
-                                    print 'UDB_PROCESS: Processing IDB: '+ifb_1[j].fileid
-                                    fj, antlist = process_1ifb(ifb_1[j], reprocess=reprocess)
-                                    have_antlist = True
-                                #endif
-                            #endelse
-                        #endif
+#                        if reprocess == False:
+                        if ifb_1[j].pstatus == 0:
+                            print 'UDB_PROCESS: Processing IDB: '+ifb_1[j].fileid
+                            process_1ifb(ifb_1[j], reprocess=reprocess)
+#                            fj, antlist = process_1ifb(ifb_1[j], reprocess=reprocess)  # process_1ifb() no longer returns anything
+#                            have_antlist = True
+#                        else: #only do this once for antlist
+#                            if ifb_1[j].pstatus == 0: # and have_antlist == False:
+#                                print 'UDB_PROCESS: Processing IDB: '+ifb_1[j].fileid
+#                                fj, antlist = process_1ifb(ifb_1[j], reprocess=reprocess)
+#                                have_antlist = True
                         ifb_1[j].pstatus = 1
                         ifb[ss_ifb_1[j]].pstatus = 1
-                    else:
-                        antlist = '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, 16'
+#                    else:
+#                        antlist = '1 2 3 4 5 6 7 8 9 10 11 12 13 14 15, 16'
                     #endelse
 #                    print 'UDB_PROCESS: Reset status for:'+ifb[ss_ifb_1[j]].fileid
 #                    print 'UDB_PROCESS: Reset status for:'+ifb_1[j].fileid
@@ -392,18 +393,19 @@ def udb_process(ndays=5,day0=None,reprocess=False):
                 ifb_files_out = update_ifdb(ifb)
                 
                 #here process the UDB spec fits files by spawning an IDL process
-                ufb_1a = udb_process_1spec(ufb_1, antlist, reprocess=reprocess)
+#                ufb_1a = udb_process_1spec(ufb_1, antlist, reprocess=reprocess)
 
-                if len(ufb_1a) == 0:
-                    print 'UDB_PROCESS: Problem with Scan to FITS: '+ifb_1[0].scanid
-                    sys.stdout.flush()
+#                if len(ufb_1a) == 0:
+#                    print 'UDB_PROCESS: Problem with Scan to FITS: '+ifb_1[0].scanid
+#                    sys.stdout.flush()
                 #Write out ufdb entry, ufb_1 is a 1 element list
-                    ufb_files_out = update_ufdb(ufb_1, ndays=ndays, day0=day0)
-                else:
-                    ufb_files_out = update_ufdb(ufb_1a, ndays=ndays, day0=day0)
-                    print 'UDB_PROCESS: Processed Scan: '+ifb_1[0].scanid
-                    print 'UDB_PROCESS: finished successfully'
-                    sys.stdout.flush()
+#                    ufb_files_out = update_ufdb(ufb_1, ndays=ndays, day0=day0)
+#                else:
+                ufb_files_out = update_ufdb(ufb_1, ndays=ndays, day0=day0)
+#                ufb_files_out = update_ufdb(ufb_1a, ndays=ndays, day0=day0)
+                print 'UDB_PROCESS: Processed Scan: '+ifb_1[0].scanid
+                print 'UDB_PROCESS: finished successfully'
+                sys.stdout.flush()
                 #Endelse
             #Endelse
         #Endelse
@@ -412,8 +414,9 @@ def udb_process(ndays=5,day0=None,reprocess=False):
 # End of udb_process
 
 def process_1ifb(ifb0, reprocess=False):
-    '''Creates an IDB fits file for the input ifb entry, and copies
-    the IDB Miriad file to the local disk. Added antennalist output
+    # Creates an IDB fits file for the input ifb entry (no longer does this)
+    '''
+    Copies the IDB Miriad file to the local disk. Added antennalist output
     2015-01-06, jmm'''
 
     #ifb0 may be a list
@@ -429,22 +432,22 @@ def process_1ifb(ifb0, reprocess=False):
         print "process_1ifb: Bad Miriad Dataset:"
         print filelist[0]
         sys.stdout.flush()
-        return '', ''
+        return #'', ''
     #endif
     #If you are here you have a good IDB dataset, error check anyway
-    xdat = dump_tsys_ext.rd_miriad_tsys_file(filelist)
-    if xdat == None:
-        print "process_1ifb: Bad Miriad Dataset (2):"
-        print filelist[0]
-        sys.stdout.flush()
-        return '', ''
+#    xdat = dump_tsys_ext.rd_miriad_tsys_file(filelist)
+#    if xdat == None:
+#        print "process_1ifb: Bad Miriad Dataset (2):"
+#        print filelist[0]
+#        sys.stdout.flush()
+#        return '', ''
     #endif
     #Hold onto antennalist for output
-    antlist = xdat['antennalist']
+#    antlist = xdat['antennalist']
     #Calibrate, but only for normal observing, No calibration
-    sid = ifb.sourceid[:3]
-    prid = ifb.projectid[:15]
-    calflag = False
+#    sid = ifb.sourceid[:3]
+#    prid = ifb.projectid[:15]
+#    calflag = False
 #    if sid == "Sun" and prid == "NormalObserving":
 #        t1 = Time(xdat['ut_mjd'][0],format='mjd')
 #        fghz, calfac, offsun = calibration.sp_read_calfac(t1)
@@ -458,16 +461,16 @@ def process_1ifb(ifb0, reprocess=False):
     #endif
     #write the file
 #    print "CALFLAG", calflag
-    file_out = dump_tsys_ext.tsys_writetofits(xdat, calflag)
-    if len(file_out) == 0:
-        print "process_1ifb: write failed:"
-        print filelist[0]
-        sys.stdout.flush()
-        return file_out, ''
+#    file_out = dump_tsys_ext.tsys_writetofits(xdat, calflag)
+#    if len(file_out) == 0:
+#        print "process_1ifb: write failed:"
+#        print filelist[0]
+#        sys.stdout.flush()
+#        return file_out, ''
     #endif
     if reprocess == True:
         #you are done
-        return file_out, antlist
+        return #file_out, antlist
     #endif
     #copy the IDB dataset from /dppdata1/IDB to /data1/eovsa/fits/IDB/yyyymmdd
     filename = filelist[0]
@@ -485,7 +488,7 @@ def process_1ifb(ifb0, reprocess=False):
     #end if
     shutil.copytree(filename, full_filename)
 #the second output is passed into udb_fitsfile
-    return file_out, antlist
+    return #file_out, antlist
 #End of process_1ifb
 
 def udb_process_1spec(ufb_1_in, antlist, reprocess=False):
