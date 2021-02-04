@@ -78,6 +78,9 @@
 #      Timeout of control_room_temp() was throwing an error and crashing.
 #      This is now fixed by putting readlines() call inside the try: except:
 #      clause.
+#   2021-Feb-03  DG
+#      Added a tracksrcflag to indicate when the antennas are supposed to be
+#      tracking the source (i.e. no intentional offsets).
 #
 
 import struct, sys
@@ -421,6 +424,7 @@ def azel_from_stateframe(sf, data, antlist=None):
     az_req = []
     el_req = []
     chi = []
+    tracksrcflag = []
     dtor = np.pi/180.
     if antlist is None:
         # No antlist, so assume all antennas
@@ -428,6 +432,8 @@ def azel_from_stateframe(sf, data, antlist=None):
 
     for i, ant in enumerate(antlist):
         c = sf['Antenna'][ant]['Controller']
+        # True if antenna is supposed to be tracking the source (no offsets)
+        tracksrcflag.append((c['RAOffset'] + c['DecOffset'] + c['ElOffset'] + c['AzOffset']) == 0)
         az1 = extract(data,c['Azimuth1'])/10000.
         az_corr = extract(data,c['AzimuthPositionCorrected'])/10000.
         el1 = extract(data,c['Elevation1'])/10000.
@@ -470,7 +476,7 @@ def azel_from_stateframe(sf, data, antlist=None):
 
     return {'dAzimuth':daz,   'ActualAzimuth':np.array(az_act),  'RequestedAzimuth':np.array(az_req),
             'dElevation':np.array(delv),'ActualElevation':np.array(el_act),'RequestedElevation':np.array(el_req),
-            'ParallacticAngle':np.array(chi)/dtor, 'TrackFlag':trackflag}
+            'ParallacticAngle':np.array(chi)/dtor, 'TrackFlag':trackflag, 'TrackSrcFlag':tracksrcflag}
 
 #============================
 def par_angle(alt, az):
@@ -523,6 +529,8 @@ def azel_from_sqldict(sqldict, antlist=None):
     '''Given a dictionary read from a dimension-15 SQL stateframe query, calculate
        the actual and requested azimuth and elevation for each antenna, as well as the 
        difference between them, and a track flag, all as a dictionary of numpy float arrays.
+       
+       Added track source flag, which summarizes intentional offsets
     '''
     dtor = np.pi/180.
     if antlist is None:
@@ -582,9 +590,15 @@ def azel_from_sqldict(sqldict, antlist=None):
 
     trackflag[:,14] = False   # Ant 15 is never tracking
     
+    # Check offsets to see if the antennas are intentionally not tracking the source
+    tracksrcflag = np.ones(rms,bool)
+    offsource = (sqldict['Ante_Cont_RAOffset'] + sqldict['Ante_Cont_DecOffset'] + sqldict['Ante_Cont_AzOffset'] +
+                 sqldict['Ante_Cont_ElOffset']).nonzero()
+    tracksrcflag[offsource] = False
+    
     return {'dAzimuth':daz,   'ActualAzimuth':az_act,  'RequestedAzimuth':az_req,
             'dElevation':delv,'ActualElevation':el_act,'RequestedElevation':el_req,
-            'ParallacticAngle':chi/dtor, 'TrackFlag':trackflag}
+            'ParallacticAngle':chi/dtor, 'TrackFlag':trackflag, 'TrackSrcFlag':tracksrcflag}
             
 def PA_adjust(ant=None, crossed=False):
     ''' Spawned task to check the changing parallactic angle of given

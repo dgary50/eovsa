@@ -96,6 +96,10 @@
 #    Now determines the proportion of time for each fem attenuation state within integration 
 #    time dt and returns a dictionary for each antenna and integrated time sample.  This 
 #    required corresponding changes to apply_fem_level().
+#  2021-02-03  DG
+#    Added check for intentional offsets.  An antenna is tracking the source only when
+#    it is tracking the requested position (TrackFlag is True) AND the requested position
+#    is not intentionally offset from the source (TrackSrcFlag is True).
 #
 
 import dbutil as db
@@ -462,7 +466,7 @@ def unrot(data, azeldict=None):
     chi[:, [8, 9, 10, 12, 13]] = 0  # Currently 0, but can be measured and updated
 
     # Which antennas are tracking
-    track = azeldict['TrackFlag']  # True if tracking
+    track = np.logical_and(azeldict['TrackFlag'], azeldict['TrackSrcFlag'])  # True if tracking and no intentional offsets
 
     # Ensure that nearest valid parallactic angle is used for times in the data
     good = np.where(azeldict['ActualAzimuth'] != 0)
