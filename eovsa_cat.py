@@ -63,7 +63,12 @@ def load_geosats():
         of RadioGeosat objects containing all satellites. (List contains 399 sats as of 6/19/14.)
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
-    f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/geo.txt')
+    try:
+        f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/geo.txt')
+    except urllib2.URLError as err:
+        print 'Error reading GEO satellite web file:', err
+        return []
+        
     lines = f.readlines()
     f.close()
     nlines = len(lines)
@@ -89,7 +94,11 @@ def load_gpssats():
         of RadioGeosat objects containing all satellites. (List contains 31 sats as of 2/26/2019.)
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
-    f = urllib2.urlopen('https://celestrak.com/NORAD/elements/gps-ops.txt')
+    try:
+        f = urllib2.urlopen('https://celestrak.com/NORAD/elements/gps-ops.txt')
+    except urllib2.URLError as err:
+        print 'Error reading GPS satellite web file:', err
+        return []
     lines = f.readlines()
     f.close()
     nlines = len(lines)
@@ -115,7 +124,12 @@ def load_o3bsats():
         of RadioGeosat objects containing all satellites.  
     '''
     # Retrieve TLE file for o3b satellites from Celestrak site.
-    f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/other-comm.txt')
+    try:
+        f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/other-comm.txt')
+    except urllib2.URLError as err:
+        print 'Error reading ob3 satellite web file:', err
+        return []
+
     lines = f.readlines()
     f.close()
     nlines = len(lines)

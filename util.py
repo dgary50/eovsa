@@ -1171,7 +1171,8 @@ def get_idbdir(t=None, usejsonfile=True):
         if t is None:
             # Default to current time
             t = Time.now()
-        if t < dbarrsort['tobj'][0]:
+        print t.mjd, dbarrsort['tobj'][0].mjd
+        if t.mjd < dbarrsort['tobj'][0].mjd:
             print('The date provided with t is before the time of the EOVSA first light. t is reset to {}.'.format(
                 dbarrsort[0]['date']))
             t = dbarrsort['tobj'][0]

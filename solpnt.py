@@ -77,7 +77,14 @@
 #      Program crashed if both low and high bounds of gausfit conspired to be zero
 #      in process_tsys().  Data are checked for all zeros and high bounds is artificially
 #      set to nonzero.  Fit still fails, but no crash (hopefully).
-#      
+#   2021-Feb-17  DG
+#      The above problem still managed to lead to a crash, so the process_tsys() code 
+#      was slightly modified to fix that rare circumstance.  
+#   2021-Apr-23  DG
+#      Catch curve_fit RuntimeError and return zeros for fit. 
+#   2021-May-18  DG
+#      Annoyingly, my change on 2021-Feb-17 caused further problems, hopefully improved
+#      with further changes to process_tsys().
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -296,8 +303,11 @@ def gausfit(X,data, bounds=None):
 #        return np.zeros(4),[0,1],[0,1]
 
 #    plsq = leastsq(residuals, p0, args=(data, X))
-    popt, pcov = curve_fit(func, X, data, bounds=bounds)
-
+    try:
+        popt, pcov = curve_fit(func, X, data, bounds=bounds)
+    except RuntimeError:
+        # Parameters not found--just return all zeros
+        return [0.0,0.0,0.0,0.0],np.zeros(100),np.zeros(100)
     x = np.linspace(xmin,xmax,100)
     y = func(x, *popt)
     #plt.plot(x,peval(x, plsq[0]), X, data, 'o')
@@ -642,18 +652,28 @@ def process_tsys(otp, proc, pol=None, skycal=None):
             ydata = rao[ifreq,:,iant]
             allzero = len(ydata.nonzero()[0]) == 0  # True if all data are zero
             xdata = raopts
-            low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
-            high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
+            ymax = np.nanmax(ydata)
+            ymin = np.nanmin(ydata)
+            yrange = ymax - ymin
+            low_bounds =  [0.1*yrange, -30000., aout[ifreq]*0.9, ymin - 0.1*yrange]
+            high_bounds = [1.0*yrange,  30000., aout[ifreq]*1.1, ymin + 0.1*yrange]    
             if allzero:
                 high_bounds[0] = 1  # Ensure that high bounds are greater than low bounds
                 high_bounds[3] = 1
             bounds = (low_bounds,high_bounds)
+            #if iant == 1 and ifreq == 30:
+            #    import pdb; pdb.set_trace()
             pra[:,ifreq,iant], x, y = gausfit(xdata, ydata, bounds=bounds)
             ydata = deco[ifreq,:,iant]
             allzero = len(ydata.nonzero()[0]) == 0  # True if all data are zero
             xdata = decopts
-            low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
-            high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
+            ymax = np.nanmax(ydata)
+            ymin = np.nanmin(ydata)
+            yrange = ymax - ymin
+            low_bounds =  [0.1*yrange, -30000., aout[ifreq]*0.9, ymin - 0.1*yrange]
+            high_bounds = [1.0*yrange,  30000., aout[ifreq]*1.1, ymin + 0.1*yrange]    
+#            low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
+#            high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
             if allzero:
                 high_bounds[0] = 1  # Ensure that high bounds are greater than low bounds
                 high_bounds[3] = 1

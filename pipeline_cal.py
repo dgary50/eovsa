@@ -459,6 +459,7 @@ def unrot(data, azeldict=None):
     import copy
     trange = Time(data['time'][[0, -1]], format='jd')
 
+#    import pdb; pdb. set_trace()
     if azeldict is None:
         azeldict = get_sql_info(trange)
     chi = azeldict['ParallacticAngle'] * np.pi / 180.  # (nt, nant)

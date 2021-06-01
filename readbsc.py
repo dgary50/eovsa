@@ -26,10 +26,22 @@
 # 2016-Jan-26  DG
 #   Changed analyze_stars() to skip submission of image if wcs file already
 #   exists in the directory.
+# 2021-May-29  DG
+#   A couple of small changes to analyze_stars() to account for differences with
+#   the ZWO software (relative to MaxIm DL).  It should work for either.  Another
+#   very important change is to add --crpix-center to the call to astropy.net so
+#   that the wcs files returned are using the image center as the reference
+#   pixel!  The whole scheme depends on that, so it was failing before...
+# 2021-May-31  DG
+#   Added filter_images() routine, and two helper routines (chkimg and star_shape)
+#   to find the best images for each star and save them to another folder.  It does
+#   this based on a 2D Gaussian fit to the brightest star and finding the smallest
+#   area for all of the images of each pointing.  One an optionally see the fit
+#   results.
 #
 # Must be run from Dropbox/PythonCode/Current directory
 
-from numpy import array, zeros, ones, arange, where, argsort, sort, pi
+from numpy import array, zeros, ones, arange, where, argsort, sort, pi, median, argmin
 from util import *
 import ephem
 import datetime as dt
@@ -338,6 +350,7 @@ def starobs2dxeldel(filename=None,hadec=False):
         Num   Name        RA(J2000)    Dec(J2000)    RA(Meas)      Dec(Meas)  Time(Meas)
         ==== ========== ============ ============= ============ ============= ==========
           37 BD-18   14  0:12:10.000 -17:56:18.000  0:15:54.000 -18:35:23.000  02:38:00
+        4203  42 LMi     10:45:51.90   30:40:56.0  10:50:11.55   30:56:25.0    05:11:53.208
         """
 
     if filename is None:
@@ -461,15 +474,25 @@ def analyze_stars(yr, mo, da, radius=3):
     # Convert times to Time object
     times = Time(array(times))
     # Read image file list
-    filelist = sort(glob.glob('*.fts'))
+    # Try to file MaxIm DL extension, and if none, try ZWO
+    filelist = glob.glob('*.fts')   # MaxIm DL extension
+    if filelist == []:
+        filelist = glob.glob('*.fit')   # ZWO extension
+    filelist = sort(filelist)
     wcslist = array(sort(glob.glob('*.fits')))
     idxlist = []   # List of indexes into table that were processed
     ftimes = []    # List of times for files that were processed
+    #import pdb; pdb.set_trace()
     for file in filelist:
         # Gather information from file header
         hdulist = fits.open(file)
-        f_datestr = hdulist[0].header['date-obs']
-        f_timestr = hdulist[0].header['time-obs']
+        try:
+            # Case of MaxIm DL data header
+            f_timestr = hdulist[0].header['time-obs']
+            f_datestr = hdulist[0].header['date-obs']
+        except:
+            # Case of ZWO data header
+            f_datestr, f_timestr = hdulist[0].header['date-obs'].split('T')
         f_time = Time(f_datestr+' '+f_timestr)
         # Identify star from time
         try:
@@ -494,7 +517,7 @@ def analyze_stars(yr, mo, da, radius=3):
                 command = ['python','/common/python/current/astronet.py','--apikey='+apikey,'--upload='+file,
                        '--ra='+str(RA_J2000[idx].radians*radeg),'--dec='+str(Dec_J2000[idx].radians*radeg),
                        #'--scale-lower=0.3','--scale-upper=1','--downsample=1',
-                       '--radius='+str(radius),'--wcs=wcs_'+file[:-3]+'fits']
+                       '--radius='+str(radius),'--wcs=wcs_'+file[:-3]+'fits','--crpix-center']
                 # print 'Sending:',command
                 p = subprocess.Popen(command,stdout=subprocess.PIPE)
                 tstart = time.time()
@@ -517,7 +540,107 @@ def analyze_stars(yr, mo, da, radius=3):
         f.write(outline+'\n')
     f.close()
          
-        
-            
+def chkimg(p, sub, title):
+    import matplotlib.pylab as plt
+    from numpy import mgrid
+    plt.imshow(sub)
+    y, x = mgrid[:60,:60]
+    plt.contour(p(x,y))
+    plt.title(title)
+    plt.show()
+    ans = raw_input('Image Okay [y/n] ?')
+    plt.clf()
+    if ans.upper() == 'N':
+        return False
+    else:
+        return True
 
-    
+def filter_images(startable, imgfolder, showimgs=False):
+    ''' Filters the >1000 images taken by ZWO camera down to only one
+        per star.
+        
+        Input:
+          startable    Path and filename of the original star table created 
+                         by do_stars.
+          imgfolder    Path to the folder containing the >1000 star images
+          showimgs     Option to display each selected image and wait for 
+                         confirmation.  If rejected, star is skipped.
+    '''
+    import glob, os
+    from astropy.io import fits
+    from numpy import logical_and
+    fh = open(startable,'r')
+    lines = fh.readlines()
+    lines = lines[2:]   # Remove two header lines
+    nlines = len(lines)
+    ti = []
+    for line in lines:
+        ti.append(Time(line.strip()[-19:]).mjd)    # Time of each line in startable, in mjd
+    fh.close()
+
+    files = glob.glob(imgfolder+'/*.fit')
+    # Simplify filenames by removing all the crap before the time.
+    for file in files:
+        basename = os.path.basename(file)
+        if len(basename) > 31:
+            os.rename(file,imgfolder+'/'+basename[-31:])
+    files = glob.glob(imgfolder+'/*.fit')
+    files.sort()
+    # Sorted list of times of star image files, in mjd
+    ftimes = []
+    for file in files:
+        fp = file[-31:-14].replace('_',' ')
+        ftimes.append(Time(fp[:13]+':'+fp[13:15]+':'+fp[15:]).mjd)
+    ftimes = array(ftimes)
+    # Make new folder of date
+    datstr = Time(ti[0],format='mjd').iso[:10]
+    dirname = os.path.dirname(startable)
+    # Create output folder for images if is does not exist
+    outdir = dirname+'/'+datstr
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    for i in range(len(ti)):
+        if i == 49:
+            jfiles, = where(ftimes > ti[i]+30./86400)
+        else:
+            jfiles, = where(logical_and(ftimes > ti[i]+30./86400,ftimes < ti[i+1]))
+        jbest = jfiles[0]
+        prev_area = 9999.
+        for j in jfiles:
+            img = fits.getdata(files[j])
+            p, sub, area = star_shape(img)
+            if area < prev_area:
+                jbest = j
+                prev_area = area
+        good = True
+        if showimgs:
+            img = fits.getdata(files[jbest])
+            print jbest,':',
+            p, sub, area = star_shape(img)
+            title = 'Star '+lines[i][4:15]+lines[i].strip()[-9:]+'/'+Time(ftimes[jbest],format='mjd').iso[10:19]
+            good = chkimg(p, sub, title)
+        if good:
+            fc = files[jbest]  # Selects best file
+            os.rename(fc,outdir+'/'+os.path.basename(fc))
+
+def star_shape(img):
+    from astropy.modeling import models, fitting
+    from numpy import argmax, mgrid
+    pk = argmax(img)
+    xpk = pk % 1280
+    ypk = pk/1280
+    sub = img[ypk-30:ypk+30,xpk-30:xpk+30]
+    ny, nx = sub.shape
+    fit_g = fitting.LevMarLSQFitter()
+    g_init = models.Gaussian2D(amplitude=1.0, x_mean=0., y_mean=0., x_stddev=1., y_stddev=1.)
+    y, x = mgrid[:ny,:nx]
+    try:
+        p = fit_g(g_init,x,y,sub)
+        ax = p.x_stddev.value
+        ay = p.y_stddev.value
+        area = ax*ay
+        print '{:6.2f}, {:6.2f}; {:7.2f}'.format(ax,ay,area)
+        return p, sub, area
+    except:
+        print 'No fit'
+        return None, None, 9999.

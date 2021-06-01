@@ -303,6 +303,17 @@
 #    2021-Jan-31  DG
 #      Rename existing /tmp/schedule.log file to /tmp/schedule_old.log for debug
 #      purposes.
+#    2021-May-09  DG
+#      Major change to DCM.txt.  Today I learned that the DCM attenuations are
+#      switching correctly, but with a lag of 7 slots (140 ms), which means that
+#      the desired attenuation settings were not getting applied.  This
+#      rather badly messed up the ADC levels, but it was never possible to know
+#      this until recently when we created a means to synchronously measure
+#      the ADC levels.  A change was made to sequence2dcmtable() to simply
+#      rotate the list of attenuation settings used by the system (file 
+#      DCM_table.txt) by 7 lines to compensate.  If the lag amount ever changes,
+#      or the code sending the DCM attenuations is fixed, simply change the
+#      value of "lag" accordingly (0 for no lag). 
 #
 
 import os, signal
@@ -2099,11 +2110,19 @@ class App():
         dcm_m_attn = stateframe.extract(buf,dcm['Attenuation'])
         dcm_attn = dcm_m_attn[bands]
         lines = []
-        g = open('DCM_table.txt','w')
         for line in dcm_attn:
             l = ' '.join(map(str,line))
             lines.append(l)
-            g.write(l+'\n')
+        # On 2021 May 09, it was determined that the attenuation table is only
+        # applied in the DCM after some lag, which at present is 0 slots.
+        lag = 0   # Change this if needed to account for a different lag (lag=0 for no lag)
+        # This rotates the lines list by the number of entries given by lag
+        lines = lines[-lag:] + lines[:-lag]
+#        for i in range(lag):
+#            lines.append(lines.pop(0))
+        g = open('DCM_table.txt','w')
+        for line in lines:
+            g.write(line+'\n')
         g.close()
         cal_header.dcm_table2sql(lines)
         # Connect to ACC /parm directory and transfer scan_header files

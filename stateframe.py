@@ -81,7 +81,6 @@
 #   2021-Feb-03  DG
 #      Added a tracksrcflag to indicate when the antennas are supposed to be
 #      tracking the source (i.e. no intentional offsets).
-#
 
 import struct, sys
 import socket

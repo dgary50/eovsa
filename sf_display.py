@@ -90,6 +90,9 @@
 #   2021-Jan-30 DG
 #      Add error case for writing stateframe log to disk--if write fails it just prints
 #      an error message to the screen.
+#   2021-Feb-11 OG
+#       Added section to display most recent IDB file. Will be highlighted in
+#       red if older than 15 minutes.
 
 from Tkinter import *
 from ttk import *
@@ -330,7 +333,7 @@ class App():
                           font=font2use)
         self.L3.bind('<<ListboxSelect>>', self.toggle_heading)
         self.L3.pack(side=LEFT, fill=BOTH, expand=0)
-        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0]
+        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0, 1]
         self.colors = {'section0': '#757', 'section1': '#979',
                        'colhead': '#cfc', 'error': '#f88', 'warn': '#ff8',
                        'na': '#ddd', 'offsets': '#feb'}
@@ -460,7 +463,10 @@ class App():
 
         # Start the clock ticking
         self.root.after(1000 - int((t.datetime.microsecond)/1000.),self.inc_time)
-
+        
+        # Get the most recent IDB file
+        self.IDBfile = getIDBfile()
+        
     def quit(self):
         exit()
 
@@ -1038,6 +1044,7 @@ class App():
     #for i in range(len(self.antlist)):
         #    self.L[i].yview_moveto(pos[0])
 
+    
     def update_display(self,data):
 
         self.L3.delete(0,END)
@@ -1575,6 +1582,25 @@ class App():
                 an='  '+'{:2d}'.format(i+1)+":   "
                 self.L3.insert(END,an+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
 
+        # ================= Section 9: Last IDB File ===================
+        
+        t=Time.now() 
+        if int(t.mjd * 86400.0) % 60 == 0:
+            self.IDBfile = getIDBfile()
+        
+        heading = 'Last IDB File: '+self.IDBfile
+        self.L3.insert(END,heading)
+           
+        if self.IDBfile == "":
+            self.L3.itemconfig(END,bg=self.colors['error'])
+        else:
+            ct=Time(self.IDBfile[3:7]+"-"+self.IDBfile[7:9]+"-"+self.IDBfile[9:11]+" "+self.IDBfile[11:13]+":"+self.IDBfile[13:15]+":"+self.IDBfile[15:17])
+            if (t.mjd-ct.mjd)*86400 > 900.0:
+                self.L3.itemconfig(END,bg=self.colors['error'])
+            else:
+                self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
+        
+            
     def cryo_display(self,data):
         ''' Creates the CryoRX page to display Cryo Receiver information
         '''
@@ -2178,6 +2204,15 @@ def plot_creator(frame,name,number):
     #canvas._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
     return sub_plot, canvas
+
+def getIDBfile():
+    try:
+        with open('/common/webplots/IDBlist.txt') as f:
+            for line in f:
+                pass
+            return line.rstrip()
+    except IOError as error:
+        return ""
 
 app = App()
 

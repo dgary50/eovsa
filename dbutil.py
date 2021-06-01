@@ -260,8 +260,7 @@ def get_reboot(trange,previous=False):
             t_reboot = t_reboot[1:]
     return Time(t_reboot,format='mjd')
 
-
-def loadsfdata(fld,trange,ant):
+def loadsfdata(fld,trange,ant,increment=None):
     '''This function takes in a list of stateframe parameters, a time
     range and an antenna number, and retrieves the parameters as well as
     the timestamps.
@@ -271,6 +270,7 @@ def loadsfdata(fld,trange,ant):
         of the data end end of the data to be retrieved.
     ant is the antenna number. At the moment it only retrieves data from
         one antenna.
+    increment is an optional parameter that extracts data every interval seconds
     
     It returns the retrieved data as a dictionary and an error mesage on
     failure 'Success' on successful data read.
@@ -287,12 +287,15 @@ def loadsfdata(fld,trange,ant):
     
     for f in fld:
         query+=','+f
-    query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
-    data,msg=do_query(cursor,query)
+    if interval == None:
+        query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+    else:
+        query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
     
+    data,msg=do_query(cursor,query)
     return data,msg
 
-def plotsfdata(fld,trange,ant,plottitle=None):
+def plotsfdata(fld,trange,ant,plottitle=None,interval=None):
     '''This function takes in a list of stateframe parameters, a time
     range, an antenna number and an optional title, and plots the
     parameters against time.
@@ -310,11 +313,13 @@ def plotsfdata(fld,trange,ant,plottitle=None):
     Example: to plot both the TEC and FEM temperatures from ant5 for
         the time range 00:00:00 to 04:00:00 on 2020-11-29 you would 
         issue the command:
-        data=dbutile.plotsfdata(['Ante_Fron_TEC_Temperature','Ante_Fron_FEM_Temperature'],
+        data=dbutil.plotsfdata(['Ante_Fron_TEC_Temperature','Ante_Fron_FEM_Temperature'],
         ['2020-11-29 00:00:00','2020-11-29 04:00:00'],5,'TEC and FEM Temperature')'''
         
     import matplotlib.pyplot as plt
-    data,msg=loadsfdata(fld,trange,ant)
+    
+    data,msg=loadsfdata(fld,trange,ant,interval)
+        
     print msg
     if msg != "Success":
         return None
@@ -330,3 +335,105 @@ def plotsfdata(fld,trange,ant,plottitle=None):
         plt.title(plottitle)
     plt.legend(handles=handles)
     return data
+
+def loadsfdata_anta(fld,trange,interval=None):
+    '''This function takes in a list of stateframe parameters specific to
+    Antenna A (14) and a time range and retrieves the parameters as well 
+    as the timestamps.
+    
+    fld is a list of parameters
+    trange is a list of two times represted as an iso string, the start 
+        of the data end end of the data to be retrieved.
+    increment is an optional parameter that extracts data every interval seconds
+    
+    It returns the retrieved data as a dictionary and an error mesage on
+    failure, 'Success' on successful data read.
+    
+    Example: to retrieve both the TEC and FEM temperatures from ant5 for
+        the time range 00:00:00 to 04:00:00 on 2020-11-29 you would 
+        issue the command:
+        data, msg = dbutil.loadsfdata(['Ante_Fron_TEC_Temperature','Ante_Fron_FEM_Temperature'],
+        ['2020-11-29 00:00:00','2020-11-29 04:00:00'],5)'''
+    
+    cursor = get_cursor()
+    query='select Timestamp'
+    tr=Time(trange).lv.astype(int)
+    
+    for f in fld:
+        query+=','+f
+    if interval==None:
+        query+=' from fV66_vD1 where Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+    else:
+        query+=' from fV66_vD1 where Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
+        
+    data,msg=do_query(cursor,query)
+    
+    return data,msg
+
+def plotsfdata_anta(fld,trange,plottitle=None,ignore=None,interval=None):
+    '''This function takes in a list of stateframe parameters specific to 
+    antenna A (14) and a time range and plots the parameters against time.
+    
+    fld is a list of parameters
+    trange is a list of two times represted as an iso string, the start 
+        of the data end end of the data to be retrieved.
+    
+    plottitle is an optional title that is to be display on the plot.
+    
+    ignore is an optional parameter that will remove any data points whose
+        y values have the same value as ignore. If not present all values
+        will be plotted
+         
+    It returns a dictionary with the extracted data. If an error ocuured it 
+    returns None'''
+    
+    import matplotlib.pyplot as plt
+    data,msg=loadsfdata_anta(fld,trange,interval)
+    print msg
+    if msg != "Success":
+        return None
+    
+    if ignore!=None:
+        for f in fld:
+            data[f]=np.ma.masked_where(data[f]==ignore,data[f])
+            
+    dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
+    handles=[]   
+    for f in fld:
+        a, =plt.plot(dt,data[f].astype(float),label=f)
+        handles.append(a)
+    plt.ylabel('Value')
+    plt.xlabel('Universal Time')
+    if plottitle is not None:
+        plt.title(plottitle)
+    plt.legend(handles=handles)
+    return data
+
+def writesfdata_anta(fld,trange,outfile,delim=" ",ignore=None,interval=None):
+    data,msg=loadsfdata_anta(fld,trange,interval)
+    print msg
+    if msg != "Success":
+        return
+    
+    dt=Time(data['Timestamp'].astype(float),format='lv').iso
+    
+    lines=[]
+    for i,t in enumerate(dt):
+        l=(t[0:19])
+        mask=False
+        for f in fld:
+            if ignore!=None:
+                if data[f][i]==ignore:
+                    mask=True
+                    break
+                else:
+                    l=l+delim+str(data[f][i])
+            else:
+                l=l+delim+str(data[f][i])
+                
+        if not mask:
+            lines.append(l)
+            
+    if len(l)>0:
+        with open(outfile, 'w') as filehandle:
+            filehandle.writelines("%s\n" % l for l in lines)

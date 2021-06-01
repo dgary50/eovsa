@@ -121,6 +121,10 @@
 #    I found a better way to determine the correction factor using the SK m values to
 #    adjust for variations in power level due to different numbers of subchannels.
 #    Also added a test for date that allows this to work for older and newer data.
+#  2021-06-01  DG
+#    It seems the IDB files occasionally have time glitches where the time jumps back,
+#    I think due to resetting the network every 15 minutes.  Now readXdata() just skips
+#    such records.
 #
 
 import aipy
@@ -318,6 +322,9 @@ def readXdata(filename, filter=False, tp_only=False, src=None, desat=False):
                         # Time is 1970-01-01, which means a zero-filled record, so skip
                         # the entire thing.
                         continue
+                    if t < tprev:
+                        # Some kind of glitch, so skip the whole thing
+                        continue
                     # New time 
                     l += 1
                     if l == 600:
@@ -353,6 +360,9 @@ def readXdata(filename, filter=False, tp_only=False, src=None, desat=False):
                 if t == 2440587.5:
                     # Time is 1970-01-01, which means a zero-filled record, so skip
                     # the entire thing.
+                    continue
+                if t < tprev:
+                    # Some kind of glitch, so skip the whole thing
                     continue
                 l += 1
                 if l == 600:
@@ -421,17 +431,34 @@ def autocorr_desat(out):
     '''
     from scipy.special import erf    
     def eta_f(x, A):
+        ''' This is the desaturation fuction for data taken with equalizer coefficient 8.0,
+            which is data prior to 5/16/2021.
+        '''
         a,b,c,d = [1.22552, 1.37369, 2.94536, 2.14838]  # Parameters define the invariant saturation curve
         eta = (x + d - c)/(a*erf((x-c)/b) + d)
         bad = np.where(A < 50)
         eta[bad] = 1.0
         return eta
         
+    def eta_2(x, A):
+        ''' This is the desaturation fuction for data taken with equalizer coefficient 2.0,
+            which is data after to 5/16/2021.
+        '''
+        a1,b1,c1,d1 = [0.88025122, 1.0221639 , 4.39845723, 2.38911615]
+        a2,b2,c2,d2 = [2.28517281, 2.64619331, 4.38657476, 2.37753165]
+        hi = np.where(A > 300)
+        low = np.where(A <= 300)
+        eta = np.ones_like(x)
+        eta[hi] = (x[hi] + d1 - c1)/(a1*erf((x[hi]-c1)/b1) + d1)
+        eta[low] = (x[low] + d2 - c2)/(a2*erf((x[low]-c2)/b2) + d2)
+        return eta
+        
     nant = 16
     # Determine required "m" value for standardized power level.  The power changes
     # depending on number of channels averaged, etc., and the SK m value keeps track
     # of all of that.
-    if Time(out['time'][0],format='jd').mjd > 58536:
+    mjd = Time(out['time'][0],format='jd').mjd
+    if mjd > 58536:
         m0 = 745472.  # Standard for most recent data (325 MHz bandwidth)
     else:
         m0 = 721536.  # Standard for earlier data (ca. 2017)
@@ -451,10 +478,17 @@ def autocorr_desat(out):
 #        Py[:,i] *= n/n0
     x = np.log10(Px)
     # Calculate correction for X pol (returns size [nant, nf, nt])
-    eta_x = eta_f(x, abs(out['a'][:,0]))
+    if mjd < 59350:  # 2021-05-16
+        eta_x = eta_f(x, abs(out['a'][:,0]))
+    else:
+        eta_x = eta_2(x, abs(out['a'][:,0]))
+
     x = np.log10(Py)
     # Calculate correction for Y pol (returns size [nant, nf, nt])
-    eta_y = eta_f(x, abs(out['a'][:,1]))
+    if mjd < 59350:  # 2021-05-16
+        eta_y = eta_f(x, abs(out['a'][:,1]))
+    else:
+        eta_y = eta_2(x, abs(out['a'][:,1]))
     eta = np.zeros_like(out['x'])
     # Loop over baselines for cross-correlation and calculate correction for 
     # different polarization states.

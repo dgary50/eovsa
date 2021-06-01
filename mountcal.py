@@ -319,14 +319,15 @@ def mountcal(filename=None,param_string=None,star=True):
     plt.ylabel('Elevation Offset [deg]')
     plt.title('Pointing Relative to Solar Disk')
     th = np.linspace(0,2*np.pi,100)
-    plt.plot(0.25*np.cos(th),0.25*np.sin(th),np.array(azpo),np.array(elpo),'+')
+    plt.plot(0.25*np.cos(th),0.25*np.sin(th),np.array(azpo),np.array(elpo),'+',color='C0')
+    plt.plot(0.25*np.cos(th),0.25*np.sin(th),np.array(azpo)-np.array(azfit),np.array(elpo)-np.array(elfit),'+',color='C1')
     # Set plot size
     fig = plt.gcf()
     fig.set_size_inches(10.0,8.0)
     tok = filename.split('/')
     stem = tok[len(tok)-1].split('.')[0]
     plt.savefig(stem+'.pdf')
-    plt.close()
+    #plt.close()
     
 
 #+
