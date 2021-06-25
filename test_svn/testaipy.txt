@@ -1,0 +1,30 @@
+import aipy
+filex = '/dppdata1/IDB/IDB20160313201507'
+uv = aipy.miriad.UV(filex)
+
+ufilename = 'test_udb_uv'
+uvout = aipy.miriad.UV(ufilename, 'new')
+
+nrv_varlist_string = ['name', 'telescop', 'project', 'operator', 'version', 'source', 'scanid', 'proj', 'antlist', 'obstype']
+for j in range(len(nrv_varlist_string)):
+uvout.add_var(nrv_varlist_string[j], 'a')
+uvout[nrv_varlist_string[j]] = uv[nrv_varlist_string[j]]
+#endfor
+
+nrv_varlist_int = ['nants', 'nchan', 'nspect', 'npol']
+for j in range(len(nrv_varlist_int)):
+uvout.add_var(nrv_varlist_int[j], 'i')
+uvout[nrv_varlist_int[j]] = uv[nrv_varlist_int[j]]
+#endfor
+
+nrv_varlist_rl = ['vsource', 'veldop', 'inttime', 'epoch']
+for j in range(len(nrv_varlist_rl)):
+uvout.add_var(nrv_varlist_rl[j], 'r')
+uvout[nrv_varlist_rl[j]] = uv[nrv_varlist_rl[j]]
+    #endfor
+
+nrv_varlist_rl8 = ['freq', 'restfreq', 'antpos', 'ra', 'dec', 'obsra', 'obsdec']
+for j in range(len(nrv_varl8ist_rl8)):
+uvout.add_var(nrv_varl8ist_rl8[j], 'd')
+uvout[nrv_varlist_rl8[j]] = uv[nrv_varlist_rl8[j]]
+    #endfor

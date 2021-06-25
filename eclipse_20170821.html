@@ -1,0 +1,410 @@
+<HTML>
+
+<HEAD>
+<TITLE> Javascript Movie Player </TITLE>
+
+</HEAD>
+
+<BODY FONT=3 BGCOLOR=FFFFFF LINK=#0000CC VLINK=#0000CC TEXT=#000000>
+
+<SCRIPT language="Javascript">
+<!--
+//
+// DYNAMICALLY CREATED HTML - DO NOT EDIT
+//
+// Javascript program to produce fast animations by reading from cache
+// Written: 7 July 1997, Zarro, NASA/GSFC
+// Modified: 27 July 1997, Freeland, LSAL - added nice SWING option
+// Modified: 9 Oct 1998, Zarro, SMA/GSFC - added context window button
+// Modified: 14 Oct 1998, Zarro, SMA/GSFC - load images asynchronously
+// Modified: 23 Aug 1999, William Thompson, GSFC - make button text black
+
+// Following variables control movie speed, labels, etc.
+
+var imax = 90, inc = 1.50, delay = 250;
+var num_loaded_images = 0;
+var frame=-1, speed=8;
+var timeout_id=null;
+var dir=1, playing=0, swingon=0, run=0;
+var bname = "Reverse";
+var url_path = ".";
+var context = "frame00.gif";
+var ctitle ="test";
+var url_context=url_path+"/"+context;
+var iwidth = 600,iheight = 600;
+var index=0;
+
+// -->
+</SCRIPT>
+
+<CENTER>
+
+<H1> Javascript Movie Player </H1>
+<P>
+
+<TABLE BORDER="10" CELLPADDING="8">
+<TR>
+<TD align="center">
+<img NAME=animation ALT="FRAME" width=600 height=600>
+</TR>
+</TABLE>
+<P>
+
+<FORM NAME="form">
+ <FONT COLOR="Black">
+ <INPUT TYPE=button VALUE="Start" onClick="start_play();">
+ <INPUT TYPE=button VALUE="Pause" onClick="stop_play();">
+ <INPUT TYPE=button VALUE="Faster" onClick="speed*=inc; show_speed();">
+ <INPUT TYPE=button VALUE="Slower" onClick="speed/=inc; show_speed();">
+ <INPUT TYPE=button VALUE="Step" onClick="oneStep();">
+ <INPUT TYPE=button NAME="direction" VALUE="Reverse" onClick="reverse();">
+ <INPUT TYPE=button VALUE="Swing Mode:" onClick="swing_mode();">
+ <INPUT TYPE=text VALUE="OFF" NAME="swing" SIZE=3>
+
+ </FONT>
+ <BR>
+ Frame: <INPUT TYPE=text VALUE="" NAME="frame" SIZE=22>
+ &nbsp; Speed:<INPUT TYPE=text VALUE="" NAME="rate" SIZE=4> (frames/sec)
+</FORM>
+
+</FORM>
+</CENTER>
+
+<P>
+<HR>
+<B>Document</B>: <I><SCRIPT>document.write(document.title);</SCRIPT></I><BR>
+<B>URL</B>: <I><SCRIPT>document.write(document.URL);</SCRIPT></I><BR>
+<B>Last Update</B>: <I><SCRIPT>document.write(document.lastModified);</SCRIPT></I><BR>
+
+
+<SCRIPT LANGUAGE="JavaScript">
+<!--
+
+function get_window_width(fac,def) {  // Return window width
+
+
+var width;
+if (!fac) {fac=.75;}
+if (!def) {def=512;}
+
+if (window.screen) {
+ width=parseInt(fac*parseFloat(window.screen.width));
+} else {
+ width=def;
+}
+
+return width;
+
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+function get_window_height(fac,def) {   // Return window height
+
+
+var height;
+if (!fac) {fac=.75;}
+if (!def) {def=512;}
+
+if (window.screen) {
+ height=parseInt(fac*parseFloat(window.screen.height));
+} else {
+ height=def;
+}
+
+return height;
+
+}
+
+/////////////////////////////////////////////////////////////////////////////
+// Javascript Pop-up image Window
+// Written: Zarro (SAC/GSFC), October 1998, (dzarro@solar.stanford.edu)
+
+var win;
+
+function pop_img(url,title,width,height) {
+
+if (!url) {
+ alert('Image URL not entered');
+ return false;
+}
+
+// default to fit within 75% of browser window, or 512x512
+
+if (!width) {width=get_window_width(.75,512);}
+if (!height) {height=get_window_height(.75,512);}
+
+if (!win || win.closed) {
+ win = open("","img","width="+width.toString()+",height="+height.toString()+",scrollbars=yes,resizable=yes");
+}
+
+// dynamically create HTML, adding a CLOSE button
+
+if (win) {
+ d=win.document;
+ d.write('<html><head><title>Image Window</title></head><body bgcolor="white"><center>');
+ if (title) {
+  d.write('<h1>'+title+'</h1>');
+ }
+ d.write('<img src='+url+'>');
+ d.write('<br><br><br>');
+ d.write('<form><b><input type="button" value="CLOSE" onClick="self.close();"></b></form></center>');
+ d.write('</html></body>');
+ d.close();
+ win.focus();
+}
+
+return true;
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function load_img() {        // asynchronously load all images into cache
+ for (i=0; i < imax ; i++) {
+  id[i]=setTimeout("load_src()",0);
+ }
+ return;
+}
+/////////////////////////////////////////////////////////////////////////////
+
+function load_src() {      // load individual images into cache
+
+ if (index < imax) {
+  if (iwidth && iheight) {
+   images[index] = new Image(iwidth,iheight);
+  } else {
+   images[index] = new Image();
+  }
+  images[index].onload=count_images;
+  images[index].src = urls[index];
+  index++;
+ }
+ return;
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+function clear_ids() {         // clear asynchronous id's
+ for (i=0; i < imax ; i++) {clearTimeout(id[i]);}
+ return;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+function count_images() // count images as they are loaded into cache
+{
+ if (++num_loaded_images == imax) {
+  show_speed();
+  clear_ids();
+  animate();
+ } else {
+  document.animation.src=images[num_loaded_images-1].src;
+  document.form.frame.value="Loading "+num_loaded_images+" of "+imax;
+ }
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function image_abort() //  abort loading images
+{
+ imax=num_loaded_images;
+ if (!images[num_loaded_images].complete) imax=imax-1;
+ alert("Aborting");
+ if (imax > -1) animate();
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function image_error(message) //  abort loading images
+{
+ alert(message);
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function start_play()  // start movie
+{
+ if (playing == 0) {
+  if (timeout_id == null && num_loaded_images==imax) animate();
+ }
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function stop_play() // stop movie
+{
+ if (timeout_id) clearTimeout(timeout_id);
+  timeout_id=null;
+  playing = 0;
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function swing_mode()    // set swing mode
+{
+ if (swingon) {
+  swingon=0;
+  document.form.swing.value="OFF";
+ }
+  else {
+  swingon=1;
+  document.form.swing.value="ON";
+ }
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function animate()  // control movie loop
+{
+ var j;
+ frame=(frame+dir+imax)%imax;
+ j=frame+1;
+ if (images[frame].complete) {
+  document.animation.src=images[frame].src;
+  document.form.frame.value="Displaying "+j+" of "+imax;
+  if (swingon && (j == imax || frame == 0)) reverse();
+  timeout_id=setTimeout("animate()",delay);
+  playing=1;
+ }
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function oneStep() // step frames
+{
+ var j;
+ if (timeout_id) clearTimeout(timeout_id); timeout_id=null;
+ frame=(frame+dir+imax)%imax;
+ j=frame+1;
+ if (images[frame].complete) {
+  document.animation.src=images[frame].src;
+  document.form.frame.value="Displaying "+j+" of "+imax;
+  playing=0;
+ }
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function reverse()  // reverse direction
+{
+ dir=-dir;
+ if (dir > 0) document.form.direction.value="Reverse"; bname="Reverse";
+ if (dir < 0) document.form.direction.value="Forward"; bname="Forward";
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+function show_speed()      // show speed
+{
+  document.form.rate.value=Math.round(speed);
+  delay = 1000.0/speed;
+}
+
+///////////////////////////////////////////////////////////////////////////
+// actual image loading is done here
+
+show_speed();
+images = new Array(imax);
+urls= new Array(imax);
+id= new Array(imax);
+
+
+urls[0]=url_path+"/eovsa_20170821T155519.png";
+urls[1]=url_path+"/eovsa_20170821T155719.png";
+urls[2]=url_path+"/eovsa_20170821T155919.png";
+urls[3]=url_path+"/eovsa_20170821T160119.png";
+urls[4]=url_path+"/eovsa_20170821T160319.png";
+urls[5]=url_path+"/eovsa_20170821T160519.png";
+urls[6]=url_path+"/eovsa_20170821T160719.png";
+urls[7]=url_path+"/eovsa_20170821T160919.png";
+urls[8]=url_path+"/eovsa_20170821T161119.png";
+urls[9]=url_path+"/eovsa_20170821T161319.png";
+urls[10]=url_path+"/eovsa_20170821T161519.png";
+urls[11]=url_path+"/eovsa_20170821T161719.png";
+urls[12]=url_path+"/eovsa_20170821T161919.png";
+urls[13]=url_path+"/eovsa_20170821T162119.png";
+urls[14]=url_path+"/eovsa_20170821T162319.png";
+urls[15]=url_path+"/eovsa_20170821T162519.png";
+urls[16]=url_path+"/eovsa_20170821T162719.png";
+urls[17]=url_path+"/eovsa_20170821T162919.png";
+urls[18]=url_path+"/eovsa_20170821T163119.png";
+urls[19]=url_path+"/eovsa_20170821T163319.png";
+urls[20]=url_path+"/eovsa_20170821T163519.png";
+urls[21]=url_path+"/eovsa_20170821T163719.png";
+urls[22]=url_path+"/eovsa_20170821T163919.png";
+urls[23]=url_path+"/eovsa_20170821T164119.png";
+urls[24]=url_path+"/eovsa_20170821T164319.png";
+urls[25]=url_path+"/eovsa_20170821T164519.png";
+urls[26]=url_path+"/eovsa_20170821T164719.png";
+urls[27]=url_path+"/eovsa_20170821T164919.png";
+urls[28]=url_path+"/eovsa_20170821T165119.png";
+urls[29]=url_path+"/eovsa_20170821T165319.png";
+urls[30]=url_path+"/eovsa_20170821T165519.png";
+urls[31]=url_path+"/eovsa_20170821T165719.png";
+urls[32]=url_path+"/eovsa_20170821T165919.png";
+urls[33]=url_path+"/eovsa_20170821T170119.png";
+urls[34]=url_path+"/eovsa_20170821T170319.png";
+urls[35]=url_path+"/eovsa_20170821T170519.png";
+urls[36]=url_path+"/eovsa_20170821T170719.png";
+urls[37]=url_path+"/eovsa_20170821T170919.png";
+urls[38]=url_path+"/eovsa_20170821T171119.png";
+urls[39]=url_path+"/eovsa_20170821T171319.png";
+urls[40]=url_path+"/eovsa_20170821T171519.png";
+urls[41]=url_path+"/eovsa_20170821T171719.png";
+urls[42]=url_path+"/eovsa_20170821T171919.png";
+urls[43]=url_path+"/eovsa_20170821T172119.png";
+urls[44]=url_path+"/eovsa_20170821T172319.png";
+urls[45]=url_path+"/eovsa_20170821T172519.png";
+urls[46]=url_path+"/eovsa_20170821T172719.png";
+urls[47]=url_path+"/eovsa_20170821T172919.png";
+urls[48]=url_path+"/eovsa_20170821T173119.png";
+urls[49]=url_path+"/eovsa_20170821T173319.png";
+urls[50]=url_path+"/eovsa_20170821T173519.png";
+urls[51]=url_path+"/eovsa_20170821T173719.png";
+urls[52]=url_path+"/eovsa_20170821T173919.png";
+urls[53]=url_path+"/eovsa_20170821T174119.png";
+urls[54]=url_path+"/eovsa_20170821T174319.png";
+urls[55]=url_path+"/eovsa_20170821T174519.png";
+urls[56]=url_path+"/eovsa_20170821T174719.png";
+urls[57]=url_path+"/eovsa_20170821T174919.png";
+urls[58]=url_path+"/eovsa_20170821T175119.png";
+urls[59]=url_path+"/eovsa_20170821T175319.png";
+urls[60]=url_path+"/eovsa_20170821T175519.png";
+urls[61]=url_path+"/eovsa_20170821T175719.png";
+urls[62]=url_path+"/eovsa_20170821T175919.png";
+urls[63]=url_path+"/eovsa_20170821T180119.png";
+urls[64]=url_path+"/eovsa_20170821T180319.png";
+urls[65]=url_path+"/eovsa_20170821T180519.png";
+urls[66]=url_path+"/eovsa_20170821T180719.png";
+urls[67]=url_path+"/eovsa_20170821T180919.png";
+urls[68]=url_path+"/eovsa_20170821T181119.png";
+urls[69]=url_path+"/eovsa_20170821T181319.png";
+urls[70]=url_path+"/eovsa_20170821T181519.png";
+urls[71]=url_path+"/eovsa_20170821T181719.png";
+urls[72]=url_path+"/eovsa_20170821T181919.png";
+urls[73]=url_path+"/eovsa_20170821T182119.png";
+urls[74]=url_path+"/eovsa_20170821T182319.png";
+urls[75]=url_path+"/eovsa_20170821T182519.png";
+urls[76]=url_path+"/eovsa_20170821T182719.png";
+urls[77]=url_path+"/eovsa_20170821T182919.png";
+urls[78]=url_path+"/eovsa_20170821T183119.png";
+urls[79]=url_path+"/eovsa_20170821T183319.png";
+urls[80]=url_path+"/eovsa_20170821T183519.png";
+urls[81]=url_path+"/eovsa_20170821T183719.png";
+urls[82]=url_path+"/eovsa_20170821T183919.png";
+urls[83]=url_path+"/eovsa_20170821T184119.png";
+urls[84]=url_path+"/eovsa_20170821T184319.png";
+urls[85]=url_path+"/eovsa_20170821T184519.png";
+urls[86]=url_path+"/eovsa_20170821T184719.png";
+urls[87]=url_path+"/eovsa_20170821T184919.png";
+urls[88]=url_path+"/eovsa_20170821T185119.png";
+urls[89]=url_path+"/eovsa_20170821T185319.png";
+
+load_img();
+
+// -->
+</SCRIPT>
+
+</BODY>
+</HTML>

@@ -599,37 +599,42 @@ def filter_images(startable, imgfolder, showimgs=False):
     outdir = dirname+'/'+datstr
     if not os.path.exists(outdir):
         os.makedirs(outdir)
+    
+    
     for i in range(len(ti)):
         if i == 49:
             jfiles, = where(ftimes > ti[i]+30./86400)
         else:
             jfiles, = where(logical_and(ftimes > ti[i]+30./86400,ftimes < ti[i+1]))
-        jbest = jfiles[0]
-        prev_area = 9999.
-        for j in jfiles:
-            img = fits.getdata(files[j])
-            p, sub, area = star_shape(img)
-            if area < prev_area:
-                jbest = j
-                prev_area = area
-        good = True
-        if showimgs:
-            img = fits.getdata(files[jbest])
-            print jbest,':',
-            p, sub, area = star_shape(img)
-            title = 'Star '+lines[i][4:15]+lines[i].strip()[-9:]+'/'+Time(ftimes[jbest],format='mjd').iso[10:19]
-            good = chkimg(p, sub, title)
-        if good:
-            fc = files[jbest]  # Selects best file
-            os.rename(fc,outdir+'/'+os.path.basename(fc))
+        
+        if jfiles != []:
+            jbest = jfiles[0]
+            prev_area = 9999.
+            for j in jfiles:
+                img = fits.getdata(files[j])
+                p, sub, area = star_shape(img)
+                if area < prev_area:
+                    jbest = j
+                    prev_area = area
+            good = True
+            if showimgs:
+                img = fits.getdata(files[jbest])
+                print jbest,':',
+                p, sub, area = star_shape(img)
+                title = 'Star '+lines[i][4:15]+lines[i].strip()[-9:]+'/'+Time(ftimes[jbest],format='mjd').iso[10:19]
+                good = chkimg(p, sub, title)
+            if good:
+                fc = files[jbest]  # Selects best file
+                os.rename(fc,outdir+'/'+os.path.basename(fc))
 
 def star_shape(img):
     from astropy.modeling import models, fitting
     from numpy import argmax, mgrid
-    pk = argmax(img)
-    xpk = pk % 1280
-    ypk = pk/1280
-    sub = img[ypk-30:ypk+30,xpk-30:xpk+30]
+    subsize = 30
+    pk = argmax(img[subsize:-subsize,subsize:-subsize])
+    xpk = pk % (1280 - 2*subsize) + subsize
+    ypk = pk/(1280 - 2*subsize) + subsize
+    sub = img[ypk-subsize:ypk+subsize,xpk-subsize:xpk+subsize]
     ny, nx = sub.shape
     fit_g = fitting.LevMarLSQFitter()
     g_init = models.Gaussian2D(amplitude=1.0, x_mean=0., y_mean=0., x_stddev=1., y_stddev=1.)

@@ -1,0 +1,20 @@
+# Antenna delay centers, in nsec, relative to Ant 1.  These can be positive or negative.
+# These are mostly negative because antenna 1 is one of the closest antennas
+# Nominally X and Y delays should be identical--it is not known (yet) whey they differ)
+# Ant  X Delay[ns]  Y Delay[ns]
+   1        0.000       -7.600
+   2       41.750       42.372
+   3      -54.719      -48.700
+   4      -38.359      -32.090
+   5      -62.703      -58.660
+   6     -216.031     -210.760
+   7     -110.891     -106.620
+   8     -596.266     -593.960
+   9    -2648.844    -2656.080
+  10    -1286.344    -1276.260
+  11    -3004.828    -3001.640
+  12    -6487.359    -6484.100
+  13    -8491.828    -8489.880
+  14    -3863.234    -3859.722
+  15    -2018.750    -2018.750
+  16        0.000        0.000

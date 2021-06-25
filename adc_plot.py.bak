@@ -1,0 +1,184 @@
+import roach as r
+import struct
+import numpy as np
+import matplotlib.pyplot as plt
+import threading
+from time import sleep,time
+from util import Time
+from tkinter import *
+from tkinter.ttk import *
+
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+#set up threading
+class AGC_Thread (threading.Thread):
+    def __init__(self, threadID):
+        threading.Thread.__init__(self)
+        self.threadID = threadID                                        #set thread ID
+        self.name = "roach" + str(threadID)                             #set the thread name
+        self.sd = np.empty((4,50),float)                                #set up the standard deviation array
+        self.stop = False
+    
+    def run(self):
+        threadLock.acquire(0)                                           #set threadlock
+        while not self.stop:
+            start = time()                                              #used for computing execution time
+            f, s = np.modf(start)
+            waittime = (np.floor(s/60)+1)*60 - start
+            sleep(waittime)
+            start=time()
+            self.sd = np.std(grab_all(self.name),axis=2)                    #calculate standard deviation from the roach
+            print self.name+" Execution Time= "+str(time()-start)           #display the execution time
+            
+def grab_all(roachname):
+    buf = []                                                            #adc buffer for single slot an channel
+    udata = np.zeros((4,50,8192),float)                                 #numpy array of data to return in form of [chan,slot,data]
+    done = np.zeros((4,50),bool)                                        #values in done array are true if a given slot and channel have been processed    
+    lasttm = time()                                                     #last time is needed to ensure processing does not hang (gets stuck on slot 29 for some reason)
+    rn = r.Roach(roachname)                                             #set up the roach
+    
+    #loop until all slots and channels processed
+    while not np.all(done):
+        f, s = np.modf(time())                                          #get fractional and integer part of the time
+        tfrac = (np.floor(f*50)+1.0)/50.0                               #compute the fractional part of the time for the next adc read
+        slot = int(tfrac*50) % 50                                       #get the slot number for the next read
+        sleep(tfrac-f)                                                  #wait till next read
+        chan, = np.where(done[:,slot] == False)                         # get list of unprocessed channels
+        if (chan.size>0):                                               #if still channels to process
+            #print "Processing Slot "+str(slot)+" Chan "+str(chan[0])    #display slot and channel (used for error checking) 
+            
+            #read in the adc values
+            rn.fpga.write_int('swreg_snap_select',chan[0])
+            rn.fpga.write_int('adc_data_adc_ctrl',0)
+            rn.fpga.write_int('adc_data_adc_ctrl',7)
+            buf = rn.fpga.read('adc_data_adc_bram', 2048*4, 0)
+            udata[chan[0],slot] = np.array(struct.unpack('>8192b', buf))
+            
+            done[chan[0],slot] = True                                   #set value of done for current slot and channel to true
+            lasttm = time()                                             #update lasttm
+        
+        if time()-lasttm>4.0:                                           #if more than 4 seconds since last read, the exit the loop
+            break
+       
+    #go through each slot to see if any left to process
+    for slot in range(50):
+        chan, = np.where(done[:,slot] == False)                         #get channels to process for current slot
+        if chan.size>0:                                                 #if channels left to be processed
+            for c in chan:                                              #go through each channel and get get adc values
+                f, s = np.modf(time())                                  #get fractional and integer part of the time 
+                dt = slot*0.02                                          #get fractional part of time for current slot 
+                
+                #wait for time to read slot
+                if f<dt:
+                    sleep(dt-f)
+                else:
+                    sleep(dt+1.0-f)
+                
+                #process the slot as above
+                #print "Processing Slot "+str(slot)+" Chan "+str(c) 
+                rn.fpga.write_int('swreg_snap_select',c)           
+                rn.fpga.write_int('adc_data_adc_ctrl',0)                 
+                rn.fpga.write_int('adc_data_adc_ctrl',7)                 
+                buf = rn.fpga.read('adc_data_adc_bram', 2048*4, 0)       
+                udata[c,slot] = np.array(struct.unpack('>8192b', buf))
+                done[c,slot] = True       
+     
+    rn.fpga.stop()
+    return udata
+
+tt=time()
+stdev=np.empty((120,7,4,50),float)
+stdev[:,:,:,:]=np.nan
+
+started=False
+
+#set threading
+threadLock = threading.Lock()                                           
+threads = []
+
+#set the threads
+for t in range(1,8):            
+    threads.append(AGC_Thread(t))
+
+#Start new Threads
+for t in threads:
+    t.start()
+
+#set up plot
+#plt.ion()
+root = Tk()
+
+figure, ax = plt.subplots(4,7,figsize=(15, 8))
+plt.suptitle("ADC Standard Deviations", fontsize=20)
+polstr = [' X',' Y',' X',' Y']
+for i in range(7):
+    for chan in range(4):
+        ax[chan,i].text(25,75,'Ant '+str(i*2 + chan/2 + 1)+polstr[chan],horizontalalignment='center')
+        ax[chan,i].plot([0,50],[32,32],'k--')
+        ax[chan,i].text(0,34,'target',fontsize=9)
+        ax[chan,i].set_ylim(0,100)
+        if chan == 3:
+            ax[chan,i].set_xlabel('Band')
+        if i == 0:
+            ax[chan,i].set_ylabel('St. Dev.')
+#figure.canvas.draw()
+#figure.canvas.flush_events()
+
+canvas = FigureCanvasTkAgg(figure, root)
+canvas.get_tk_widget().grid(row=0, column=0)
+start=time()
+waittime = np.ceil(start/60)*60 - start + 45
+print "waittime: "+str(waittime)
+sleep(waittime)
+
+def plot_agc():
+    for l in range(10):
+        t = Time.now().iso
+        print t
+    
+#       stdev[0:-1]=stdev[1:]
+#       for i,t in enumerate(threads):
+#           stdev[-1,i]=t.sd
+    
+        # Loop over threads and get sd (4,50) for each
+        for i in range(7):
+            stdev = threads[i].sd
+            for chan in range(4):
+                ax[chan,i].plot(stdev[chan],'.')
+                # Remove previous n-3 line (note lines[0] is the "target" line, which we want to keep)
+                if len(ax[chan,i].lines) > 4: ax[chan,i].lines[1].remove()
+        ax[0,6].set_title(t[11:19])
+
+        canvas = FigureCanvasTkAgg(figure, root)
+        canvas.get_tk_widget().grid(row=0, column=0)            
+        
+        start=time()
+        waittime = np.ceil(start/60)*60 - start + 45
+        print "waittime: "+str(waittime)
+        canvas.after(waittime*1000, plot_agc)
+#    # drawing updated values
+#    figure.canvas.draw()
+#    
+#    # This will run the GUI event
+#    # loop until all UI events
+#    # currently waiting have been processed
+#    figure.canvas.flush_events()
+#       
+
+plot_agc()
+root.mainloop()
+ 
+for i,t in enumerate(threads):
+    t.stop=True
+    
+#Wait for all threads to complete
+for t in threads:
+    t.join()
+    
+print "Total Time= "+str(time()-tt)
+print "*************************" 
+    
+
