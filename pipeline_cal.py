@@ -100,6 +100,9 @@
 #    Added check for intentional offsets.  An antenna is tracking the source only when
 #    it is tracking the requested position (TrackFlag is True) AND the requested position
 #    is not intentionally offset from the source (TrackSrcFlag is True).
+#  2021-07-09  DG
+#    Code involving bslice in apply_fem_level() seems to be unnecessary and caused
+#    a crash.  Now commented out/eliminated.
 #
 
 import dbutil as db
@@ -220,10 +223,10 @@ def apply_fem_level(data, gctime=None, skycal=None):
         bgd = bgd[:,:,idx2]  # Extract only frequencies matching the data
         # Reorder axes
         bgd = np.swapaxes(bgd,0,2)
-        bslice = bgd[:,:,:,idx]
+#        bslice = bgd[:,:,:,idx]
         for i in range(13):
-            cdata['x'][:, bl2ord[i,i], 0] = np.clip(cdata['x'][:, bl2ord[i,i], 0] - bslice[:,0,i],0,None)
-            cdata['x'][:, bl2ord[i,i], 1] = np.clip(cdata['x'][:, bl2ord[i,i], 1] - bslice[:,1,i],0,None)
+            cdata['x'][:, bl2ord[i,i], 0] = np.clip(cdata['x'][:, bl2ord[i,i], 0] - bgd[:,0,i],0,None) #bslice[:,0,i],0,None)
+            cdata['x'][:, bl2ord[i,i], 1] = np.clip(cdata['x'][:, bl2ord[i,i], 1] - bgd[:,1,i],0,None)#bslice[:,1,i],0,None)
     # Correct the auto- and cross-correlation data
     cdata['x'] *= blgain[:, :, :, idx]
     # Reshape px and py arrays
@@ -237,10 +240,10 @@ def apply_fem_level(data, gctime=None, skycal=None):
         bgd = bgd[:,:,idx2]  # Extract only frequencies matching the data
         # Reorder axes
         bgd = np.swapaxes(bgd,0,2)
-        bslice = bgd[:,:,:,idx]
-        bgnd = np.rollaxis(bslice,3)
-        cdata['px'][:, :13, 0] = np.clip(cdata['px'][:, :13, 0] - bslice[:,0],0,None)
-        cdata['py'][:, :13, 0] = np.clip(cdata['py'][:, :13, 0] - bslice[:,1],0,None)
+        #bslice = bgd[:,:,:,idx]
+        #bgnd = np.rollaxis(bslice,3)
+        cdata['px'][:, :13, 0] = np.clip(cdata['px'][:, :13, 0] - bgd[:,0],0,None)#bslice[:,0],0,None)
+        cdata['py'][:, :13, 0] = np.clip(cdata['py'][:, :13, 0] - bgd[:,1],0,None)#bslice[:,1],0,None)
     # Correct the power
     cdata['px'][:, :15, 0] *= antgainf[:, :, 0, idx]
     cdata['py'][:, :15, 0] *= antgainf[:, :, 1, idx]

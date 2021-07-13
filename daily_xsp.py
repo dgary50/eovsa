@@ -23,6 +23,11 @@
 #  2020-05-23  DG
 #    A classic blunder, using median() instead of nanmedian() on GOES data with nans!
 #    Now fixed.
+#  2021-07-11  DG
+#    Changes to cal_qual() to default to creating web plots, to display both TP and XP
+#    calibration, and to fix the limitation that plots only covered a max of 600 s.
+#    Also added some line plots (freq indexes 100,300) to make it more quantitative.
+#    An important change is to make cal_qual() part of the daily plot generation.
 #
 
 if __name__ == "__main__":
@@ -290,7 +295,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
                 plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/XSP'+date+'.png',bbox_inches='tight')
     return out
 
-def cal_qual(t=None, savfig=False):
+def cal_qual(t=None, savfig=True):
     ''' Check the quality of the total power and gain calibrations for a given date
     '''
     import cal_header as ch
@@ -348,28 +353,60 @@ def cal_qual(t=None, savfig=False):
         print 'CAL_QUAL: Error, no SOLPNTCAL scan(s) for this date.'
         return
     files = gcalfile+solpntfile
-    outname = pc.udb_corr(files, calibrate=True, attncal=True)
-    out = ri.read_idb([outname])
+    outnames = []
+    for file in files:
+        outnames.append(pc.udb_corr(file, calibrate=True, attncal=True, desat=True))
+    out = ri.read_idb(outnames, srcchk=False)
     nt = len(out['time'])
     nf = len(out['fghz'])
+
+    frq, flux = rstn.rd_rstnflux(t)
+    s = rstn.rstn2ant(frq, flux, out['fghz']*1000., t)
+    fluximg = s.repeat(nt).reshape(nf,nt)
     f, ax = plt.subplots(4,7)
     f.set_size_inches(16,7,forward=True)
     f.tight_layout(rect=[0.0,0.0,1,0.95])
     ax.shape = (2, 14)
     for i in range(13):
         for j in range(2):
-            ax[j,i].imshow(out['p'][i,j],aspect='auto',origin='lower',vmax=500,vmin=0)
+            ax[j,i].imshow(out['p'][i,j],aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
+            ax[j,i].plot(np.clip(out['p'][i,j,100],0,nf),linewidth=1)
+            ax[j,i].plot(np.clip(out['p'][i,j,300],0,nf),linewidth=1)
             ax[j,i].set_title('Ant '+str(i+1)+[' X Pol',' Y Pol'][j],fontsize=10)
-    frq, flux = rstn.rd_rstnflux(t)
-    s = rstn.rstn2ant(frq, flux, out['fghz']*1000., t)
-    fluximg = s.repeat(nt).reshape(nf,nt)
     for j in range(2): 
-        ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=500,vmin=0)
+        ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
         ax[j,13].set_title('RSTN Flux',fontsize=10)
-    f.suptitle('Calibration Quality for '+t.iso[:10])
+    for i in range(13):
+        for j in range(2):
+            ax[j,i].plot(fluximg[100],'--',linewidth=1,color='C0')
+            ax[j,i].plot(fluximg[300],'--',linewidth=1,color='C1')
+
+    f.suptitle('Total Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
     if savfig:
-        plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/CAL'+date+'.png')
+        plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/QUAL_'+date+'TP.png')
+
+    f, ax = plt.subplots(4,7)
+    f.set_size_inches(16,7,forward=True)
+    f.tight_layout(rect=[0.0,0.0,1,0.95])
+    ax.shape = (2, 14)
+    for i in range(13):
+        for j in range(2):
+            ax[j,i].imshow(np.real(out['a'][i,j]),aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
+            ax[j,i].plot(np.clip(np.real(out['a'][i,j,100]),0,nf),linewidth=1)
+            ax[j,i].plot(np.clip(np.real(out['a'][i,j,300]),0,nf),linewidth=1)
+            ax[j,i].set_title('Ant '+str(i+1)+[' X Pol',' Y Pol'][j],fontsize=10)
+    for j in range(2): 
+        ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
+        ax[j,13].set_title('RSTN Flux',fontsize=10)
+    for i in range(13):
+        for j in range(2):
+            ax[j,i].plot(fluximg[100],'--',linewidth=1,color='C0')
+            ax[j,i].plot(fluximg[300],'--',linewidth=1,color='C1')
+    f.suptitle('Cross-Power Calibration Quality for '+t.iso[:10])
+    date = t.iso[:10].replace('-','')
+    if savfig:
+        plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/QUAL_'+date+'XP.png')
     
 
 if __name__ == "__main__":
@@ -420,3 +457,4 @@ if __name__ == "__main__":
     if goes_plot and not t2 is None:
         # Do this second date only if goes_plot is True
         blah = allday_udb(t=t2, savfig=True)   # Process time t2
+    cal_qual(Time(t.iso[:10]))  # Make daily plot of calibration quality

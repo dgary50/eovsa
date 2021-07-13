@@ -93,6 +93,9 @@
 #   2021-Feb-11 OG
 #       Added section to display most recent IDB file. Will be highlighted in
 #       red if older than 15 minutes.
+#   2021-Jul-01 DG
+#       The data disk that the log stateframe is written to is on the fritz, so for
+#       now, completely skip opening a log file.
 
 from Tkinter import *
 from ttk import *
@@ -933,7 +936,8 @@ class App():
                 # Need to open a new file, so first check if old file is open
                 if self.accini['sf_file']:
                     self.accini['sf_file'].close()
-                self.accini['sf_file'] = open(logfile,'wb')
+                #self.accini['sf_file'] = open(logfile,'wb')
+                self.accini['sf_file'] = None  # Possibly temporary override --do not log data
         else:
             self.accini['sf_file'].close()
             self.accini['sf_file'] = None

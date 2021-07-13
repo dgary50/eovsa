@@ -80,6 +80,8 @@
 #      geosynchronous satellite.
 #   2020-Mar-07  DG
 #      Added a legend to each plot in prt_dla().
+#   2021-Jul-02  DG
+#      Change font size in legend in prt_dla().
 
 import numpy as np
 import pdb
@@ -598,7 +600,7 @@ def prt_dla(out, ref, refant=14, doplot=False):
             ax[i].text(100,3.3,'Ant '+str(i+1)+' relative to Ant '+str(refant))
             ax[i].text(100,-3.9,'Delay '+str(steps*1.25)[:5]+' ns (steps='+str(int(round(steps)))+')')
             ax[i].set_ylim(-4,4)
-            ax[i].legend()
+            ax[i].legend(fontsize=8)
 
 
 def get_bl_order(n_ants):

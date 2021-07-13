@@ -260,7 +260,7 @@ def get_reboot(trange,previous=False):
             t_reboot = t_reboot[1:]
     return Time(t_reboot,format='mjd')
 
-def loadsfdata(fld,trange,ant,increment=None):
+def loadsfdata(fld,trange,ant,interval=None):
     '''This function takes in a list of stateframe parameters, a time
     range and an antenna number, and retrieves the parameters as well as
     the timestamps.
@@ -323,16 +323,18 @@ def plotsfdata(fld,trange,ant,plottitle=None,interval=None):
     print msg
     if msg != "Success":
         return None
-    
+        
     dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
-    handles=[]   
-    for f in fld:
-        a, =plt.plot(dt,data[f].astype(float),label=f)
-        handles.append(a)
+    handles=[]
     plt.ylabel('Value')
     plt.xlabel('Universal Time')
     if plottitle is not None:
         plt.title(plottitle)
+    for f in data.keys():
+        if f != "Timestamp":
+            print data[f]
+            a, =plt.plot(dt,data[f].astype(float),label=f)
+            handles.append(a)
     plt.legend(handles=handles)
     return data
 
@@ -437,3 +439,59 @@ def writesfdata_anta(fld,trange,outfile,delim=" ",ignore=None,interval=None):
     if len(l)>0:
         with open(outfile, 'w') as filehandle:
             filehandle.writelines("%s\n" % l for l in lines)
+
+def plot27mtemps(trange,fld=None,plottitle=None,ignore=None,interval=None):
+    femfld=""
+    antafldlist=['FEMA_Ther_SecondStageTemp','FEMA_Ther_FirstStageTemp','FEMA_Ther_HiFreq15KPlateTemp','FEMA_Ther_HiFreqFeedhornTemp','FEMA_Ther_HiFreqLNATemp','FEMA_Ther_LowFreqFeedhornTemp','FEMA_Ther_LowFreqLNATemp']
+    labellist=[  'Second Stage Temp [K]','First Stage Temp [K]','Hi Freq 15K Plate Temp [K]','Hi Freq Feedhorn Temp','Hi Freq LNA Temp','Low Freq Feedhorn Temp','Low Freq LNA Temp']
+    if fld==None:
+        femfld="Ante_Fron_FEM_Temperature"
+    else:
+        if "Ante_Fron_FEM_Temperature" in fld:
+            femfld="Ante_Fron_FEM_Temperature"
+    
+    if fld==None:
+        antafld=antafldlist
+        labels=labellist
+    else:
+        antafld=[]
+        labels=[]
+        for i,f in enumerate(antafldlist):
+            if f in fld:
+                antafld.append(f)
+                labels.append(labellist[i])
+    
+    if femfld=="" and antafld==[]:
+        print "Invalid fields!"
+        return
+    
+    import matplotlib.pyplot as plt
+    handles=[]
+    plt.ylabel('Value')
+    plt.xlabel('Universal Time')
+    
+    if plottitle is not None:
+        plt.title(plottitle)
+    else:
+        plt.title("27m Antenna Temperatures")
+    
+    if femfld!="":
+        data,msg=loadsfdata([femfld],trange,14,interval)
+        dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
+        if ignore!=None:
+            data[femfld]=np.ma.masked_where(data[femfld]==ignore,data[femfld])
+            
+        a, =plt.plot(dt,data[femfld].astype(float),label="Focus Box Temperature [C]")
+        handles.append(a)
+        
+    if antafld!=[]:
+        data,msg=loadsfdata_anta(antafld,trange,interval)
+        dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
+        for i,f in enumerate(antafld):
+            if ignore!=None:
+                data[f]=np.ma.masked_where(data[f]==ignore,data[f])
+            a, =plt.plot(dt,data[f].astype(float),label=labels[i])
+            handles.append(a)
+    plt.legend(handles=handles)
+    
+

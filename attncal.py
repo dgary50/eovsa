@@ -16,6 +16,10 @@
 #    Updated get_attncal() to use util.get_idbdir() to find IDB root path.
 #  2020-05-11  DG
 #    Further update to make this work on the DPP.
+#  2021-07-13  DG
+#    I noticed that my guessing the indexes of attenuation transitions was
+#    sometimes failing, so now it is "done right" by using the SQL record
+#    of attenuation settings to determine the different attenuation states.
 #
 from util import Time
 import numpy as np
@@ -48,8 +52,9 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         The dataonly parameter tells the routine to skip calculating the attenuation
         and only return the IDB data from the (first) gaincal.
     '''
-    from util import get_idbdir
+    from util import get_idbdir, fname2mjd, nearest_val_idx
     import socket
+    import dbutil
     if type(trange.mjd) == np.float:
         # Interpret single time as both start and end time
         mjd1 = int(trange.mjd)
@@ -88,53 +93,41 @@ def get_attncal(trange, do_plot=False, dataonly=False):
             out = ri.read_idb([file])
             if dataonly:
                 return out
-            vx = np.mean(out['p'][:13,:,:,6:12],3)
-            va = np.mean(out['a'][:13,:2,:,6:12],3)
-            val0 = np.median(out['p'][:13,:,:,16:22],3) - vx
-            val1 = np.median(out['p'][:13,:,:,26:32],3) - vx
-            val2 = np.median(out['p'][:13,:,:,36:42],3) - vx
-            val3 = np.median(out['p'][:13,:,:,46:52],3) - vx
-            val4 = np.median(out['p'][:13,:,:,56:62],3) - vx
-            val5 = np.median(out['p'][:13,:,:,66:72],3) - vx
-            val6 = np.median(out['p'][:13,:,:,76:82],3) - vx
-            val7 = np.median(out['p'][:13,:,:,86:92],3) - vx
-            val8 = np.median(out['p'][:13,:,:,96:102],3) - vx
-            attn1 = np.log10(val0/val1)*10.
-            attn2 = np.log10(val0/val2)*10.
-            attn3 = np.log10(val0/val3)*10.
-            attn4 = np.log10(val0/val4)*10.
-            attn5 = np.log10(val0/val5)*10.
-            attn6 = np.log10(val0/val6)*10.
-            attn7 = np.log10(val0/val7)*10.
-            attn8 = np.log10(val0/val8)*10.
-            # Do the same for auto-correlation
-            val0 = np.median(out['a'][:13,:2,:,16:22],3) - va
-            val1 = np.median(out['a'][:13,:2,:,26:32],3) - va
-            val2 = np.median(out['a'][:13,:2,:,36:42],3) - va
-            val3 = np.median(out['a'][:13,:2,:,46:52],3) - va
-            val4 = np.median(out['a'][:13,:2,:,56:62],3) - va
-            val5 = np.median(out['a'][:13,:2,:,66:72],3) - va
-            val6 = np.median(out['a'][:13,:2,:,76:82],3) - va
-            val7 = np.median(out['a'][:13,:2,:,86:92],3) - va
-            val8 = np.median(out['a'][:13,:2,:,96:102],3) - va
-            attna1 = np.log10(val0/val1)*10.
-            attna2 = np.log10(val0/val2)*10.
-            attna3 = np.log10(val0/val3)*10.
-            attna4 = np.log10(val0/val4)*10.
-            attna5 = np.log10(val0/val5)*10.
-            attna6 = np.log10(val0/val6)*10.
-            attna7 = np.log10(val0/val7)*10.
-            attna8 = np.log10(val0/val8)*10.
+            # Get time from filename and read 120 records of attn state from SQL database
+            filemjd = fname2mjd(fdb['FILE'][gcidx][0])
+            cursor = dbutil.get_cursor()
+            d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=Time(filemjd,format='mjd'), nrecs=120)
+            cursor.close()
+            # Find time indexes of the 62 dB attn state
+            # Uses only ant 1 assuming all are the same
+            dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
+            # Indexes into SQL records where a transition occurred.
+            transitions, = np.where(dtot - np.roll(dtot,1) != 0)
+            # These now have to be translated into indexes into the data, using the times
+            idx = nearest_val_idx(d15['Timestamp'][transitions,0],Time(out['time'],format='jd').lv)
+            vx = np.mean(out['p'][:13,:,:,np.arange(idx[0],idx[1])],3)
+            va = np.mean(out['a'][:13,:2,:,np.arange(idx[0],idx[1])],3)
+            vals = []
+            attn = []
+            for i in range(1,10):
+                vals.append(np.median(out['p'][:13,:,:,np.arange(idx[i],idx[i+1])],3) - vx)
+                attn.append(np.log10(vals[0]/vals[-1])*10.)
+            vals = []
+            attna = []
+            for i in range(1,10):
+                vals.append(np.median(out['a'][:13,:2,:,np.arange(idx[i],idx[i+1])],3) - va)
+                attna.append(np.log10(vals[0]/vals[-1])*10.)
+            
             if do_plot:
                 for i in range(13):
                     for j in range(2):
-                        ax[j,i].plot(out['fghz'],attn1[i,j],'.')
-                        ax[j,i].plot(out['fghz'],attna1[i,j],'.')
-                        ax[j+2,i].plot(out['fghz'],attn2[i,j],'.')
-                        ax[j+2,i].plot(out['fghz'],attna2[i,j],'.')
-            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 'rcvr':vx, 'rcvr_auto':va,
-                            'attna': np.array([attna1, attna2, attna3, attna4, attna5, attna6, attna7, attna8]),
-                            'attn': np.array([attn1, attn2, attn3, attn4, attn5, attn6, attn7, attn8])})
+                        ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
+                        ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
+                        ax[j+2,i].plot(out['fghz'],attn[2][i,j],'.',markersize=3)
+                        ax[j+2,i].plot(out['fghz'],attna[2][i,j],'.',markersize=1)
+            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
+                            'rcvr':vx, 'rcvr_auto':va,
+                            'attna': np.array(attna[1:]), 'attn': np.array(attn[1:])})
     return outdict
     
 def read_attncal(trange=None):

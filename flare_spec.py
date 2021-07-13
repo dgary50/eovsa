@@ -84,8 +84,8 @@ def inspect(files, vmin=0.1, vmax=10, ant_str='ant1-13', srcchk=True):
         for j in ants[k+1:]:
             idx.append(ri.bl2ord[i,j])
     idx = np.array(idx)
-    good, = np.where(np.logical_and(blen > 150.,blen < 1000.))
-    spec = np.nanmedian(np.abs(out['x'][good,0]),0)
+    good, = np.where(np.logical_and(blen[idx] > 150.,blen[idx] < 1000.))
+    spec = np.nanmedian(np.abs(out['x'][idx[good],0]),0)
     nf, nt = spec.shape
     plt.figure()
     plt.imshow(np.log10(np.clip(spec,vmin,vmax)))
