@@ -4,7 +4,7 @@
 #   2014-Dec-09  DG
 #     Started this history log.  The PCapture window was slowing taking longer
 #     and longer to refresh, as more plots were added.  Now explicitly clears
-#     the plot before plotting a new one.0
+#     the plot before plotting a new one.
 #   2014-Dec-13  DG
 #     Added text and highlight if ND is on.
 #   2015-May-02  DG
@@ -372,7 +372,8 @@ class App():
             if second:
                 self.CB.configure(state=DISABLED)
             else:
-                self.CB.invoke()
+                self.CB.configure(state=DISABLED)
+                #self.CB.invoke()    # Commented out so as NOT to log stateframe for now...
             pidlabel = Label(toolbar, text='My PID: '+mypid)
             pidlabel.pack(side=RIGHT, fill=X)
 

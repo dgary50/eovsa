@@ -28,6 +28,9 @@
 #    calibration, and to fix the limitation that plots only covered a max of 600 s.
 #    Also added some line plots (freq indexes 100,300) to make it more quantitative.
 #    An important change is to make cal_qual() part of the daily plot generation.
+#  2021-07-29  DG
+#    Clip line plots for frequency indexes 100 and 300 so as not to exceed the number
+#    number of frequencies (451).
 #
 
 if __name__ == "__main__":
@@ -378,8 +381,8 @@ def cal_qual(t=None, savfig=True):
         ax[j,13].set_title('RSTN Flux',fontsize=10)
     for i in range(13):
         for j in range(2):
-            ax[j,i].plot(fluximg[100],'--',linewidth=1,color='C0')
-            ax[j,i].plot(fluximg[300],'--',linewidth=1,color='C1')
+            ax[j,i].plot(np.clip(fluximg[100],0,nf),'--',linewidth=1,color='C0')
+            ax[j,i].plot(np.clip(fluximg[300],0, nf),'--',linewidth=1,color='C1')
 
     f.suptitle('Total Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
@@ -401,8 +404,8 @@ def cal_qual(t=None, savfig=True):
         ax[j,13].set_title('RSTN Flux',fontsize=10)
     for i in range(13):
         for j in range(2):
-            ax[j,i].plot(fluximg[100],'--',linewidth=1,color='C0')
-            ax[j,i].plot(fluximg[300],'--',linewidth=1,color='C1')
+            ax[j,i].plot(np.clip(fluximg[100],0,nf),'--',linewidth=1,color='C0')
+            ax[j,i].plot(np.clip(fluximg[300],0,nf),'--',linewidth=1,color='C1')
     f.suptitle('Cross-Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
     if savfig:

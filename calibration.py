@@ -128,6 +128,10 @@
 #    Important change to default to correcting for correlator saturation
 #    (only affects the total power auto-correlation calibration).  This
 #    activates the correction in the read_idb.py function readXdata().
+#  2021-Jul-25  DG
+#    I discovered a bug in skycal_anal() where the times of SQL levels and data 
+#    power levels could be mismatched.  Now finds the common value indexes first.
+#    Argh.  Use of median() instead of nanmedian() got me again.
 #
 
 if __name__ == "__main__":
@@ -139,7 +143,7 @@ if __name__ == "__main__":
 
 import numpy as np
 import solpnt
-from util import Time, nearest_val_idx, lobe, ant_str2list,get_idbdir
+from util import Time, nearest_val_idx, lobe, ant_str2list, get_idbdir, common_val_idx
 import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
@@ -586,16 +590,18 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False):
         # the range of times for femattn 15 (62 dB) and femattn 0 (0 dB)
         hvlev = ['hlev','vlev']
         lev = get_fem_level(skytrange)
+        # Get indexes to common times
+        idx1, idx2 = common_val_idx(lev['times'].jd,out['time'])
         for i in range(nant):
             for j in range(npol):
-                idx0, = np.where(lev[hvlev[j]][i] == 0)   # 0 dB
-                idx15, = np.where(lev[hvlev[j]][i] == 15) # 62 dB
+                idx0, = np.where(lev[hvlev[j]][i,idx1] == 0)   # 0 dB
+                idx15, = np.where(lev[hvlev[j]][i,idx1] == 15) # 62 dB
                 # NB: time and frequency indexes are reordered for some reason.
                 # The next two lines are a median over times, despite what it seems.
-                offsun[i,j] = np.median(out['p'][i,j,:,idx0],0)
-                rcvr[i,j] = np.median(out['p'][i,j,:,idx15],0)
-                offsun_auto[i,j] = np.median(out['a'][i,j,:,idx0],0)
-                rcvr_auto[i,j] = np.median(out['a'][i,j,:,idx15],0)
+                offsun[i,j] = np.nanmedian(out['p'][i,j,:,idx2[idx0]],0)
+                rcvr[i,j] = np.nanmedian(out['p'][i,j,:,idx2[idx15]],0)
+                offsun_auto[i,j] = np.nanmedian(out['a'][i,j,:,idx2[idx0]],0)
+                rcvr_auto[i,j] = np.nanmedian(out['a'][i,j,:,idx2[idx15]],0)
         if do_plot:
             nrow = 2
             ncol = (nant+1)/2
@@ -1056,7 +1062,7 @@ def sp_explore(x, y, aidx, fidx, ax=None):
         for j,a in enumerate(axis):
             ax[i,j].cla()
             ax[i,j].plot(np.concatenate(([-100000],src[a],[100000]))/10000.,src[a+'o'][fidx,:,aidx],'.',label=lbl[i][j])
-            xarr = np.linspace(-100000.,100000,100)
+            xarr = np.linspace(-100000.,100000,1000)
             s1,x0,a1,o1 = src[a+'parms'][:,fidx,aidx]   # pk flux, offset, 1/e half-width
             yarr = s1*np.exp(-((xarr-x0)/a1)**2) + o1
             ynom = s1*np.exp(-(xarr/anom)**2) + o1

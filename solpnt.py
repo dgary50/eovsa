@@ -85,6 +85,10 @@
 #   2021-May-18  DG
 #      Annoyingly, my change on 2021-Feb-17 caused further problems, hopefully improved
 #      with further changes to process_tsys().
+#   2021-Jul-31  DG
+#      The faroff (SKYCAL) values are only needed at low frequencies and can be deleterious
+#      in some cases, so they are now set to NaN for 2.75 GHz and above (so gaussfit will 
+#      ignore them)
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -644,6 +648,10 @@ def process_tsys(otp, proc, pol=None, skycal=None):
             decopts = np.array([-100000.]+proc['deco'].tolist()+[100000.])
             faroff = np.swapaxes(skycal['offsun'][:,pol,:]-skycal['rcvr_bgd'][:,pol,:],0,1)
             faroff.shape = (nf,1,nant)
+            # The faroff values are only needed for frequencies below about 2.75 GHz,
+            # so set them to NaN above that frequency (gaussfit will then ignore them)
+            bad, = np.where(otp['fghz'] > 2.75)
+            faroff[bad] = np.nan
             # Insert faroff values corresponding to 10-degree offsets
             rao = np.concatenate((faroff,hpol[:,:13,:],faroff),1)
             deco = np.concatenate((faroff,hpol[:,13:,:],faroff),1)

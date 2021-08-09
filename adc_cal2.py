@@ -33,6 +33,9 @@
 #     those have uses on their own, and they also aid in debugging.  I still
 #     have some sort of bug, since the DCM_master_table is different when
 #     I use solar.fsq vs. when I use solarhi.fsq, and they should NOT be.
+#   2021-Jul-13  DG
+#     Some changes to send_cmds() so that it does not require an acc
+#     structure in the call.
 #
 
 import time
@@ -52,13 +55,17 @@ def acc_tune(band,acc):
     cmds = ['FSEQ-OFF','FSEQ-INIT','WAIT','FSEQ-FILE '+fsqfile.lower(), 'FSEQ-ON']
     send_cmds(cmds,acc)
 
-def send_cmds(cmds,acc):
+def send_cmds(cmds,acc=None):
     ''' Sends a series of commands to ACC.  The sequence of commands
         is not checked for validity!
         
         cmds   a list of strings, each of which must be a valid command
     '''
-    import socket, stateframe
+    import socket
+
+    if acc is None:
+        accini = stf.rd_ACCfile()
+        acc = {'host': accini['host'], 'scdport':accini['scdport']}
 
     for cmd in cmds:
         #print 'Command:',cmd

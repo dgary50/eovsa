@@ -20,6 +20,11 @@
 #    I noticed that my guessing the indexes of attenuation transitions was
 #    sometimes failing, so now it is "done right" by using the SQL record
 #    of attenuation settings to determine the different attenuation states.
+#  2021-07-27  DG
+#    The new code was still failing due to bad SQL records (erroneous 0 levels)
+#    so I now eliminate those before searching for transitions.  I also
+#    commented out the attna calculation, which is not used anywhere and
+#    cannot possibly be useful (due to uncorrected saturation).
 #
 from util import Time
 import numpy as np
@@ -101,33 +106,38 @@ def get_attncal(trange, do_plot=False, dataonly=False):
             # Find time indexes of the 62 dB attn state
             # Uses only ant 1 assuming all are the same
             dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
+            good, = np.where(dtot != 0)
+            #import pdb; pdb.set_trace()
             # Indexes into SQL records where a transition occurred.
-            transitions, = np.where(dtot - np.roll(dtot,1) != 0)
+            transitions, = np.where(dtot[good] - np.roll(dtot[good],1) != 0)
+            # Eliminate any zero-index transition (if it exists)
+            if transitions[0] == 0:
+                transitions = transitions[1:]
             # These now have to be translated into indexes into the data, using the times
-            idx = nearest_val_idx(d15['Timestamp'][transitions,0],Time(out['time'],format='jd').lv)
-            vx = np.mean(out['p'][:13,:,:,np.arange(idx[0],idx[1])],3)
-            va = np.mean(out['a'][:13,:2,:,np.arange(idx[0],idx[1])],3)
+            idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
+            vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
+            va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
             vals = []
             attn = []
             for i in range(1,10):
-                vals.append(np.median(out['p'][:13,:,:,np.arange(idx[i],idx[i+1])],3) - vx)
+                vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
                 attn.append(np.log10(vals[0]/vals[-1])*10.)
-            vals = []
-            attna = []
-            for i in range(1,10):
-                vals.append(np.median(out['a'][:13,:2,:,np.arange(idx[i],idx[i+1])],3) - va)
-                attna.append(np.log10(vals[0]/vals[-1])*10.)
+            #vals = []
+            #attna = []
+            #for i in range(1,10):
+            #    vals.append(np.median(out['a'][:13,:2,:,np.arange(idx[i],idx[i+1])],3) - va)
+            #    attna.append(np.log10(vals[0]/vals[-1])*10.)
             
             if do_plot:
                 for i in range(13):
                     for j in range(2):
                         ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
-                        ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
+                        #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
                         ax[j+2,i].plot(out['fghz'],attn[2][i,j],'.',markersize=3)
-                        ax[j+2,i].plot(out['fghz'],attna[2][i,j],'.',markersize=1)
+                        #ax[j+2,i].plot(out['fghz'],attna[2][i,j],'.',markersize=1)
             outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
-                            'rcvr':vx, 'rcvr_auto':va,
-                            'attna': np.array(attna[1:]), 'attn': np.array(attn[1:])})
+                            'rcvr_auto':va, # 'attna': np.array(attna[1:]), 
+                            'rcvr':vx, 'attn': np.array(attn[1:])})
     return outdict
     
 def read_attncal(trange=None):

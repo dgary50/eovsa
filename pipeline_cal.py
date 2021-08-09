@@ -724,6 +724,13 @@ def allday_process(path=None):
         out = ri.read_idb([file])
         nant,npol,nf,nt = out['p'].shape
         nant = 13
+        # Use only data from tracking antennas
+        azeldict = get_sql_info(Time(out['time'],format='jd')[[0,-1]])
+        idx = nearest_val_idx(out['time'],azeldict['Time'].jd)
+        tracking = azeldict['TrackFlag'].T
+        # Flag any data where the antennas are not tracking
+        for i in range(nant):
+            out['p'][i,:,:,~tracking[i,idx]] = np.nan
         # Determine best 8 antennas
         med = np.nanmean(np.nanmedian(out['p'][:nant],3),1)   # size nant,nf
         medspec = np.nanmedian(med,0)                      # size nf

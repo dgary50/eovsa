@@ -38,7 +38,9 @@
 #   this based on a 2D Gaussian fit to the brightest star and finding the smallest
 #   area for all of the images of each pointing.  One an optionally see the fit
 #   results.
-#
+# 2021-Jul-21  OG
+#   Added statement to Skip commented out lines in filename in procedure 
+#   starobs2dxeldel  
 # Must be run from Dropbox/PythonCode/Current directory
 
 from numpy import array, zeros, ones, arange, where, argsort, sort, pi, median, argmin
@@ -368,6 +370,7 @@ def starobs2dxeldel(filename=None,hadec=False):
     # Loop over the lines in the file
     for line in lines[2:]:
         if line == '': break
+        if line[0] == '#': continue
         num = int(line[0:4])
         name = line[5:15]
         RA_J2000 = RA_Angle(line[16:28].strip(),'hms')

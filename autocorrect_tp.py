@@ -10,6 +10,10 @@
 #    and skip that frequency is less than 10% of time samples.
 #  2020-10-27  DG
 #    Fix crash that occurred in tp_bgnd() where there were NO good data.
+#  2021-08-02  DG
+#    Some minor tweaks to tp_bgnd() and created a new routine that does all
+#    antennas and polarizations, called tp_bgnd_all(), which is otherwise the
+#    same.
 #
 
 import pipeline_cal as pc
@@ -232,12 +236,12 @@ def tp_bgnd(tpdata):
     good, = np.where(sinlet != 0)
     idx = nearest_val_idx(bad,good)  # Find locations of nearest good values to bad ones
     sinlet[bad] = sinlet[good[idx]]  # Overwrite bad values with good ones
+    sinlet -= np.mean(sinlet)  # Remove offset, to provide zero-mean fluctuation
+    sinlet = np.roll(sinlet,-110)  # Shift phase of variation by 110 s earlier (seems to be needed)
     # Interpolate sinlet values to the times in the data
     sint = np.interp(outpd,pd,sinlet)
-    sint = np.roll(sint,-90)  # Shift phase of variation by 90 s earlier
-    sint -= np.mean(sint)     # Remove offset, to provide zero-mean fluctuation
     sdev = np.std(sint)
-    sint_ok = np.abs(sint) < sdev
+    sint_ok = np.abs(sint) < 2*sdev
     bgnd = np.zeros((nf, nt), float)
     for i in range(nf):
         # Subtract smooth trend from data
@@ -257,4 +261,75 @@ def tp_bgnd(tpdata):
                 p = [1.,0.]
             # Apply correction for this frequency
             bgnd[i] = sint*p[0] + p[1]
+    return bgnd
+    
+def tp_bgnd_all(tpdata):
+    ''' Create time-variable background from ROACH inlet temperature
+        This version is far superior to the earlier, crude version, but
+        beware that it works best for a long timerange of data, especially
+        when there is a flare in the data.
+        
+        Inputs:
+          tpdata   dictionary returned by read_idb()  NB: tpdata is not changed.
+          
+        Returns:
+          bgnd     The background fluctuation array of size (nf,nt) to be 
+                     subtracted from any antenna's total power (or mean of
+                     antenna total powers)
+    '''
+    import dbutil as db
+    from util import Time, nearest_val_idx
+    outfghz = tpdata['fghz']
+    try:
+        outtime = tpdata['time']
+        trange = Time(outtime[[0,-1]],format='jd')
+    except:
+        outtime = tpdata['ut_mjd']
+        trange = Time(outtime[[0,-1]],format='mjd')
+    
+    nt = len(outtime)
+    if nt < 2000:
+        print 'TP_BGND: Error, timebase too small.  Must have at least 2000 time samples.'
+        return None
+    nf = len(outfghz)
+    outpd = Time(outtime,format='jd').plot_date
+    cursor = db.get_cursor()
+    data = db.get_dbrecs(cursor, dimension=8, timestamp=trange)
+    pd = Time(data['Timestamp'][:,0].astype(int),format='lv').plot_date
+    inlet = data['Sche_Data_Roac_TempInlet']   # Inlet temperature variation
+    sinlet = np.sum(inlet.astype(float),1)
+    # Eliminate 0 values in sinlet by replacing with nearest good value
+    bad, = np.where(sinlet == 0)
+    good, = np.where(sinlet != 0)
+    idx = nearest_val_idx(bad,good)  # Find locations of nearest good values to bad ones
+    sinlet[bad] = sinlet[good[idx]]  # Overwrite bad values with good ones
+    sinlet -= np.mean(sinlet)  # Remove offset, to provide zero-mean fluctuation
+    sinlet = np.roll(sinlet,-110)  # Shift phase of variation by 110 s earlier (seems to be needed)
+    # Interpolate sinlet values to the times in the data
+    sint = np.interp(outpd,pd,sinlet)
+#    sint = np.roll(sint,-90)  # Shift phase of variation by 90 s earlier
+#    sint -= np.mean(sint)     # Remove offset, to provide zero-mean fluctuation
+    sdev = np.std(sint)
+    sint_ok = np.abs(sint) < 2*sdev
+    bgnd = np.zeros((13, 2, nf, nt), float)
+    for ant in range(13):
+        for pol in range(2):
+            for i in range(nf):
+                # Subtract smooth trend from data
+                sig = tpdata['p'][ant,pol,i] - smooth(tpdata['p'][ant,pol,i],2000,'blackman')[1000:-999]
+                # Eliminate the worst outliers and repeat
+                stdev = np.nanstd(sig)
+                good, = np.where(np.abs(sig) < 2*stdev)
+                if len(good) > nt*0.1:
+                    sig = tpdata['p'][ant,pol,i,good] - smooth(tpdata['p'][ant,pol,i,good],2000,'blackman')[1000:-999]
+                    sint_i = sint[good]
+                    stdev = np.std(sig)
+                    # Final check for data quality
+                    good, = np.where(np.logical_and(sig < 2*stdev, sint_ok[good]))
+                    if len(good) > nt*0.1:
+                        p = np.polyfit(sint_i[good],sig[good],1)
+                    else:
+                        p = [1.,0.]
+                    # Apply correction for this frequency
+                    bgnd[ant,pol,i] = sint*p[0] + p[1]
     return bgnd

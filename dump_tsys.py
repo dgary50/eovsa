@@ -50,6 +50,9 @@
 #    this uses frequency-dependent attenuations.
 #  2019-May-21  DG
 #    Added skycal keyword to rd_miriad_tsys_16()
+#  2021-Jul-20  DG
+#    Added rd_ifdb() to read IFDB files, which is attempted by rd_fdb() initially 
+#    and if it fails then the corresponding FDB file is attempted to be read. 
 
 import subprocess, time, sys, glob
 import numpy as np
@@ -348,6 +351,15 @@ def rd_fdb(t):
     ''' Read the FDB file for the date given in Time() object t, and return in a
         useful dictionary form.
     '''
+    # First try to read from IFDB file (on pipeline)
+    try:
+        fdb = rd_ifdb(t)
+        if fdb != {}:
+            # File was found and a non-empty dictionary resulted, so...success?
+            return fdb
+    except:
+        pass
+
     # Check for existence of /data1/FDB, or use /dppdata1/FDB if not found:
     folder = '/data1/FDB'
     if glob.glob(folder) == []:
@@ -371,6 +383,31 @@ def rd_fdb(t):
             pass
     return dict(zip(names, contents))
 
+def rd_ifdb(t):
+    ''' Read the IFDB file for the date given in Time() object t, and return in a
+        useful dictionary form.
+    '''
+    # Check for existence of /data1/IFDB, or use /dppdata1/FDB if not found:
+    yy = t.iso[:4]
+    folder = '/data1/IFDB/'+yy
+    fdbfile = '/IFDB' + t.iso[:10].replace('-', '') + '.txt'
+    try:
+        f = open(folder + fdbfile, 'r')
+        lines = f.readlines()
+        f.close()
+    except:
+        print 'Error: Could not open IFDB file', folder + fdbfile + '. Will try FDB file.'
+        return {}
+    names = lines[0].replace(':', '').split()
+    contents = np.zeros((len(names), len(lines)), 'S32')
+    for i in range(1, len(lines)):
+        try:
+            contents[:, i-1] = np.array(lines[i].split())
+        except:
+            # If the above assignment does not work, line is malformed, so just
+            # leave as empty list
+            pass
+    return dict(zip(names, contents))
 
 def rd_ufdb(t):
     ''' Read the UFDB file for the date given in Time() object t, and return in a

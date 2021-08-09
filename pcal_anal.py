@@ -20,6 +20,9 @@
 #    mv_pcal_files() only worked for years 201*, so now works for 20*
 #  2020-05-29 SY
 #    update calpntanal() to use util.get_idbdir() to find IDB root path.
+#  2021-08-02   DG
+#    Fix a bug in findfile() introduced when FDB files were lost from the DPP.
+#    Now on pipeline the IFDB files are used, which do not have a key ST_SEC.
 #
 
 import numpy as np
@@ -112,9 +115,13 @@ def findfile(trange):
     # List of PHASECAL scan end times
     telist = Time(fdb['EN_TS'][scanidx[eidx]].astype(float).astype(int),format='lv')
     # Remove any bad values (i.e. those with ST_SEC = 0)
-    good, = np.where(fdb['ST_SEC'][scanidx[sidx]] != '0')
-    tslist = tslist[good]
-    telist = telist[good]
+    try:
+        good, = np.where(fdb['ST_SEC'][scanidx[sidx]] != '0')
+        tslist = tslist[good]
+        telist = telist[good]
+    except KeyError:
+        # Key 'ST_SEC' not found so just continue (this happens on pipeline when IFDB file is used)
+        pass
         
     k = 0         # Number of scans within timerange
     m = 0         # Pointer to first scan within timerange
