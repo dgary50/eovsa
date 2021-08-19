@@ -8,9 +8,13 @@
 #   Owen wrote alternative version, fix_packets2(), which rewrites the SMP_AFFINITY.sh
 #   script on the fly when packets go to zero.  I added a couple of lines to remove
 #   the empty /tmp/netplan_* folders created during a network reset.
+# 2021-08-10  DG
+#   Removing the files with a wild-card was not working, so now filenames are found
+#   with glob() before removing by explicit name.
 
 import numpy as np
 import time
+import glob
 from util import Time
 import subprocess
 
@@ -60,8 +64,6 @@ def plot_packets(n, cpu=[22,23], ax=None):
             command = ['sudo','/usr/sbin/netplan','apply']
             proc = subprocess.Popen(command)
             timeout = 5   # Leave a 5-s window to avoid resetting too often
-            command = ['sudo','rm','-rf','/tmp/netplan_*']  # Resetting leaves an empty folder, so delete it
-            proc = subprocess.Popen(command)
         else:
             timeout = max(timeout - 1, 0)
         line1.set_data(t[1:],ld1)
@@ -101,8 +103,10 @@ def fix_packets(cpu=[22,23]):
                 command = ['sudo','/usr/sbin/netplan','apply']
                 proc = subprocess.Popen(command)
                 timeout = 600   # Leave a 10-min window to avoid resetting too often
-                command = ['sudo','rm','-rf','/tmp/netplan_*']  # Resetting leaves an empty folder, so delete it
-                proc = subprocess.Popen(command)
+                files = glob.glob('/tmp/netplan*')
+                for file in files:
+                    command = ['sudo','rm','-rf',file]  # Resetting leaves an empty folder, so delete it
+                    proc = subprocess.Popen(command)
         else:
             timeout = max(timeout - 1, 0)
         if int(round(t) % 60) == 0:
@@ -205,8 +209,11 @@ def fix_packets2():
                         command = ['sudo','/usr/sbin/netplan','apply']
                         proc = subprocess.Popen(command)
                         timeout = 600   # Leave a 10-min window to avoid resetting too often
-                        command = ['sudo','rm','-rf','/tmp/netplan_*']  # Resetting leaves an empty folder, so delete it
-                        proc = subprocess.Popen(command)
+                        files = glob.glob('/tmp/netplan*')
+                        for file in files:
+                            command = ['sudo','rm','-rf',file]  # Resetting leaves an empty folder, so delete it
+                            proc = subprocess.Popen(command)
+                            update_log('Removed '+file)
                 else:
                     timeout = max(timeout - 1, 0)
                 if int(round(t) % 60) == 0:

@@ -40,6 +40,15 @@
 #  2021-08-09  DG
 #    Change adc_plot's exit strategy--reading the file needs to fail three times
 #    in a row before it exits.
+#  2021-08-11  DG
+#    Make adc_monitor() tolerant of failures to read from SQL
+#  2021-08-16  DG
+#    The adc_monitor() is working, but we are getting problems with the ACC and with
+#    the schedule hanging.  Try adding a 1-s pause between FEMATTN commands.
+#  2021-08-19  DG
+#    This is a new version with extensive changes eliminate most reading from SQL.  All
+#    threads now read the stateframe directly from the ACC, which should be more robust
+#    except for ACC failures.
 #
 import roach as r
 import struct
@@ -52,6 +61,7 @@ from time import sleep,time
 from util import Time
 from copy import copy
 import sys
+import stateframe as stf
 
 #set up threading
 class AGC_Thread (threading.Thread):
@@ -60,9 +70,29 @@ class AGC_Thread (threading.Thread):
         self.threadID = threadID                               #set thread ID
         self.name = "roach" + str(threadID)                    #set the thread name
         self.sd = np.empty((4,50),float)                       #set up the standard deviation array
+        self.levels = np.zeros((4), int)
+        self.agc = np.zeros((2), int)
         self.stop = False
         self.lock = threading.Lock()
-    
+        
+    def get_FEM_level(self):
+        # Read FEM level for current moment from ACC stateframe
+        rn = int(self.name[5:])
+        a1 = (rn-1)*2
+        a2 = a1+1
+        accini = self.accini
+        buf, msg = stf.get_stateframe(accini)
+        if msg == 'No Error':
+            hpol1 = stf.extract(buf,accini['sf']['Antenna'][a1]['Frontend']['FEM']['HPol']['Regime']['Level'])
+            vpol1 = stf.extract(buf,accini['sf']['Antenna'][a1]['Frontend']['FEM']['VPol']['Regime']['Level'])
+            hpol2 = stf.extract(buf,accini['sf']['Antenna'][a2]['Frontend']['FEM']['HPol']['Regime']['Level'])
+            vpol2 = stf.extract(buf,accini['sf']['Antenna'][a2]['Frontend']['FEM']['VPol']['Regime']['Level'])
+            agc1 = stf.extract(buf,accini['sf']['Antenna'][a1]['Frontend']['FEM']['AGC']['Active'])
+            agc2 = stf.extract(buf,accini['sf']['Antenna'][a2]['Frontend']['FEM']['AGC']['Active'])
+            return [hpol1, vpol1, hpol2, vpol2], [agc1, agc2]
+        else:
+            return [-1, -1, -1, -1], [0, 0]
+            
     def run(self):
         self.lock.acquire()                                    #acquire the lock
         while not self.stop:
@@ -71,7 +101,10 @@ class AGC_Thread (threading.Thread):
             waittime = (np.floor(s/60)+1)*60 - start
             sleep(waittime)
             start=time()
-            self.sd = np.std(self.grab_all(),axis=2)           #calculate standard deviation from the roach
+            outdata, levels, agc = self.grab_all()
+            self.sd = np.std(outdata,axis=2)           #calculate standard deviation from the roach
+            self.levels = levels  # Current FEM levels, one for each channel of this ROACH board
+            self.agc = agc  # Whether AGC is active, one for each antenna of this ROACH board
             if self.verbose:
                 print self.name+" Execution Time= "+str(time()-start)   #display the execution time
         self.lock.release()
@@ -80,6 +113,7 @@ class AGC_Thread (threading.Thread):
         roachname = self.name
         buf = ''                                               #adc buffer for single slot and channel
         slots = []
+        levs = []
         rn = r.Roach(roachname)
 
         # Grab 10 slots in one channel in one second (every fifth slot) starting at the given slot.
@@ -108,31 +142,46 @@ class AGC_Thread (threading.Thread):
             frac = np.array(frac)
             return buf, (frac/0.02).astype(int)
 
+        agc = np.zeros(2,int)
         for chan in range(4):
             for slot in range(5):
                buf1, s = grab10(rn, slot, chan)
                buf += buf1
                slots.append(s)
+            lvs, agcvals = self.get_FEM_level()
+            levs.append(lvs)
+            agc += np.array(agcvals)
         nbytes = 8192*4*50
         udata = np.array(struct.unpack('>'+str(nbytes)+'b',buf))
+        # Reorder axes and reshape
         udata.shape = (4,50,8192)
-        outdata = np.zeros((4,50,8192),float)                                 #numpy array of data to return in form of [chan,slot,data]
+        levs = np.array(levs)  # Shape (4,4)
+        levels = np.zeros(4,int)
+        # Get median over level measurements, but handle case where some measurements
+        # failed on reading the stateframe
+        for i in range(4):
+            good, = np.where(levs[:,i] != -1)
+            if len(good) == 0:
+                levels[i] = -1     # All measurements were bad (ACC may be down)
+            else:
+                levels[i] = np.median(levs[good,i])
+        outdata = np.zeros((4,50,8192),float)     #numpy array of data to return in form of [chan,slot,data]
         # The data are a bit scrambled in udata, and some bands may be missing (and others measured twice)
         # although hopefully that will be rare.  This should unscramble them.
-        slots = np.array(slots)
+        slots = np.array(slots)  # Shape (4,5,10)
         slots.shape = (4,50)
-        def find_missing(x):
-            bad = []
-            ptr = 0
-            for i in range(50):
-                try:
-                    if x[ptr] != i:
-                        bad.append(i)
-                    else:
-                        ptr += 1
-                except IndexError:
-                    bad.append(i)
-            return bad
+#        def find_missing(x):
+#            bad = []
+#            ptr = 0
+#            for i in range(50):
+#                try:
+#                    if x[ptr] != i:
+#                        bad.append(i)
+#                    else:
+#                        ptr += 1
+#                except IndexError:
+#                    bad.append(i)
+#            return bad
 
         sleep(int(roachname[-1])*0.02)
         for c in range(4):
@@ -142,9 +191,10 @@ class AGC_Thread (threading.Thread):
 #            if len(idx) != 50:
 #                print roachname,c,find_missing(slotarray)
             outdata[c,slotarray] = udata[c,idx]
+            
         rn.fpga.stop()
         
-        return outdata
+        return outdata, levels, agc
 
 def adc_monitor(nloop=None, verbose=False):
     ''' Performs an ADC measurement on all ROACH boards nloop times.
@@ -186,17 +236,24 @@ def adc_monitor(nloop=None, verbose=False):
         if dmjd <= -0.3333:
             # Time is at least 10:59:30 UT, so it is safe to start
             dmjd += 1
+            mjdstop = mjdnow + dmjd  # Future time at which to stop and exit
         nloop = int(dmjd*24*60)
         if nloop < 0:
             sys.stdout.write('Current time is in the gap 03:00-11:00 UT.  Will exit.\n')
             exit()
+    else:
+        mjdstop = Time.now().mjd + nloop/24./60.
     #list of threads
     threads = []
 
+    accini = stf.rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
+    
     #set up the threads
     for t in range(1,8):            
         threads.append(AGC_Thread(t))
         threads[-1].verbose = verbose
+        threads[-1].accini = accini
 
     #Start new Threads 
     for t in threads:
@@ -205,49 +262,56 @@ def adc_monitor(nloop=None, verbose=False):
     # Give threads some time to work
     sleep(45)
 
-    savlevs = np.zeros((7,4),float)
-    acc = None
-    for l in range(nloop):
+    savlevs = np.zeros((7,4),int)
+    newlevs = np.zeros((7,4),int)
+
+    while Time.now().mjd < mjdstop:
         t0 = time()
         # Read once per minute on the 45 s
         waittime = 45 - t0 % 60
         if waittime < 0: waittime += 60
-        if verbose: print "waittime: "+str(waittime)
+        if verbose: 
+            print "waittime: "+str(waittime)
+            sys.stdout.flush()
 
         sleep(waittime)
         t = Time.now().iso
-        if verbose: print t
+        if verbose: 
+            print t
+            sys.stdout.flush()
         
     #    stdev[0:-1]=stdev[1:]
     #    for i,t in enumerate(threads):
     #        stdev[-1,i]=t.sd
 
-        cursor = db.get_cursor()
-        d1 = db.get_dbrecs(cursor, dimension=1, timestamp=Time(t[:16]), nrecs=1)
-        d15 = db.get_dbrecs(cursor, dimension=15, timestamp=Time(t[:16]), nrecs=30)
-        # Get current FEMATTN level (typical value over last 60 s) in (roach, chan) order
-        # for display purposes.        
-        hlevs = np.median(d15['Ante_Fron_FEM_HPol_Regi_Level'][:,:14],0).astype(int)
-        vlevs = np.median(d15['Ante_Fron_FEM_VPol_Regi_Level'][:,:14],0).astype(int)
-        levs = np.array([hlevs,vlevs])
-        levs = np.rollaxis(levs,1).reshape(7,4)
-        fseqfile = d1['LODM_LO1A_FSeqFile'][0].strip('\0')
-        
+        # Grab current stateframe
+        buf, msg = stf.get_stateframe(accini)
+        if msg == 'No Error':
+            fseqfile = stf.extract(buf,accini['sf']['LODM']['LO1A']['FSeqFile']).strip('\0')
+        else:
+            fseqfile = 'Unknown'
+
         # Loop over threads and get sd (4,50) for each
         stdall = np.zeros((7,4,50),float)
         needs = np.zeros((7,4), float)
+        agc = np.zeros((7,2), int)
+        levs = np.zeros((7,4), int)
         for i in range(7):
             stdev = threads[i].sd
+            levs[i] = threads[i].levels
+            agc[i] = threads[i].agc
             stdall[i] = stdev
             for chan in range(4):
                 # Use highest half of points to calculate FEM level needed to achieve target
                 needs[i,chan] = np.log10(np.median(np.sort(stdev[chan])[24:]/34.))*5.
+        agc.shape = (14,)
         # Save stdevs for this time
 #        fh = open(fname,'ab')
 #        fh.write(stdall)
 #        fh.close()
 
         # Only do this if we are in a "Normal Observing" scan (as read from latest SQL header)
+        cursor = db.get_cursor()
         ver = db.find_table_version(cursor, Time.now().lv, scan_header=True)
         query = 'select top 1 * from hV'+ver+'_vD1 order by Timestamp desc'
         result, msg = db.do_query(cursor, query)
@@ -257,7 +321,13 @@ def adc_monitor(nloop=None, verbose=False):
             if projid == 'NormalObserving':
                 # Get new FEMATTN level, ensuring that it is not less than 0
                 needs = np.round(needs).astype(int)
-                newlevs = np.clip(levs+needs,0,None)
+                for i in range(7):
+                    if levs[i,0] == -1:
+                        # This ROACH has all failed attempts to read from stateframe, 
+                        # so use previous levels and skip any update
+                        newlevs[i] = savlevs[i]
+                    else:
+                        newlevs[i] = np.clip(levs[i]+needs[i],0,None)
                 if np.sum(levs[:6]) == 0:
                     # All of the levels are zero and we are on NormalObserving, so probably
                     # this is the start of a new scan. Hence, restore maximum of needs and 
@@ -265,27 +335,24 @@ def adc_monitor(nloop=None, verbose=False):
                     newlevs = np.maximum(needs,copy(savlevs))
                 savlevs = copy(newlevs)
                 for i in range(13):
-                    agc = np.sum(d15['Ante_Fron_FEM_AGC_Active'][:,i],0)
-                    if agc == 0:
-                        # AGC is not active over the entire 30 period, so adjust FEMATTN level toward target
+                    if agc[i] == 0:
+                        # AGC is not active over the entire 30 s period, so adjust FEMATTN level toward target
                         nroach = i/2
                         nchan = (i % 2)*2
                         if needs[nroach,nchan] !=0 or needs[nroach,nchan+1] !=0:
                             # If either channel needs adjustment, send the command
                             femcmd = 'FEMATTN {} {} ANT{}'.format(newlevs[nroach,nchan],newlevs[nroach,nchan+1],i+1)
+                            t = Time.now().iso
                             sys.stdout.write(t[11:19]+' '+femcmd+'\n')
-                            if acc is None:
-                                import stateframe as stf
-                                accini = stf.rd_ACCfile()
-                                acc = {'host': accini['host'], 'scdport':accini['scdport']}
 
                             adc2.send_cmds([femcmd], acc)
+                            sleep(1)   # Leave a 1-s pause between sending of these commands
         
         outdict = {'time':t, 'fseqfile':fseqfile, 'projid':projid, 'levels':levs, 'needs':needs, 'stdev':stdall}
         fh2 = open(f2name,'ab')   # Open file for appending
         np.save(fh2,outdict)
         fh2.close()
-        sys.stdout.write(t[11:19]+': '+str(l)+' out of '+str(nloop)+'\n')
+        sys.stdout.write('Time now: '+t[:19]+'. Stops at: '+Time(mjdstop,format='mjd').iso[:19]+'\n')
         sys.stdout.flush()
             
     for i,t in enumerate(threads):

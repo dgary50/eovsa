@@ -40,6 +40,9 @@
 #      Got a strange error in a14_wscram where the query gave a
 #      "success" message but there was not Timestamp.  I just
 #      use a try: except: clause and return an unknown error in this case.
+#   2021-Aug-11  DG
+#      Attempt to make get_dbrecs() more robust to failure (now returns empty
+#      dict on failure)
      
 import stateframedef
 import util
@@ -129,20 +132,24 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
     except:
         print 'Query',query.upper(),'returned an error.'
         print stateframedef.sys.exc_info()[0]
+        return {}
     # Extract the data
     data = stateframedef.numpy.transpose(stateframedef.numpy.array(cursor.fetchall(),'object'))
     # Override nrecs with the number of records actually read (could be less than requested)
-    nrecs = len(data[0])/dimension
-    # Get names from description
-    names = stateframedef.numpy.array(cursor.description)[:,0]
-    # Reshape data array for zipping into dictionary.  Each dictionary entry will be
-    # an array of size nrecs x dimension.
-    if dimension > 1:
-        data.shape = (len(names),nrecs,dimension)
-    else:
-        data.shape = (len(names),nrecs)
-    # Create the dictionary
-    outdict = dict(zip(names,data))
+    try:
+        nrecs = len(data[0])/dimension
+        # Get names from description
+        names = stateframedef.numpy.array(cursor.description)[:,0]
+        # Reshape data array for zipping into dictionary.  Each dictionary entry will be
+        # an array of size nrecs x dimension.
+        if dimension > 1:
+            data.shape = (len(names),nrecs,dimension)
+        else:
+            data.shape = (len(names),nrecs)
+        # Create the dictionary
+        outdict = dict(zip(names,data))
+    except:
+        outdict = {}
     return outdict
     
 def do_query(cursor,query):

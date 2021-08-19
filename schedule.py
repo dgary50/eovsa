@@ -313,7 +313,16 @@
 #      rotate the list of attenuation settings used by the system (file 
 #      DCM_table.txt) by 7 lines to compensate.  If the lag amount ever changes,
 #      or the code sending the DCM attenuations is fixed, simply change the
-#      value of "lag" accordingly (0 for no lag). 
+#      value of "lag" accordingly (0 for no lag).
+#    2021-Aug-11  DG
+#      After years of occasional schedule hangs, I now realize that the wake_up()
+#      call handler requires two other arguments!  Hopefully this will not crash
+#      anymore.
+#    2021-Aug-18  DG
+#      Fix a bug related to non-existent /tmp/schedule_old.log on Helios reboot.
+#      Also print what antennas are associated with each ROACH in connect2roach().
+#      Also change old log file name to /tmp/schedule<yyyymmdd_hhmm>.log so that
+#      it does not get overwritten
 #
 
 import os, signal
@@ -389,15 +398,12 @@ if match_pid != -1:
 
 # Ensure that output to "terminal" goes to log file.
 if len(sys.argv)<2: # for master schedule write to schedule.log
+    datstr = util.Time.now().iso[:16].replace('-','').replace(':','').replace(' ','_')
     try:
         # Rename existing log file for debug purposes
-        os.rename('/tmp/schedule.log','/tmp/schedule_old.log')
+        os.rename('/tmp/schedule.log','/tmp/schedule'+datstr+'.log')
     except:
-        os.remove('/tmp/schedule_old.log')
-        try:
-            os.rename('/tmp/schedule.log','/tmp/schedule_old.log')
-        except:
-            print 'Could not rename /tmp/schedule.log to /tmp/schedule_old.log'
+        print 'Could not rename /tmp/schedule.log to /tmp/schedule'+datstr+'.log.  Perhaps a Helios reboot?'
     sys.stdout = open('/tmp/schedule.log','w')
 else: # use a different log file name for the 2nd subarray (schedule_Subarray2.log or schedule_Starburst.log)
     sys.stdout = open('/tmp/schedule_'+sys.argv[1]+'.log','w')
@@ -974,7 +980,7 @@ class App():
                 #self.brd_clk_freq = 300
             self.roaches.append(roachModule.Roach(roach_ip, boffile_name))#, cfg))
             if self.roaches[-1].msg == 'Success':
-                print roach_ip,'is reachable'
+                print roach_ip,'serving ants',self.roaches[-1].ants,'is reachable'
                 self.roaches[-1].dlasweep = None
                 try:
                     self.roaches[-1].brd_clk = self.roaches[-1].fpga.est_brd_clk()
@@ -995,13 +1001,14 @@ class App():
                 self.roaches.pop()
 
     #============================
-    def wake_up(self):
+    def wake_up(self, signum, frame):
         # This is called whenever the 15-second alarm goes off, indicating the
         # process is stuck in sk_wait.  We simply send ourselves a SIGINT (ctrl-C),
         # which should hopefully do it, but we should also log the fact by setting
         # a flag in the self object.
         self.error = 'The 15-s-alarm went off!'
-        print self.error
+        print self.error,'Signal:',signum,'at frame',frame
+        sys.stdout.flush()
         # Try to reestablish connection to the ROACHes, and set self.fpga accordingly
         # This will keep dla2roach() from hanging.
         self.connect2roach()
