@@ -11,6 +11,10 @@
 # 2021-08-10  DG
 #   Removing the files with a wild-card was not working, so now filenames are found
 #   with glob() before removing by explicit name.
+# 2021-08-25  OG
+#   Modified update_log so that it writes to the /common/webplots/dpp_fix_packets_log.txt
+#   file. This is so it can be accessed by the sf_display program. It only saves the
+#   last 5 lines. This can be changed if necessary.
 
 import numpy as np
 import time
@@ -54,12 +58,35 @@ def init_fix_packets(cpu):
     f.close()
     
     #Now run the script
-    command = ['/home/user/test_svn/shell_scripts/SMP_AFFINITY.sh']
+    command = ['bash','/home/user/test_svn/shell_scripts/SMP_AFFINITY.sh']
     proc = subprocess.Popen(command)
 
 def update_log(msg):
-    f = open("/tmp/dpp_fix_packets_log.txt",'a')
-    f.write(Time.now().iso[:19]+": "+msg+'\n')
+    '''Reads each line of the file /common/webplots/dpp_fix_packets_log.txt into
+    a list and appends the msg to the list. Only the last 20 lines are written
+    back to the file'''
+    
+    logfile="/common/webplots/dpp_fix_packets_log.txt"
+    f = open(logfile,'r')
+    lines = f.readlines()
+    f.close()
+    lines.append(Time.now().iso[:19]+": "+msg+'\n')
+    if len(lines) > 20:
+        lines = lines[-20:]
+    
+    f = open(logfile,'w')
+    for l in lines:
+        f.write(l)
+    f.close()
+
+def update_cpu_file(cpu):
+    '''writes out the cpu's currently being used to /common/webplots/dpp_cpu.txt'''
+    
+    cpufile="/common/webplots/dpp_cpu.txt"
+    f = open(cpufile,'w')
+    for c in cpu:
+        f.write(str(c)+'\n')
+        
     f.close()
     
 #Continuously checks /proc/net/softnet_stat once each second,
@@ -75,14 +102,15 @@ for i in range(18,23,2):
     
 reboot_required = False
 started = False
+update_log('dpp_fix_packets.py has been restarted')
 while 1:
     for i,c in enumerate(cpu):
-        lline = 'Resetting CPUs - Using CPUs '+str(c[0])+' and '+str(c[1])+'.'
+        update_cpu_file(c)
+        update_log('Resetting CPUs - Using CPUs '+str(c[0])+' and '+str(c[1])+'.')
         if reboot_required:
-            lline += ' DPP REBOOT REQUIRED!'
-        update_log(lline)
+            update_log('DPP REBOOT REQUIRED!')
+            
         init_fix_packets(c)
-    
         time.sleep(1 - (time.time() % 1))
         val0 = procstat(c[0],c[1])
         time.sleep(1 - (time.time() % 1))
@@ -110,8 +138,10 @@ while 1:
                     break
                     
                 if (100000 < if1 < 130000) or (100000 < if2 < 130000):
-                    #print Time.now().iso,'Packet loss detected!', np.round(if1), np.round(if2), 'Resetting interfaces'
+                    # ==== This section can be removed once testing is complete ====
+                    print Time.now().iso,'Packet loss detected!', np.round(if1), np.round(if2), 'Resetting interfaces'
                     update_log('Packet loss detected! ' + str(np.round(if1)) + " " + str(np.round(if2)) + ' Resetting interfaces')
+                    # ==============================================================
                     command = ['sudo','/usr/sbin/netplan','apply']
                     proc = subprocess.Popen(command)
                     timeout = 600   # Leave a 10-min window to avoid resetting too often
@@ -123,10 +153,12 @@ while 1:
             else:
                 timeout = max(timeout - 1, 0)
             
-            #if int(round(t) % 60) == 0:
-            #    if timeout == 0:
-            #        print Time.now().iso, np.round(if1), np.round(if2)
-            #    else:
-            #        print Time.now().iso, 'Waiting for end of timeout, now',timeout
+            # ==== This section can be removed once testing is complete ====
+            if int(round(t) % 60) == 0:
+                if timeout == 0:
+                    print Time.now().iso, np.round(if1), np.round(if2)
+                else:
+                    print Time.now().iso, 'Waiting for end of timeout, now',timeout
             #        update_log('Waiting for end of timeout, now '+str(timeout))
+            # ==============================================================
             time.sleep(1 - (time.time() % 1))

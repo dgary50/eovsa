@@ -22,6 +22,14 @@
 #    and they also have #** in a comment on those lines.
 #  2020-10-31  DG
 #    Looks like the 27-m is back, so I reverted the code back to the original.
+#  2021-09-09  DG
+#    The schedule broke today because it is day 251, which is a transition between
+#    three and two calibrations during the day.  I changed the iday range from >251
+#    to >=251, and now it seems to work.
+#  2021-09-22  DG
+#    My replacement of 1229+020 by 1331+305 for day numbers 259-287 was broken, 
+#    because 1331+305 was not up yet!  I now add an appropriate number of minutes 
+#    to the times of those lines.
 
 import os
 from util import Time
@@ -360,7 +368,8 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
     if ax:
         ax.plot([rc1start,rc1start+refdur/1440.],[imjd,imjd],color='C0',alpha=0.25)
     #   Phasecals
-    if iday < 83 or iday > 251:
+    if iday < 83 or iday >= 251:
+        #import pdb; pdb.set_trace()
         pcal1 = pcal2srcs[0][np.where(iday - np.array(pcal2trans[0]) >= 0.0)[0][-1]]
         pc1rise = (ts[pcal1]-nday*0.0027378 + 1.0) % 1
         pc1set = (te[pcal1]-nday*0.0027378 + 1.0) % 1
@@ -501,12 +510,24 @@ def chk_sched(lines):
     # Post-creation check on the schedule to address the fact that
     # 3C273 is too close to the Sun from 9/15 to 10/13 each year (day-of-year 259-287).
     doy = int(Time(lines[0][:10]).yday[5:8])
+    next = -1  # Impossible line number
     if doy >= 259 and doy <= 287:
         # This is a date range when the 27-m antenna should not point at source 1229+020
         # Simply replace 1229+020 with 1331+305 (3C286).  That is a much weaker source, but it
         # may be okay for a PHASECAL
+        if doy < 272:
+            dt = (3000. - (doy - 259)*240.)/86400.  # Starts at 50 min and decreases by 4 min each day
+        else:
+            dt = 0.
         for i in range(len(lines)):
-            lines[i] = lines[i].replace('1229+020','1331+305')
+            if lines[i].find('1229+020') != -1:
+                # This line has to be adjusted by dt later and change source to '1331+305'
+                lines[i] = lines[i].replace('1229+020','1331+305')
+                lines[i] = (Time(lines[i][:19])+dt).iso[:19]+lines[i][19:]
+                next = i+1  # Set to next line number, which also has to increment by dt
+            elif next == i:
+                lines[i] = (Time(lines[i][:19])+dt).iso[:19]+lines[i][19:]
+                next = -1
     return lines
                     
         

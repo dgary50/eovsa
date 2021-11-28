@@ -323,6 +323,11 @@
 #      Also print what antennas are associated with each ROACH in connect2roach().
 #      Also change old log file name to /tmp/schedule<yyyymmdd_hhmm>.log so that
 #      it does not get overwritten
+#    2021-Aug-20  DG
+#      Avoid bug in execute_ctlline() where an empty line in a .ctl file caused a crash.
+#    2021-Sep-29  DG
+#      A wake_up() call did not restart the schedule, so now I have added code in 
+#      wake_up() to cancel the inc_time timer and restart it.
 #
 
 import os, signal
@@ -921,7 +926,7 @@ class App():
 
         # Start the clock ticking
         self.prev = time.time()
-        self.root.after(1,self.inc_time)
+        self.tmr = self.root.after(1,self.inc_time)
 
     #============================
     
@@ -1013,6 +1018,11 @@ class App():
         # This will keep dla2roach() from hanging.
         self.connect2roach()
         os.kill(self.mypid, signal.SIGINT)
+        # Kill the inc_time timer and restart it.
+        self.root.after_cancel(self.tmr)
+        self.prev = time.time()
+        self.tmr = self.root.after(1,self.inc_time)
+
 
     #============================
     # Raw command history routines
@@ -2236,14 +2246,14 @@ class App():
         else:
             # Default project is just the first command on line (truncate to 32 chars)
             sh_dict['project'] = cmds[0][:32]
-            print cmds[0][:32]
+            print 'Default project:',cmds[0][:32]
             if len(cmds) == 1:
                 # Case of only one string on command line
                 sh_dict['source_id'] = 'None'
             else:
                 # Default source ID is second string on command line (truncate to 12 chars)
                 sh_dict['source_id'] = cmds[1][:12]
-            print sh_dict['source_id']
+            print 'Default source:',sh_dict['source_id']
             sh_dict['track_mode'] = 'FIXED '        
         lines = f2.readlines()
         for ctlline in lines:
@@ -2331,7 +2341,10 @@ class App():
         # into stateframe without execution by ACC.  Lines that start
         # with '$*' are Starburst commands.
         # Skip comments
-        if ctlline[0] == '#':
+        if len(ctlline) == 0:
+            print util.Time.now().iso[:19],'Empty line in .ctl file?'
+            pass
+        elif ctlline[0] == '#':
             pass
         else:
             if ctlline.strip().upper() == 'DCMAUTO-ON':

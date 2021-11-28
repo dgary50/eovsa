@@ -14,6 +14,9 @@
 #    Some minor tweaks to tp_bgnd() and created a new routine that does all
 #    antennas and polarizations, called tp_bgnd_all(), which is otherwise the
 #    same.
+#  2021-09-25  DG
+#    Change minimum length for background subtraction (tp_bgnd, etc.) to 1200
+#    and allow it to shrink further if some data are missing.
 #
 
 import pipeline_cal as pc
@@ -219,8 +222,8 @@ def tp_bgnd(tpdata):
     
     tstr = trange.lv.astype(int).astype(str)
     nt = len(outtime)
-    if nt < 2000:
-        print 'TP_BGND: Error, timebase too small.  Must have at least 2000 time samples.'
+    if nt < 1200:
+        print 'TP_BGND: Error, timebase too small.  Must have at least 1200 time samples.'
         return None
     nf = len(outfghz)
     outpd = Time(outtime,format='jd').plot_date
@@ -244,13 +247,20 @@ def tp_bgnd(tpdata):
     sint_ok = np.abs(sint) < 2*sdev
     bgnd = np.zeros((nf, nt), float)
     for i in range(nf):
+        wlen = min(nt,2000)
+        if wlen % 2 != 0:
+            wlen -= 1
         # Subtract smooth trend from data
-        sig = tpdata['p'][i] - smooth(tpdata['p'][i],2000,'blackman')[1000:-999]
+        sig = tpdata['p'][i] - smooth(tpdata['p'][i],wlen,'blackman')[wlen/2:-(wlen/2-1)]
         # Eliminate the worst outliers and repeat
         stdev = np.nanstd(sig)
         good, = np.where(np.abs(sig) < stdev)
         if len(good) > nt*0.1:
-            sig = tpdata['p'][i,good] - smooth(tpdata['p'][i,good],2000,'blackman')[1000:-999]
+            wlen = min(len(good),2000)
+            if wlen % 2 != 0:
+                wlen -= 1
+            # Subtract smooth trend from data
+            sig = tpdata['p'][i,good] - smooth(tpdata['p'][i,good],wlen,'blackman')[wlen/2:-(wlen/2-1)]
             sint_i = sint[good]
             stdev = np.std(sig)
             # Final check for data quality
@@ -288,8 +298,8 @@ def tp_bgnd_all(tpdata):
         trange = Time(outtime[[0,-1]],format='mjd')
     
     nt = len(outtime)
-    if nt < 2000:
-        print 'TP_BGND: Error, timebase too small.  Must have at least 2000 time samples.'
+    if nt < 1200:
+        print 'TP_BGND: Error, timebase too small.  Must have at least 1200 time samples.'
         return None
     nf = len(outfghz)
     outpd = Time(outtime,format='jd').plot_date
@@ -316,12 +326,19 @@ def tp_bgnd_all(tpdata):
         for pol in range(2):
             for i in range(nf):
                 # Subtract smooth trend from data
-                sig = tpdata['p'][ant,pol,i] - smooth(tpdata['p'][ant,pol,i],2000,'blackman')[1000:-999]
+                nt = len(tpdata['p'][ant,pol,i])
+                wlen = min(nt,2000)
+                if wlen % 2 != 0:
+                    wlen -= 1
+                sig = tpdata['p'][ant,pol,i] - smooth(tpdata['p'][ant,pol,i],wlen,'blackman')[wlen/2:-(wlen/2-1)]
                 # Eliminate the worst outliers and repeat
                 stdev = np.nanstd(sig)
                 good, = np.where(np.abs(sig) < 2*stdev)
                 if len(good) > nt*0.1:
-                    sig = tpdata['p'][ant,pol,i,good] - smooth(tpdata['p'][ant,pol,i,good],2000,'blackman')[1000:-999]
+                    wlen = min(len(good),2000)
+                    if wlen % 2 != 0:
+                        wlen -= 1                    
+                    sig = tpdata['p'][ant,pol,i,good] - smooth(tpdata['p'][ant,pol,i,good],wlen,'blackman')[wlen/2:-(wlen/2-1)]
                     sint_i = sint[good]
                     stdev = np.std(sig)
                     # Final check for data quality

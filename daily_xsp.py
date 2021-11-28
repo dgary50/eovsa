@@ -362,6 +362,7 @@ def cal_qual(t=None, savfig=True):
     out = ri.read_idb(outnames, srcchk=False)
     nt = len(out['time'])
     nf = len(out['fghz'])
+    tpfac = 500./nf
 
     frq, flux = rstn.rd_rstnflux(t)
     s = rstn.rstn2ant(frq, flux, out['fghz']*1000., t)
@@ -373,16 +374,16 @@ def cal_qual(t=None, savfig=True):
     for i in range(13):
         for j in range(2):
             ax[j,i].imshow(out['p'][i,j],aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
-            ax[j,i].plot(np.clip(out['p'][i,j,100],0,nf),linewidth=1)
-            ax[j,i].plot(np.clip(out['p'][i,j,300],0,nf),linewidth=1)
+            ax[j,i].plot(np.clip(out['p'][i,j,int(nf/3.)]/tpfac,0,nf),linewidth=1)
+            ax[j,i].plot(np.clip(out['p'][i,j,int(2*nf/3.)]/tpfac,0,nf),linewidth=1)
             ax[j,i].set_title('Ant '+str(i+1)+[' X Pol',' Y Pol'][j],fontsize=10)
     for j in range(2): 
         ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
         ax[j,13].set_title('RSTN Flux',fontsize=10)
     for i in range(13):
         for j in range(2):
-            ax[j,i].plot(np.clip(fluximg[100],0,nf),'--',linewidth=1,color='C0')
-            ax[j,i].plot(np.clip(fluximg[300],0, nf),'--',linewidth=1,color='C1')
+            ax[j,i].plot(np.clip(fluximg[int(nf/3.)]/tpfac,0,nf),'--',linewidth=1,color='C0')
+            ax[j,i].plot(np.clip(fluximg[int(2*nf/3.)]/tpfac,0, nf),'--',linewidth=1,color='C1')
 
     f.suptitle('Total Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
@@ -396,16 +397,16 @@ def cal_qual(t=None, savfig=True):
     for i in range(13):
         for j in range(2):
             ax[j,i].imshow(np.real(out['a'][i,j]),aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
-            ax[j,i].plot(np.clip(np.real(out['a'][i,j,100]),0,nf),linewidth=1)
-            ax[j,i].plot(np.clip(np.real(out['a'][i,j,300]),0,nf),linewidth=1)
+            ax[j,i].plot(np.clip(np.real(out['a'][i,j,int(nf/3.)]/tpfac),0,nf),linewidth=1)
+            ax[j,i].plot(np.clip(np.real(out['a'][i,j,int(2*nf/3.)]/tpfac),0,nf),linewidth=1)
             ax[j,i].set_title('Ant '+str(i+1)+[' X Pol',' Y Pol'][j],fontsize=10)
     for j in range(2): 
         ax[j,13].imshow(fluximg,aspect='auto',origin='lower',vmax=np.max(s),vmin=0)
         ax[j,13].set_title('RSTN Flux',fontsize=10)
     for i in range(13):
         for j in range(2):
-            ax[j,i].plot(np.clip(fluximg[100],0,nf),'--',linewidth=1,color='C0')
-            ax[j,i].plot(np.clip(fluximg[300],0,nf),'--',linewidth=1,color='C1')
+            ax[j,i].plot(np.clip(fluximg[int(nf/3.)]/tpfac,0,nf),'--',linewidth=1,color='C0')
+            ax[j,i].plot(np.clip(fluximg[int(2*nf/3.)]/tpfac,0,nf),'--',linewidth=1,color='C1')
     f.suptitle('Cross-Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
     if savfig:

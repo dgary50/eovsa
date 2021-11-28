@@ -52,6 +52,15 @@
 #    attenuation state within integration time dt and returns a dictionary for each 
 #    antenna and integrated time sample.  This required corresponding changes to
 #    apply_fem_level().
+#  2021-10-30  DG
+#    A bug occurs in get_gain_state() during times when the 27-m is not working, so 
+#    that we have no reference calibrations.  The apply_gain_corr() routine uses
+#    an early time (13:30 UT) as reference time, but the SQL query fails if there
+#    are no records at that time.  Now I have introduced a fall-back option that
+#    uses the keyword relax=True in the call to get_gain_state(), which will just
+#    take the first nt records after 13:30 UT.  This is not guaranteed to be a
+#    reference gain state, but it has some chance to be so.  This is a very rare
+#    occurrence.
 #
 import dbutil as db
 import read_idb as ri
@@ -255,7 +264,7 @@ def get_fem_level(trange, dt=None):
     cursor.close()
     return {'times':times,'hlev':hlev,'vlev':vlev,'dcmattn':dcmattn,'dcmoff':dcm_off}
     
-def get_gain_state(trange, dt=None):
+def get_gain_state(trange, dt=None, relax=False):
     ''' Get all gain-state information for a given timerange.  Returns a dictionary
         with keys as follows:
         
@@ -275,6 +284,8 @@ def get_gain_state(trange, dt=None):
         Optional keywords:
            dt      Seconds between entries to read from SQL stateframe database. 
                      If omitted, 1 s is assumed.
+           relax   Used for gain of reference time, in case there are no SQL data for the
+                     requested time.  In that case it finds the data for the nearest later time.
     '''
     if dt is None:
         tstart,tend = [str(i) for i in trange.lv]
@@ -285,13 +296,21 @@ def get_gain_state(trange, dt=None):
     cursor = db.get_cursor()
     ver = db.find_table_version(cursor,trange[0].lv)
     # Get front end attenuator states
-    query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
+    # Attempt to solve the problem if there are no data 
+    if relax:
+        # Special case of reference gain, where we want the first nt records after tstart, in case there
+        # are no data at time tstart
+        nt = int(float(tend) - float(tstart) - 1)*15
+        query = 'select top '+str(nt)+' Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
             +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
-            +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp <= '+tend
+            +ver+'_vD15 where Timestamp >= '+tstart+' order by Timestamp'
+    else:
+        query = 'select Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
+            +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
+            +ver+'_vD15 where Timestamp >= '+tstart+' and Timestamp < '+tend+' order by Timestamp'
     #if dt:
     #    # If dt (seconds between measurements) is set, add appropriate SQL statement to query
     #    query += ' and (cast(Timestamp as bigint) % '+str(dt)+') = 0 '
-    query += ' order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
         if dt:
@@ -302,6 +321,8 @@ def get_gain_state(trange, dt=None):
             times = Time(data['Timestamp'][:new_n].astype('int')[::15*dt],format='lv')
         else:
             times = Time(data['Timestamp'].astype('int')[::15],format='lv')
+        # Change tstart and tend to correspond to actual times from SQL
+        tstart, tend = [str(i) for i in times[[0,-1]].lv]
         h1 = data['Ante_Fron_FEM_HPol_Atte_First']
         h2 = data['Ante_Fron_FEM_HPol_Atte_Second']
         v1 = data['Ante_Fron_FEM_VPol_Atte_First']
@@ -537,15 +558,22 @@ def apply_gain_corr(data, tref=None):
             # Get filename of first PHASECAL on this day, and use it to get reference time
             scanfile = pa.findfile(trange)['scanlist'][0][0]
             tref = Time(fname2mjd(scanfile)+60./86400,format='mjd')  # Add one minute to ensure scan is active
+            # Get the gain state at the reference time (actually median over 1 minute)
+            trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+            ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
         except:
             # No phasecal in timerange, so just use an early time as reference
             tref = Time(trange[0].iso[:10]+' 13:30')
+            # Get the gain state at the reference time (actually median over 1 minute)
+            trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+            ref_gs =  get_gain_state(trefrange, relax=True)  # refcal gain state for 60 s after ref time
         if trange[0].mjd - tref.mjd > 2:
             # Reference calibration is too old, so just use an early time as reference
             tref = Time(trange[0].iso[:10]+' 13:30')
-    # Get the gain state at the reference time (actually median over 1 minute)
-    trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
-    ref_gs =  get_gain_state(trefrange)  # refcal gain state for 60 s
+            # Get the gain state at the reference time (actually median over 1 minute)
+            trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
+            ref_gs =  get_gain_state(trefrange, relax=True)  # refcal gain state for 60 s after ref time
+
     # Get median of refcal gain state (which should be constant anyway)
     ref_gs['h1'] = np.median(ref_gs['h1'],1)
     ref_gs['h2'] = np.median(ref_gs['h2'],1)

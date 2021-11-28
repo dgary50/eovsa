@@ -96,6 +96,12 @@
 #   2021-Jul-01 DG
 #       The data disk that the log stateframe is written to is on the fritz, so for
 #       now, completely skip opening a log file.
+#   2021-Aug-25 OG
+#       Added section to display dpp_fix packets information.
+#   2021-Aug-31 OG
+#       Added Currently used CPUs to the fix packets title
+#   2021-Sep-20 OG
+#       Added check to make sure two cpus are found in the dpp section.
 
 from Tkinter import *
 from ttk import *
@@ -336,7 +342,7 @@ class App():
                           font=font2use)
         self.L3.bind('<<ListboxSelect>>', self.toggle_heading)
         self.L3.pack(side=LEFT, fill=BOTH, expand=0)
-        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0, 1]
+        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0, 1, 1]
         self.colors = {'section0': '#757', 'section1': '#979',
                        'colhead': '#cfc', 'error': '#f88', 'warn': '#ff8',
                        'na': '#ddd', 'offsets': '#feb'}
@@ -470,6 +476,12 @@ class App():
         
         # Get the most recent IDB file
         self.IDBfile = getIDBfile()
+        
+        # Get the most recent list of messages from dpp_fix_packets
+        self.dppmsg = read_fix_packets_log()
+        
+        #get the current dpp cpu's from dpp_faxi_packets 
+        self.dppcpu = read_dpp_cpus()
         
     def quit(self):
         exit()
@@ -1605,6 +1617,38 @@ class App():
             else:
                 self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
         
+        # ================= Section 10: DPP Fix Packets Messages ===================
+        
+        t=Time.now()
+        if int(t.mjd * 86400.0) % 60 == 0:
+            self.dppmsg = read_fix_packets_log()
+            self.dppcpu = read_dpp_cpus()
+                
+        heading = 'Last DPP Fix Packets Messages'
+        
+        if not self.sectionDisplayState[9]:
+            if len(self.dppcpu) != 2:
+                line = 'CPUs Currently Used: Unknown!'.center(100-len(heading)-len(expand),'_')
+            else:
+                line = 'CPUs Currently Used: {:2} {:2}'.format(self.dppcpu[0],self.dppcpu[1]).center(100-len(heading)-len(expand),'_')
+            headline = ' '+heading+line+expand
+            self.L3.insert(END,headline)
+            self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
+        else:
+            if len(self.dppcpu) != 2:
+                line = 'CPUs Currently Used: Unknown!'.center(100-len(heading)-len(collapse),'_')
+            else:
+                line = 'CPUs Currently Used: {:2} {:2}'.format(self.dppcpu[0],self.dppcpu[1]).center(100-len(heading)-len(collapse),'_')
+            headline = ' '+heading+line+collapse
+            self.L3.insert(END,headline)
+            self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
+            if len(self.dppmsg) <=5:
+                for msg in self.dppmsg:
+                    self.L3.insert(END,msg)
+            else:
+                for msg in self.dppmsg[-3:]:
+                    self.L3.insert(END,msg)
+        
             
     def cryo_display(self,data):
         ''' Creates the CryoRX page to display Cryo Receiver information
@@ -2219,6 +2263,25 @@ def getIDBfile():
     except IOError as error:
         return ""
 
+def read_fix_packets_log():
+    if os.path.isfile('/common/webplots/dpp_fix_packets_log.txt'):
+        f = open("/common/webplots/dpp_fix_packets_log.txt",'r')
+        lines = f.readlines()
+        f.close()
+        lines = [l.strip() for l in lines]
+        return lines
+    else:
+        return []
+
+def read_dpp_cpus():
+    if os.path.isfile("/common/webplots/dpp_cpu.txt"):
+        f = open("/common/webplots/dpp_cpu.txt", "r")
+        cpus = [l.strip() for l in f.readlines()]
+    else:
+        cpus = ['0','0']
+    
+    return cpus
+    
 app = App()
 
 mainloop()

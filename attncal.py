@@ -25,6 +25,10 @@
 #    so I now eliminate those before searching for transitions.  I also
 #    commented out the attna calculation, which is not used anywhere and
 #    cannot possibly be useful (due to uncorrected saturation).
+#  2021-09-17  DG
+#    The check for 0 levels failed for 2017 data, because 0 is a valid state
+#    at that time.  I simply changed to looking for 0s in the MJD date,
+#    which can only happen in a bad SQL record.
 #
 from util import Time
 import numpy as np
@@ -106,7 +110,8 @@ def get_attncal(trange, do_plot=False, dataonly=False):
             # Find time indexes of the 62 dB attn state
             # Uses only ant 1 assuming all are the same
             dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
-            good, = np.where(dtot != 0)
+            # Use system clock day number to identify bad SQL entries and eliminate them
+            good, = np.where(d15['Ante_Cont_SystemClockMJDay'][:,0] != 0)
             #import pdb; pdb.set_trace()
             # Indexes into SQL records where a transition occurred.
             transitions, = np.where(dtot[good] - np.roll(dtot[good],1) != 0)
@@ -115,6 +120,7 @@ def get_attncal(trange, do_plot=False, dataonly=False):
                 transitions = transitions[1:]
             # These now have to be translated into indexes into the data, using the times
             idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
+            #import pdb; pdb.set_trace()
             vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
             va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
             vals = []

@@ -6,6 +6,8 @@
 # 
 # 2021-May-30  DG
 #   Initial code formalized and documented.
+# 2021-Sep-18  DG
+#   Slight change to make this work for pre-2019 data.
 
 import matplotlib.pylab as plt
 import numpy as np
@@ -133,7 +135,9 @@ def make_plot(out, spec, bgidx=[100,110], vmin=0.1, vmax=10, lcfreqs=[25, 235], 
     else:
         bgd = np.nanmean(spec[:,bgidx[0]:bgidx[1]],1).repeat(nt).reshape(nf,nt)
         subspec = spec-bgd
-    subspec[51] = np.nan
+    # Next two lines force a gap in the plot for the notched frequencies (does nothing for pre-2019 data)
+    bad, = np.where(abs(out['fghz'] - 1.742) < 0.001)
+    if len(bad) > 0: subspec[bad] = np.nan
     #plt.imshow(np.log10(np.clip(subspec+vmin,vmin,vmax)))
 
     def fix_times(jd):

@@ -62,6 +62,81 @@
 import numpy as np
 from util import Time,get_idbdir
 
+def RT_flare_monitor():
+    ''' Read "real-time" data file once and obtain the median over antenna
+        and frequency, appending the result to /data1/RT/RT_<date>.txt.
+        
+        Returns ut times in plot_date format and median values.
+    '''
+    tp = np.zeros((100,16))
+    amp = np.zeros((100,16))
+    f = open('/data1/RT/RT_latest.txt','r')
+    lines = f.readlines()
+    f.close()
+    mjd = Time.now().mjd - 0.5
+    datstr = Time(mjd,format='mjd').iso[:10]
+    tstr = lines[1].split(':')[1][1:7]
+    tstr = tstr[:2]+':'+tstr[2:4]+':'+tstr[4:]
+    print datstr+' '+tstr+' ('+Time.now().iso[:19]+')'
+    t = Time(datstr+' '+tstr)
+
+    try:
+        # Read last line of output and compare with input. Skip if the same.
+        f = open('/data1/RT/RT_'+datstr+'.txt','r')
+        lastline = f.readlines()[-1]
+        f.close()
+        lastt = Time(lastline[:19])
+        if lastt == t:
+            # Times are the same, so do not write to output file
+            return
+    except:
+        pass
+
+    # Read entire file and form median values of TP and AMP        
+    for i,line in enumerate(lines[10::10]):
+        tp[i] = np.array(line.split()).astype(float)
+    for i,line in enumerate(lines[11::10]):
+        amp[i] = np.array(line.split()).astype(float)
+    tpmed = np.median(tp[:,:13])
+    ampmed = np.median(amp[:,:13])
+
+    # Open output file for appending, write median values, and close.
+    f = open('/data1/RT/RT_'+datstr+'.txt','a')
+    f.write(t.iso+' {:8.4f} {:8.4f}'.format(tpmed,ampmed)+'\n')
+    f.close()
+
+def get_projects(t):
+    ''' Read all projects from SQL for the current date and return a summary
+        as a dictionary with keys Timestamp, Project, and EOS (another timestamp)
+    '''
+    import dbutil
+    # timerange is 12 UT to 12 UT on next day, relative to the day in Time() object t
+    trange = Time([int(t.mjd) + 12./24,int(t.mjd) + 36./24],format='mjd')
+    tstart, tend = trange.lv.astype('str')
+    cursor = dbutil.get_cursor()
+    mjd = t.mjd
+    # Get the project IDs for scans during the period
+    verstrh = dbutil.find_table_version(cursor,trange[0].lv,True)
+    if verstrh is None:
+        print 'No scan_header table found for given time.'
+        return {}
+    query = 'select Timestamp,Project from hV'+verstrh+'_vD1 where Timestamp between '+tstart+' and '+tend+' order by Timestamp'
+    projdict, msg = dbutil.do_query(cursor, query)
+    if msg != 'Success':
+        print msg
+        return {}
+    elif len(projdict) == 0:
+        # No Project ID found, so return data and empty projdict dictionary
+        print 'SQL Query was valid, but no Project data were found.'
+        return {}
+    projdict['Timestamp'] = projdict['Timestamp'].astype('float')  # Convert timestamps from string to float
+    for i in range(len(projdict['Project'])): projdict['Project'][i] = projdict['Project'][i].replace('\x00','')
+    projdict.update({'EOS':projdict['Timestamp'][1:]})
+    projdict.update({'Timestamp':projdict['Timestamp'][:-1]})
+    projdict.update({'Project':projdict['Project'][:-1]})
+    cursor.close()
+    return projdict
+
 def flare_monitor(t):
     ''' Get all front-end power-detector voltages for the given day
         from the stateframe SQL database, and obtain the median of them, 
@@ -101,56 +176,11 @@ def flare_monitor(t):
             hv.append(data['Ante_Fron_FEM_HPol_Voltage'][:,i]/hfac[i])
         if vfac[i] > 0:
             hv.append(data['Ante_Fron_FEM_VPol_Voltage'][:,i]/vfac[i])
+    #import pdb; pdb.set_trace()
     flm = np.median(np.array(hv),0)
     good = np.where(abs(flm[1:]-flm[:-1])<0.01)[0]
 
-    # Get the project IDs for scans during the period
-    verstrh = dbutil.find_table_version(cursor,trange[0].lv,True)
-    if verstrh is None:
-        print 'No scan_header table found for given time.'
-        return ut[good], flm[good], {}
-    query = 'select Timestamp,Project from hV'+verstrh+'_vD1 where Timestamp between '+tstart+' and '+tend+' order by Timestamp'
-    projdict, msg = dbutil.do_query(cursor, query)
-    if msg != 'Success':
-        print msg
-        return ut[good], flm[good], {}
-    elif len(projdict) == 0:
-        # No Project ID found, so return data and empty projdict dictionary
-        print 'SQL Query was valid, but no Project data were found.'
-        return ut[good], flm[good], {}
-    projdict['Timestamp'] = projdict['Timestamp'].astype('float')  # Convert timestamps from string to float
-    for i in range(len(projdict['Project'])): projdict['Project'][i] = projdict['Project'][i].replace('\x00','')
-
-    # # Get the times when scanstate is -1
-    # cursor.execute('select Timestamp,Sche_Data_ScanState from fV'+verstr+'_vD1 where Timestamp between '+tstart+' and '+tend+' and Sche_Data_ScanState = -1 order by Timestamp')
-    # scan_off_times = np.transpose(np.array(cursor.fetchall()))[0]  #Just list of timestamps
-    # if len(scan_off_times) > 2:
-        # gaps = scan_off_times[1:] - scan_off_times[:-1] - 1
-        # eos = np.where(gaps > 10)[0]
-        # if len(eos) > 1:
-            # if scan_off_times[eos[1]] < projdict['Timestamp'][0]:
-                # # Gaps are not lined up, so drop the first:
-                # eos = eos[1:]
-        # EOS = scan_off_times[eos]
-        # if scan_off_times[eos[0]] <= projdict['Timestamp'][0]:
-            # # First EOS is earlier than first Project ID, so make first Project ID None.
-            # projdict['Timestamp'] = np.append([scan_off_times[0]],projdict['Timestamp'])
-            # projdict['Project'] = np.append(['None'],projdict['Project'])
-        # if scan_off_times[eos[-1]+1] >= projdict['Timestamp'][-1]:
-            # # Last EOS is later than last Project ID, so make last Project ID None.
-            # projdict['Timestamp'] = np.append(projdict['Timestamp'],[scan_off_times[eos[-1]+1]])
-            # projdict['Project'] = np.append(projdict['Project'],['None'])
-            # EOS = np.append(EOS,[scan_off_times[eos[-1]+1],scan_off_times[-1]])
-        # projdict.update({'EOS': EOS})
-    # else:
-        # # Not enough scan changes to determine EOS (end-of-scan) times
-        # projdict.update({'EOS': []})
-    # This turns out to be a more rational, and "good-enough"" approach to the end of scan problem.
-    # The last scan, though, will be ignored...
-    projdict.update({'EOS':projdict['Timestamp'][1:]})
-    projdict.update({'Timestamp':projdict['Timestamp'][:-1]})
-    projdict.update({'Project':projdict['Project'][:-1]})
-    cursor.close()
+    projdict = get_projects(t)
     return ut[good],flm[good],projdict
 
 def xdata_display(t,ax=None):
@@ -353,7 +383,10 @@ if __name__ == "__main__":
         try:
             t = Time(sys.argv[1])
         except:
-            print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
+            if sys.argv[1].upper() == 'RT':
+                RT_flare_monitor()
+            else:
+                print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
             exit()
         if len(sys.argv) == 3:
             skip = True

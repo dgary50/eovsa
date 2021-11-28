@@ -46,9 +46,12 @@
 #    The adc_monitor() is working, but we are getting problems with the ACC and with
 #    the schedule hanging.  Try adding a 1-s pause between FEMATTN commands.
 #  2021-08-19  DG
-#    This is a new version with extensive changes eliminate most reading from SQL.  All
+#    This is a new version with extensive changes to eliminate most reading from SQL.  All
 #    threads now read the stateframe directly from the ACC, which should be more robust
 #    except for ACC failures.
+#  2021-09-03  DG
+#    Added option to replay ADC data from a file by specifying a start time in adc_plot().
+#    The replay proceeds at a 2 s / minute rate.
 #
 import roach as r
 import struct
@@ -366,7 +369,7 @@ def adc_monitor(nloop=None, verbose=False):
     sys.stdout.close()
     exit()
     
-def adc_plot(fname):
+def adc_plot(fname,tplot=None):
 
     import os
     fh = open(fname,'rb')
@@ -393,6 +396,10 @@ def adc_plot(fname):
     # Find last record in the file
     while fh.tell() < os.fstat(fh.fileno()).st_size:
         out = np.load(fh)
+        if tplot:
+            t = Time(out.item()['time'])
+            if (t - tplot) > 60./86400:
+                break
     levs = out.item()['levels']
     needs = out.item()['needs']
     t = out.item()['time']
@@ -417,12 +424,19 @@ def adc_plot(fname):
         figure.canvas.draw()
         figure.canvas.flush_events()
         
-        # Make sure we are at the last record in the file before sleeping
-        while fh.tell() < os.fstat(fh.fileno()).st_size:
-            out = np.load(fh)
-        # Sleep until the next record is expected (at 45 s past the minute)
-        tnowsec = float(Time.now().iso[17:])
-        sleep(60-(tnowsec - 47.0))  # Sleep until 47 s past the minute
+        # If no time was given, we want a "real-time" display, otherwise
+        # we are replaying past data
+        if tplot:
+            # Replay past data, sleeping only 1 s between plots
+            sleep(1)
+        else:
+            # Real-time display
+            # Make sure we are at the last record in the file before sleeping
+            while fh.tell() < os.fstat(fh.fileno()).st_size:
+                out = np.load(fh)
+            # Sleep until the next record is expected (at 45 s past the minute)
+            tnowsec = float(Time.now().iso[17:])
+            sleep(60-(tnowsec - 47.0))  # Sleep until 47 s past the minute
         try:
             out = np.load(fh)
             strike = 0
