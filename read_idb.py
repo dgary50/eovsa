@@ -125,6 +125,9 @@
 #    It seems the IDB files occasionally have time glitches where the time jumps back,
 #    I think due to resetting the network every 15 minutes.  Now readXdata() just skips
 #    such records.
+#  2022-01-30  DG
+#    Found a bug in read_idb(), where the frequency list was from the last file read,
+#    even if it did not match the first file.
 #
 
 import aipy
@@ -1114,6 +1117,7 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
     out['uvw'] = np.concatenate(uvw,1)
     out['time'] = np.concatenate(time)
     out['ha'] = np.concatenate(ha)
+    out['fghz'] = datalist[0]['fghz']
     return out
     
 def read_npz(files):

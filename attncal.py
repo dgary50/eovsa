@@ -29,6 +29,11 @@
 #    The check for 0 levels failed for 2017 data, because 0 is a valid state
 #    at that time.  I simply changed to looking for 0s in the MJD date,
 #    which can only happen in a bad SQL record.
+#  2022-02-08  DG
+#    The get_attncal() routine failed (returned an empty dictionary) if
+#    there was more than one GAINCALTEST on the specific date.  Now it
+#    prompts the user to enter a choice.  Not ideal, but this is a rare
+#    occurrence.
 #
 from util import Time
 import numpy as np
@@ -90,60 +95,66 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         gcidx, = np.where(fdb['PROJECTID'] == 'GAINCALTEST')
         if len(gcidx) == 1:
             print fdb['FILE'][gcidx]
+            gcidx = gcidx[0]
+        else:
+            for i, fname in enumerate(fdb['FILE'][gcidx]):
+                print str(i)+': GAINCALTEST File',fname
+            idex = input('There is more than one GAINCALTEST. Select: '+str(np.arange(len(gcidx)))+':')
+            gcidx = gcidx[idex]
+        
+        datadir = get_idbdir(Time(mjd,format='mjd'))
+        # Add date path if on pipeline
+        # if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][3:11]+'/'
 
-            datadir = get_idbdir(Time(mjd,format='mjd'))
-            # Add date path if on pipeline
-            # if datadir.find('eovsa') != -1: datadir += fdb['FILE'][gcidx][0][3:11]+'/'
+        host = socket.gethostname()
+        if host == 'pipeline': datadir += fdb['FILE'][gcidx][3:11]+'/'
 
-            host = socket.gethostname()
-            if host == 'pipeline': datadir += fdb['FILE'][gcidx][0][3:11]+'/'
-
-            file = datadir + fdb['FILE'][gcidx][0]
-            out = ri.read_idb([file])
-            if dataonly:
-                return out
-            # Get time from filename and read 120 records of attn state from SQL database
-            filemjd = fname2mjd(fdb['FILE'][gcidx][0])
-            cursor = dbutil.get_cursor()
-            d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=Time(filemjd,format='mjd'), nrecs=120)
-            cursor.close()
-            # Find time indexes of the 62 dB attn state
-            # Uses only ant 1 assuming all are the same
-            dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
-            # Use system clock day number to identify bad SQL entries and eliminate them
-            good, = np.where(d15['Ante_Cont_SystemClockMJDay'][:,0] != 0)
-            #import pdb; pdb.set_trace()
-            # Indexes into SQL records where a transition occurred.
-            transitions, = np.where(dtot[good] - np.roll(dtot[good],1) != 0)
-            # Eliminate any zero-index transition (if it exists)
-            if transitions[0] == 0:
-                transitions = transitions[1:]
-            # These now have to be translated into indexes into the data, using the times
-            idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
-            #import pdb; pdb.set_trace()
-            vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
-            va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
-            vals = []
-            attn = []
-            for i in range(1,10):
-                vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
-                attn.append(np.log10(vals[0]/vals[-1])*10.)
-            #vals = []
-            #attna = []
-            #for i in range(1,10):
-            #    vals.append(np.median(out['a'][:13,:2,:,np.arange(idx[i],idx[i+1])],3) - va)
-            #    attna.append(np.log10(vals[0]/vals[-1])*10.)
-            
-            if do_plot:
-                for i in range(13):
-                    for j in range(2):
-                        ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
-                        #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
-                        ax[j+2,i].plot(out['fghz'],attn[2][i,j],'.',markersize=3)
-                        #ax[j+2,i].plot(out['fghz'],attna[2][i,j],'.',markersize=1)
-            outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
-                            'rcvr_auto':va, # 'attna': np.array(attna[1:]), 
-                            'rcvr':vx, 'attn': np.array(attn[1:])})
+        file = datadir + fdb['FILE'][gcidx]
+        out = ri.read_idb([file])
+        if dataonly:
+            return out
+        # Get time from filename and read 120 records of attn state from SQL database
+        filemjd = fname2mjd(fdb['FILE'][gcidx])
+        cursor = dbutil.get_cursor()
+        d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=Time(filemjd,format='mjd'), nrecs=120)
+        cursor.close()
+        # Find time indexes of the 62 dB attn state
+        # Uses only ant 1 assuming all are the same
+        dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
+        # Use system clock day number to identify bad SQL entries and eliminate them
+        good, = np.where(d15['Ante_Cont_SystemClockMJDay'][:,0] != 0)
+        #import pdb; pdb.set_trace()
+        # Indexes into SQL records where a transition occurred.
+        transitions, = np.where(dtot[good] - np.roll(dtot[good],1) != 0)
+        # Eliminate any zero-index transition (if it exists)
+        if transitions[0] == 0:
+            transitions = transitions[1:]
+        # These now have to be translated into indexes into the data, using the times
+        idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
+        #import pdb; pdb.set_trace()
+        vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
+        va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
+        vals = []
+        attn = []
+        for i in range(1,10):
+            vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
+            attn.append(np.log10(vals[0]/vals[-1])*10.)
+        #vals = []
+        #attna = []
+        #for i in range(1,10):
+        #    vals.append(np.median(out['a'][:13,:2,:,np.arange(idx[i],idx[i+1])],3) - va)
+        #    attna.append(np.log10(vals[0]/vals[-1])*10.)
+        
+        if do_plot:
+            for i in range(13):
+                for j in range(2):
+                    ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
+                    #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
+                    ax[j+2,i].plot(out['fghz'],attn[2][i,j],'.',markersize=3)
+                    #ax[j+2,i].plot(out['fghz'],attna[2][i,j],'.',markersize=1)
+        outdict.append({'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
+                        'rcvr_auto':va, # 'attna': np.array(attna[1:]), 
+                        'rcvr':vx, 'attn': np.array(attn[1:])})
     return outdict
     
 def read_attncal(trange=None):

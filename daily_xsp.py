@@ -31,6 +31,12 @@
 #  2021-07-29  DG
 #    Clip line plots for frequency indexes 100 and 300 so as not to exceed the number
 #    number of frequencies (451).
+#  2022-02-10  DG
+#    In cal_qual(), writing to the /common/webplots/flaremon/daily/ folder failed
+#    if run by someone other than user.  In that case, the plot is now created in /tmp/.
+#  2022-03-05  DG
+#    Small change to call get_projects() instead of flare_monitor(), along with the
+#    added nosql=True argument so that this works without the SQL server.
 #
 
 if __name__ == "__main__":
@@ -129,7 +135,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
     if savfits:
         import xspfits #jmm, 2018-01-05
     # Plots (and returns) UDB data for an entire day
-    from flare_monitor import flare_monitor
+    from flare_monitor import get_projects
     if t is None:
         t = Time.now()
     # Cannot get a GOES plot unless doplot is True
@@ -254,10 +260,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
         prange = [pstart,pstart+13./24]
         ax.set_xlim(prange)
 
-        ut, fl, projdict = flare_monitor(t)
-        if fl == []:
-            print 'Error retrieving data for',t.iso[:10],'from SQL database.'
-            return
+        projdict = get_projects(t, nosql=True)   # Hopefully temporary call that is independent of SQL server
         if projdict == {}:
             print 'No annotation can be added to plot for',t.iso[:10]
         else:
@@ -388,7 +391,12 @@ def cal_qual(t=None, savfig=True):
     f.suptitle('Total Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
     if savfig:
-        plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/QUAL_'+date+'TP.png')
+        try:
+            plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/QUAL_'+date+'TP.png')
+        except:
+            plt.savefig('/tmp/'+date[:4]+'/QUAL_'+date+'TP.png')
+            print 'The .png file could not be created in the /common/webplots/flaremon/daily/ folder.'
+            print 'A copy was created in /tmp/.'
 
     f, ax = plt.subplots(4,7)
     f.set_size_inches(16,7,forward=True)
@@ -410,7 +418,12 @@ def cal_qual(t=None, savfig=True):
     f.suptitle('Cross-Power Calibration Quality for '+t.iso[:10])
     date = t.iso[:10].replace('-','')
     if savfig:
-        plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/QUAL_'+date+'XP.png')
+        try:
+            plt.savefig('/common/webplots/flaremon/daily/'+date[:4]+'/QUAL_'+date+'XP.png')
+        except:
+            plt.savefig('/tmp/'+date[:4]+'/QUAL_'+date+'XP.png')
+            print 'The .png file could not be created in the /common/webplots/flaremon/daily/ folder.'
+            print 'A copy was created in /tmp/.'
     
 
 if __name__ == "__main__":

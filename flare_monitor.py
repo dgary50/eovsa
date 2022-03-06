@@ -58,6 +58,17 @@
 #      flare_monitor(), and tweaks to the line plot.
 #   2017-Sep-08  DG
 #      Fixed small bug that caused crash on error return from xdata_display()
+#   2021-Nov-13  DG
+#      Added RT_flare_monitor(), which reads a file RT_latest.txt and creates
+#      a summary file RT_<datstr>.txt in the same /data1/RT folder on the dpp.
+#   2022-Feb-09  DG
+#      Changed the flare_monitor() code to keep data if within 0.1 units of
+#      previous measurement instead of stringent 0.01 units.
+#   2022-Mar-05  DG
+#      Due to a (hopefully) temporary outage of the SQL server, I wrote a
+#      new version of get_projects() called get_projects_nosql() that
+#      does almost the same thing using the FDB files.  Calling get_projects()
+#      with nosql=True also works.
 #
 import numpy as np
 from util import Time,get_idbdir
@@ -105,10 +116,12 @@ def RT_flare_monitor():
     f.write(t.iso+' {:8.4f} {:8.4f}'.format(tpmed,ampmed)+'\n')
     f.close()
 
-def get_projects(t):
+def get_projects(t, nosql=False):
     ''' Read all projects from SQL for the current date and return a summary
         as a dictionary with keys Timestamp, Project, and EOS (another timestamp)
     '''
+    if nosql == True:
+        return get_projects_nosql(t)
     import dbutil
     # timerange is 12 UT to 12 UT on next day, relative to the day in Time() object t
     trange = Time([int(t.mjd) + 12./24,int(t.mjd) + 36./24],format='mjd')
@@ -135,6 +148,37 @@ def get_projects(t):
     projdict.update({'Timestamp':projdict['Timestamp'][:-1]})
     projdict.update({'Project':projdict['Project'][:-1]})
     cursor.close()
+    return projdict
+
+def get_projects_nosql(t):
+    ''' Read all projects from FDB file for the current date and return a summary
+        as a dictionary with keys Timestamp, Project, and EOS (another timestamp)
+    '''
+    import dump_tsys as dt
+    # timerange is 12 UT to 12 UT on next day, relative to the day in Time() object t
+    trange = Time([int(t.mjd) + 12./24,int(t.mjd) + 36./24],format='mjd')
+    tstart = t.iso[2:10].replace('-','')+'120000'
+    t2 = Time(int(t.mjd)+1, format='mjd')
+    tend = t2.iso[2:10].replace('-','')+'120000'
+    fdb = dt.rd_fdb(t)
+    fdb2 = dt.rd_fdb(t2)
+    if fdb == {}:
+        # No FDB file found, so return empty project dictionary
+        print 'No Project data [FDB file] found for the given date.'
+        return {}
+    if fdb == {}:
+        pass
+    else:
+        #  Concatenate the two dicts into one
+        fdb = dict([(k, np.concatenate((fdb.get(k,[]),fdb2.get(k,[])))) for k in set(fdb)|set(fdb2)])  
+    # Get "good" indexes for times between 12 UT on date and 12 UT on next date
+    gidx, = np.where(np.logical_and(fdb['SCANID']>tstart,fdb['SCANID']<tend))        
+    scanid,idx = np.unique(fdb['SCANID'][gidx],return_index=True)
+    sidx = gidx[idx]   # Indexes into fdb for the start of each scan
+    # Get the project IDs for scans during the period
+    projdict = {'Timestamp':fdb['ST_TS'][sidx].astype(float),
+                'Project':fdb['PROJECTID'][sidx],
+                'EOS':fdb['EN_TS'][sidx].astype(float)}
     return projdict
 
 def flare_monitor(t):
@@ -178,7 +222,7 @@ def flare_monitor(t):
             hv.append(data['Ante_Fron_FEM_VPol_Voltage'][:,i]/vfac[i])
     #import pdb; pdb.set_trace()
     flm = np.median(np.array(hv),0)
-    good = np.where(abs(flm[1:]-flm[:-1])<0.01)[0]
+    good = np.where(abs(flm[1:]-flm[:-1])<0.1)[0]
 
     projdict = get_projects(t)
     return ut[good],flm[good],projdict

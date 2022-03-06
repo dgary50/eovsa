@@ -302,7 +302,7 @@ def loadsfdata(fld,trange,ant,interval=None):
     data,msg=do_query(cursor,query)
     return data,msg
 
-def plotsfdata(fld,trange,ant,plottitle=None,interval=None):
+def plotsfdata(fld,trange,ant,plottitle=None,interval=None,rng=None,ylabel=None):
     '''This function takes in a list of stateframe parameters, a time
     range, an antenna number and an optional title, and plots the
     parameters against time.
@@ -333,8 +333,12 @@ def plotsfdata(fld,trange,ant,plottitle=None,interval=None):
         
     dt=np.array(Time(data['Timestamp'].astype(float),format='lv').isot,dtype='datetime64')
     handles=[]
-    plt.ylabel('Value')
+    if ylabel is None:
+        plt.ylabel('Value')
+    else:
+        plt.ylabel(ylabel)
     plt.xlabel('Universal Time')
+    
     if plottitle is not None:
         plt.title(plottitle)
     for f in data.keys():
@@ -342,6 +346,8 @@ def plotsfdata(fld,trange,ant,plottitle=None,interval=None):
             print data[f]
             a, =plt.plot(dt,data[f].astype(float),label=f)
             handles.append(a)
+    if rng is not None:
+        plt.ylim(rng[0], rng[1])
     plt.legend(handles=handles)
     return data
 
@@ -379,7 +385,7 @@ def loadsfdata_anta(fld,trange,interval=None):
     
     return data,msg
 
-def plotsfdata_anta(fld,trange,plottitle=None,ignore=None,interval=None):
+def plotsfdata_anta(fld,trange,plottitle=None,ignore=None,interval=None,rng=None,ylabel="None"):
     '''This function takes in a list of stateframe parameters specific to 
     antenna A (14) and a time range and plots the parameters against time.
     
@@ -397,6 +403,7 @@ def plotsfdata_anta(fld,trange,plottitle=None,ignore=None,interval=None):
     returns None'''
     
     import matplotlib.pyplot as plt
+    
     data,msg=loadsfdata_anta(fld,trange,interval)
     print msg
     if msg != "Success":
@@ -411,8 +418,15 @@ def plotsfdata_anta(fld,trange,plottitle=None,ignore=None,interval=None):
     for f in fld:
         a, =plt.plot(dt,data[f].astype(float),label=f)
         handles.append(a)
-    plt.ylabel('Value')
+    if ylabel is None:
+        plt.ylabel('Value')
+    else:
+        plt.ylabel(ylabel)
     plt.xlabel('Universal Time')
+    
+    if rng is not None:
+        plt.ylim(rng[0], rng[1])
+        
     if plottitle is not None:
         plt.title(plottitle)
     plt.legend(handles=handles)
@@ -447,7 +461,7 @@ def writesfdata_anta(fld,trange,outfile,delim=" ",ignore=None,interval=None):
         with open(outfile, 'w') as filehandle:
             filehandle.writelines("%s\n" % l for l in lines)
 
-def plot27mtemps(trange,fld=None,plottitle=None,ignore=None,interval=None):
+def plot27mtemps(trange,fld=None,plottitle=None,ignore=None,interval=None,rng=None,ylabel="None"):
     femfld=""
     antafldlist=['FEMA_Ther_SecondStageTemp','FEMA_Ther_FirstStageTemp','FEMA_Ther_HiFreq15KPlateTemp','FEMA_Ther_HiFreqFeedhornTemp','FEMA_Ther_HiFreqLNATemp','FEMA_Ther_LowFreqFeedhornTemp','FEMA_Ther_LowFreqLNATemp']
     labellist=[  'Second Stage Temp [K]','First Stage Temp [K]','Hi Freq 15K Plate Temp [K]','Hi Freq Feedhorn Temp','Hi Freq LNA Temp','Low Freq Feedhorn Temp','Low Freq LNA Temp']
@@ -474,7 +488,10 @@ def plot27mtemps(trange,fld=None,plottitle=None,ignore=None,interval=None):
     
     import matplotlib.pyplot as plt
     handles=[]
-    plt.ylabel('Value')
+    if ylabel is None:
+        plt.ylabel('Value')
+    else:
+        plt.ylabel(ylabel)
     plt.xlabel('Universal Time')
     
     if plottitle is not None:
@@ -499,6 +516,9 @@ def plot27mtemps(trange,fld=None,plottitle=None,ignore=None,interval=None):
                 data[f]=np.ma.masked_where(data[f]==ignore,data[f])
             a, =plt.plot(dt,data[f].astype(float),label=labels[i])
             handles.append(a)
+    
+    if rng is not None:
+        plt.ylim(rng[0], rng[1])
     plt.legend(handles=handles)
     
 

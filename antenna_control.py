@@ -4,14 +4,18 @@ def get_trip(tripcode):
         on the Control Techniques documentation. '''
     import os
     # Open CT_Trip_Info text file (should be in PYTHONPATH)
+    lines = None
     for p in os.environ['PYTHONPATH'].split(os.pathsep):
         if p == '': p = '.'
         try:
             f = open(p+os.sep+'CT_Trip_Info.txt','r')
             lines = f.readlines()
             f.close()
+            break
         except:
-            return {'Trip':'CT_Trip_Info.txt not found','Tripcode':tripcode,'Description':'PYTHONPATH is'+os.environ['PYTHONPATH'],'Clues':[]}
+            pass
+    if lines is None:
+        return {'Trip':'CT_Trip_Info.txt not found','Tripcode':tripcode,'Description':'PYTHONPATH is'+os.environ['PYTHONPATH'],'Clues':[]}
     bl = []
     for i,line in enumerate(lines):
         if line.strip() == '':

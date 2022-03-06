@@ -2260,7 +2260,7 @@ def getIDBfile():
             for line in f:
                 pass
             return line.rstrip()
-    except IOError as error:
+    except:
         return ""
 
 def read_fix_packets_log():

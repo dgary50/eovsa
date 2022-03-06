@@ -328,6 +328,8 @@
 #    2021-Sep-29  DG
 #      A wake_up() call did not restart the schedule, so now I have added code in 
 #      wake_up() to cancel the inc_time timer and restart it.
+#    2022-Jan-12  DG
+#      Added a FLARE* project ID, to trigger the new fast recording mode.
 #
 
 import os, signal
@@ -483,7 +485,8 @@ def init_scanheader_dict(version=37.0):
     except:
         print t.iso,'SQL connection for delay centers failed.'
         dcen = [0]*16
-    
+        dceny = [0]*16
+        
     try:
         # Read eovsa_corr.ini file from ACC and get ROACH antenna assignments. 
         inifile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/eovsa_corr.ini',timeout=1)
@@ -2181,6 +2184,10 @@ class App():
             sh_dict['track_mode'] = 'PLANET'
         elif cmds[0].upper() == 'SOLPNTCAL':
             sh_dict['project'] = 'SOLPNTCAL'
+            sh_dict['source_id'] = 'Sun'
+            sh_dict['track_mode'] = 'PLANET'
+        elif cmds[0].upper()[:5] == 'FLARE':
+            sh_dict['project'] = cmds[0].upper()
             sh_dict['source_id'] = 'Sun'
             sh_dict['track_mode'] = 'PLANET'
         elif cmds[0].upper() == 'PLANET':

@@ -52,6 +52,8 @@
 #  2021-09-03  DG
 #    Added option to replay ADC data from a file by specifying a start time in adc_plot().
 #    The replay proceeds at a 2 s / minute rate.
+#  2022-01-27  DG
+#    Added FLARETEST project ID (in addition to NormalObserving) for adjusting attenuation.
 #
 import roach as r
 import struct
@@ -321,7 +323,7 @@ def adc_monitor(nloop=None, verbose=False):
         cursor.close()
         if msg == 'Success':
             projid = result['Project'][0].strip('\0')
-            if projid == 'NormalObserving':
+            if projid == 'NormalObserving' or projid == 'FLARETEST':
                 # Get new FEMATTN level, ensuring that it is not less than 0
                 needs = np.round(needs).astype(int)
                 for i in range(7):

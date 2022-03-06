@@ -92,8 +92,25 @@ def inspect(files, vmin=0.1, vmax=10, ant_str='ant1-13', srcchk=True):
     plt.figure()
     plt.imshow(np.log10(np.clip(spec,vmin,vmax)))
     return out,spec
+
+def combine_subtracted(out, bgidx=[100,110], vmin=0.1, vmax=10, ant_str='ant1-13'):
+    # Recreate spec from out, after subtracting
+    times = Time(out['time'],format='jd')
+    nt, = out['time'].shape
+    nf, = out['fghz'].shape
+    blen = np.sqrt(out['uvw'][:,int(nt/2),0]**2 + out['uvw'][:,int(nt/2),1]**2)
+    ants = ant_str2list(ant_str)
+    idx = []
+    for k,i in enumerate(ants[:-1]):
+        for j in ants[k+1:]:
+            idx.append(ri.bl2ord[i,j])
+    idx = np.array(idx)
+    good, = np.where(np.logical_and(blen[idx] > 150.,blen[idx] < 1000.))
+    bgd = np.nanmean(np.abs(out['x'][idx[good],0,:,120:130]),2).repeat(nt).reshape(len(idx[good]),nf,nt)
+    spec = np.nanmean(np.abs(out['x'][idx[good],0])-bgd,0)
+    return spec
     
-def make_plot(out, spec, bgidx=[100,110], vmin=0.1, vmax=10, lcfreqs=[25, 235], name=None):
+def make_plot(out, spec, bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreqs=[25, 235], name=None):
     ''' Makes the final, nicely formatted plot and saves the spectrogram as a binary data
         file for subsequent sharing/plotting.  It used the out and spec outputs from inspect()
         and makes a background-subtracted two-panel plot with properly formatted axes.  The
@@ -129,11 +146,20 @@ def make_plot(out, spec, bgidx=[100,110], vmin=0.1, vmax=10, lcfreqs=[25, 235], 
           ax1       The handle to the lower plot axis, for tweaking.
     '''
     nf, nt = spec.shape
+    ti = (out['time'] - out['time'][0])/(out['time'][-1] - out['time'][0]) # Relative time (0-1) of each datapoint
     if bgidx is None:
         from copy import deepcopy
         subspec = deepcopy(spec)
     else:
-        bgd = np.nanmean(spec[:,bgidx[0]:bgidx[1]],1).repeat(nt).reshape(nf,nt)
+        bgd1 = np.nanmean(spec[:,bgidx[0]:bgidx[1]],1)
+        if bg2idx is None:
+            bgd = bgd1.repeat(nt).reshape(nf,nt)
+        else:
+            bgd2 = np.nanmean(spec[:,bg2idx[0]:bg2idx[1]],1)
+            bgd = np.zeros_like(spec)
+            ti = (out['time'] - out['time'][bgidx[0]])/(out['time'][bg2idx[1]] - out['time'][bgidx[0]]) # Relative time (0-1) of each datapoint
+            for i in range(nt):
+                bgd[:,i] = (bgd2 - bgd1)*ti[i] + bgd1
         subspec = spec-bgd
     # Next two lines force a gap in the plot for the notched frequencies (does nothing for pre-2019 data)
     bad, = np.where(abs(out['fghz'] - 1.742) < 0.001)

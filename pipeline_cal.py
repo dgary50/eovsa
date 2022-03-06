@@ -103,6 +103,10 @@
 #  2021-07-09  DG
 #    Code involving bslice in apply_fem_level() seems to be unnecessary and caused
 #    a crash.  Now commented out/eliminated.
+#  2021-12-05  DG
+#    A total-power calibration was done with all 14 antennas (Ant A in the subarray),
+#    which caused problems in get_calfac().  Some slight changes to get_calfac() and
+#    apply_calfac() should allow this rare case to work.
 #
 
 import dbutil as db
@@ -358,11 +362,11 @@ def get_calfac(t=None):
     xml, buf = ch.read_cal(tpcal_type, t=t)
     fghz = stateframe.extract(buf, xml['FGHz'])
     nf = len(fghz)
-    tpcalfac = np.zeros((13, 2, nf), np.float)
-    tpoffsun = np.zeros((13, 2, nf), np.float)
-    accalfac = np.zeros((13, 2, nf), np.float)
-    acoffsun = np.zeros((13, 2, nf), np.float)
     nant = len(xml['Antenna'])
+    tpcalfac = np.zeros((nant, 2, nf), np.float)
+    tpoffsun = np.zeros((nant, 2, nf), np.float)
+    accalfac = np.zeros((nant, 2, nf), np.float)
+    acoffsun = np.zeros((nant, 2, nf), np.float)
     for i in range(nant):
         iant = stateframe.extract(buf, xml['Antenna'][i]['Antnum']) - 1
         tpcalfac[iant] = stateframe.extract(buf, xml['Antenna'][i]['TPCalfac'])
@@ -406,8 +410,9 @@ def apply_calfac(data, calfac):
     bloff = np.zeros((nf, nblant, 4), float)  # Offsun values (will be zero except for auto-correlations)
     fac = calfac['accalfac'][:, :, idx2]  # Extract only common frequencies
     acoffsun = calfac['acoffsun'][:, :, idx2]  # Extract only common frequencies
-    for i in range(13):
-        for j in range(i, 13):
+    nsolant = 13  # Number of solar antennas
+    for i in range(nsolant):
+        for j in range(i, nsolant):
             blfac[idx1, bl2ord[i, j], 0] = np.sqrt(fac[i, 0] * fac[j, 0])
             blfac[idx1, bl2ord[i, j], 1] = np.sqrt(fac[i, 1] * fac[j, 1])
             blfac[idx1, bl2ord[i, j], 2] = np.sqrt(fac[i, 0] * fac[j, 1])
@@ -417,7 +422,7 @@ def apply_calfac(data, calfac):
                 bloff[idx1, bl2ord[i, j], 1] = acoffsun[j, 1]
     antfac = np.ones((nf, nant, 2), float)  # Factors for missing antennas/frequencies are set to unity
     offsun = np.zeros((nf, nant, 2), float) # Offsun for missing antennas/frequencies are set to zero
-    for i in range(13):
+    for i in range(nsolant):
         for j in range(2):
             antfac[idx1, i, j] = calfac['tpcalfac'][i, j, idx2]
             offsun[idx1, i, j] = calfac['tpoffsun'][i, j, idx2]
