@@ -54,6 +54,9 @@
 #    The replay proceeds at a 2 s / minute rate.
 #  2022-01-27  DG
 #    Added FLARETEST project ID (in addition to NormalObserving) for adjusting attenuation.
+#  2022-Mar-07  DG
+#    Changed due to loss of SQL.  Blocks changes are preceded by
+#            # ************ This block commented out due to loss of SQL **************
 #
 import roach as r
 import struct
@@ -315,14 +318,24 @@ def adc_monitor(nloop=None, verbose=False):
 #        fh.write(stdall)
 #        fh.close()
 
-        # Only do this if we are in a "Normal Observing" scan (as read from latest SQL header)
-        cursor = db.get_cursor()
-        ver = db.find_table_version(cursor, Time.now().lv, scan_header=True)
-        query = 'select top 1 * from hV'+ver+'_vD1 order by Timestamp desc'
-        result, msg = db.do_query(cursor, query)
-        cursor.close()
+        # ************ This block commented out due to loss of SQL **************
+        ## Only do this if we are in a "Normal Observing" scan (as read from latest SQL header)
+        #cursor = db.get_cursor()
+        #ver = db.find_table_version(cursor, Time.now().lv, scan_header=True)
+        #query = 'select top 1 * from hV'+ver+'_vD1 order by Timestamp desc'
+        #result, msg = db.do_query(cursor, query)
+        #cursor.close()
+        #if msg == 'Success':
+        #    projid = result['Project'][0].strip('\0')
+        # Replaced by:
+        # Read scan_header.dat file at /nas4/Tables/scanheader
+        f = open('/nas4/Tables/scanheader/scan_header.dat')
+        buf = f.read()
+        f.close()
+        msg = 'Success'
         if msg == 'Success':
-            projid = result['Project'][0].strip('\0')
+            projid = buf[20:52].strip('\0')
+    
             if projid == 'NormalObserving' or projid == 'FLARETEST':
                 # Get new FEMATTN level, ensuring that it is not less than 0
                 needs = np.round(needs).astype(int)
@@ -516,7 +529,6 @@ def adc2master_table(fname=None, time=None, navg=10, attnval=None):
             j = i+2
         new_table[j,:28] = np.clip((np.round(attn14[:,i]+attnval)/2.).astype(int)*2,0,30)
     newtbl = []
-    newtbl = []
     newtbl.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15')
     newtbl.append('#      X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y')
     newtbl.append('#     ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- -----')
@@ -525,10 +537,32 @@ def adc2master_table(fname=None, time=None, navg=10, attnval=None):
     for line in newtbl:
         print line
 
-    ans = raw_input('Do you want to write this to the SQL database DCM master table? [y/n]?')
+    # ************ This block commented out due to loss of SQL **************
+    #ans = raw_input('Do you want to write this to the SQL database DCM master table? [y/n]?')
+    #if ans.upper() == 'Y':
+    #    import cal_header
+    #    print cal_header.dcm_master_table2sql(newtbl)
+    # Replaced by:
+    ans = raw_input('Do you want to save this to a DCM master table file? [y/n]?')
     if ans.upper() == 'Y':
-        import cal_header
-        print cal_header.dcm_master_table2sql(newtbl)
+        timestr = time.iso
+        datstr = timestr[:19].replace('-','').replace(' ','_').replace(':','')
+        filename = '/nas4/Tables/DCM_master/DCM_master_table_'+datstr+'.txt'
+        f = open(filename, 'w')
+        for line in newtbl:
+            f.write(line+'\n')
+        f.close()
+        sleep(1)  # Make sure file has time to be closed.
+        from ftplib import FTP
+        f = open(filename, 'r')
+        acc = FTP('acc.solar.pvt')
+        acc.login('admin', 'observer')
+        acc.cwd('parm')
+        # Send DCM table lines to ACC
+        print acc.storlines('STOR DCM_master_table.txt', f)
+        f.close()
+        print 'Successfully wrote DCM_master_table to ACC'
+
 
 def another_pid(mypid):
     # check whether this routine is running in another instance of adc_plot.py (case-insensitive).

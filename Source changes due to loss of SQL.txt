@@ -1,0 +1,66 @@
+Routines that read from SQL
+/common/python/current/adc_cal2.py:    cursor = db.get_cursor()
+/common/python/current/adc_plot.py:        cursor = db.get_cursor()
+/common/python/current/attncal.py:        cursor = dbutil.get_cursor()
+/common/python/current/autocorrect_tp.py:    cursor = db.get_cursor()
+/common/python/current/cal_calendar.py
+/common/python/current/cal_header.py:    cursor = dbutil.get_cursor()
+/common/python/current/calibration_batch.py:    cursor = db.get_cursor()
+/common/python/current/calibration.py:    cursor = db.get_cursor()
+/common/python/current/calwidget.py:    cursor = dbutil.get_cursor()
+/common/python/current/dbutil.py:def get_cursor():
+/common/python/current/dcm_master_attn_cal.py:    cursor = db.get_cursor()
+/common/python/current/delay_centers2.py
+/common/python/current/delay_widget.py
+/common/python/current/eovsa_mountcal.py:    cursor = dbutil.get_cursor()
+/common/python/current/fem_attn_calib.py
+/common/python/current/gaincal2.py:    cursor = db.get_cursor()
+/common/python/current/gaincal.py:    cursor = dbutil.get_cursor()
+/common/python/current/get_xy_corr.py
+/common/python/current/lunar_drift_scan_plot.py:    hc, msg = db.do_query(cursor,query)
+/common/python/current/phacal_anal.py
+/common/python/current/pipeline_cal.py:    cursor = db.get_cursor()
+/common/python/current/QTschedule.py:                cursor = cnxn.cursor()
+-/common/python/current/read_idb.py:    import cal_header as ch
+/common/python/current/refcal_anal.py:    import cal_header as ch
+/common/python/current/roachcal.py:    import cal_header
+/common/python/current/rstn.py:import cal_header as ch
+/common/python/current/solpnt.py:    cursor = dbutil.get_cursor()
+/common/python/current/SQLtable.py:        cursor = dbutil.get_cursor()
+/common/python/current/stateframedef.py:        cursor = cnxn.cursor()
+/common/python/current/stateframe.py:    cursor = db.get_cursor()
+
+
+Routines for observing that must be recoded to eliminate need for SQL database
+*/common/python/current/daily_xsp.py   ****WORKS!****
+   cal_header is only used in cal_qual(), so should not be an issue
+   BUT it does use flare_monitor, so I'll need another approach for that...
+*/common/python/current/flare_monitor.py:  ****WORKS!****
+   This reads the SQL database to get front end voltages (cannot be avoided) and the list of projects
+   via the get_projects() routine.  This can be rewritten to use the fdb files, I think.
+*/common/python/current/roach.py:
+   Use of SQL is not an issue--only called for unused functions.
+*/common/python/current/schedule.py:
+
+    DONE!
+       Used to read current delays--this will have to be recoded using tables (line 481, 2423 [special case], 2499)
+       
+       Strategy: 
+         When delays are changed in delay_widget.py, it currently writes them to SQL (dla_update2sql) and then creates a table from it to write to the ACC (dla_cen2table).  Likewise, the schedule reads the delays from SQL via read_cal and writes them to the ACC again.  The ACC file is the one used by the dppxmp program.  
+         
+         The alternative would be to have delay_widget.py update the current ACC table outside of SQL and send the update to the ACC, and then have the schedule always just read the current ACC file.  Any updates to the delay table should also be saved in a secure location /nas4/Tables/Delays/.
+       
+    DONE!
+       Used to read current DCM master table--this will also have to be recoded (line 2129)
+   
+       Strategy:
+         The DCM master table is updated by adc_plot.py.  However, adc_plot.py would have to be modified to read whether it is in Normal_Observing mode from a file.
+         
+         The alternative, then, is to have adc_plot.py update the DCM master table outside of SQL and send the update to the ACC, and then have the schedule always read the current ACC file.  Any updates to the DCM master table should also be saved in a secure location /nas4/Tables/DCM_master/.
+     
+   DONE!
+        Sends completed stateframe record to SQL--this will have to be written to a file. This can be done in schedule rather than sf_display, which is a much better idea--not sure why I didn't think of it before. (line 1888)
+   
+        Also sends completed scanheader record to SQL--this will also have to be written to a file. (line 2620)
+   
+   

@@ -36,7 +36,10 @@
 #    if run by someone other than user.  In that case, the plot is now created in /tmp/.
 #  2022-03-05  DG
 #    Small change to call get_projects() instead of flare_monitor(), along with the
-#    added nosql=True argument so that this works without the SQL server.
+#    added nosql=True argument so that this works without the SQL server.  Only downside
+#    is that ACQUIRE states are not displayed (they are in SQL but not fdb files).
+#  2022-03-10  DG
+#    A couple of other changes due to loss of SQL, marked with comments.
 #
 
 if __name__ == "__main__":
@@ -443,6 +446,8 @@ if __name__ == "__main__":
     savfig = True
     goes_plot = True
     doplot=True
+    # ************ This line added due to loss of SQL **************
+    gain_corr = False
     
     argin = ''
     if len(sys.argv) >= 2:
@@ -470,8 +475,9 @@ if __name__ == "__main__":
         t2 = Time(t.mjd-2,format='mjd')   # Set t2 to day-before-yesterday
         t = Time(t.mjd-1,format='mjd')    # Set t to yesterday
     print t.iso[:19],': ',
-    blah = allday_udb(t=t, doplot=doplot, goes_plot=goes_plot, savfig=savfig, savfits=savfits)   # Process time t
+    blah = allday_udb(t=t, doplot=doplot, goes_plot=goes_plot, savfig=savfig, savfits=savfits, gain_corr=gain_corr)   # Process time t
     if goes_plot and not t2 is None:
         # Do this second date only if goes_plot is True
-        blah = allday_udb(t=t2, savfig=True)   # Process time t2
-    cal_qual(Time(t.iso[:10]))  # Make daily plot of calibration quality
+        blah = allday_udb(t=t2, savfig=True, gain_corr=gain_corr)   # Process time t2
+    # ************ This line commented out due to loss of SQL **************
+    # cal_qual(Time(t.iso[:10]))  # Make daily plot of calibration quality

@@ -100,11 +100,20 @@
 #   2020-08-22  DG
 #      Since I often want to check the date/time of a calibration record, I added a "verbose"
 #      keyword to read_cal(), to print this information if desired (i.e. if verbose=True).
+#   2022-03-06  DG
+#      Added ACCdlatable2dict() and dla_update2table() routines to handle the interim period when
+#      the SQL server is not available.  The new scheme that is meant to allow us to take data is to
+#      keep a record of the delay centers in the folder /nas4/Tables/Delays/ and maintain the most
+#      current one on the ACC as /parm/delay_centers.txt (which is the file read by dppxmp).
+#   2022-03-07  DG
+#      Added ACC_DCMtable2dict() routines to handle the interim period when
+#      the SQL server is not available.  The new scheme that is meant to allow us to take data is to
+#      keep a record of the DCM attenuations in the folder /nas4/Tables/DCM_master/ and maintain the most
+#      current one on the ACC as /parm/DCM_master_table.txt (which is the file read by schedule).
 
 import struct, util
 import stateframe as sf
 import numpy as np
-
 
 def cal_types():
     ''' Routine that defines all of the basic "long-term" calibration
@@ -1819,7 +1828,156 @@ def dla_censql2table(t=None, acc=True):
         f.close()
         print 'Successfully wrote delay_centers.txt to ACC'
 
+def ACC_DCMtable2dict():
+    ''' Returns the contents of the DCM_master_table.txt file stored on the ACC
+        as a dictionary with a time object and the [52, 30] array of 
+        DCM attenuations.
+        
+        Returns and empty dict {} on error.
+    '''
+    from ftplib import FTP
+    from util import Time
+    try:
+        # Log in to ACC and change to parm folder
+        acc = FTP('acc.solar.pvt')
+        acc.login('admin', 'observer')
+        acc.cwd('parm')
+    except:
+        print 'ACC_DCMtable2dict: login failed'
+        return {}
+    lines = []
+    try:
+        # Retrieve the lines of the file
+        result = acc.retrlines('retr DCM_master_table.txt',lines.append)
+        # Use last modified date as timestamp
+        dtstr = acc.voidcmd('MDTM DCM_master_table.txt')[4:].strip()
+        datstr = dtstr[:4]+'-'+dtstr[4:6]+'-'+dtstr[6:8]+' '+dtstr[8:10]+':'+dtstr[10:12]+':'+dtstr[12:]
+        t = Time(datstr)
+    except:
+        print 'ACCdlatable2dict: DCM_master_table.txt could not be retrieved'
+        return {}
+    try:
+        # Parse the ascii file to get the data (52 non-comment lines with band + 30 attns)
+        bands = np.zeros(52, 'int')
+        attn = np.zeros((52, 30), 'int')
+        for line in lines:
+            if line[0] != '#':
+                band, rline = line.strip().split(':')
+                attn[int(band) - 1] = map(int, rline.split())
+                bands[int(band) - 1] = band
+        return {'Time':t, 'DCMattn':attn, 'Bands':bands}
+    except:
+        print 'ACCdlatable2dict: DCM_master_table.txt not of expected format.'
+        return ()
 
+def ACCdlatable2dict():
+    ''' Returns the contents of the delay_centers.txt file stored on the ACC
+        as a dictionary with a time object and the [16, 2] array of delays in ns.
+        
+        Returns and empty dict {} on error.
+    '''
+    from ftplib import FTP
+    from util import Time
+    try:
+        # Log in to ACC and change to parm folder
+        acc = FTP('acc.solar.pvt')
+        acc.login('admin', 'observer')
+        acc.cwd('parm')
+    except:
+        print 'ACCdlatable2dict: login failed'
+        return {}
+    lines = []
+    try:
+        # Retrieve the lines of the file
+        result = acc.retrlines('retr delay_centers.txt',lines.append)
+    except:
+        print 'ACCdlatable2dict: delay_centers.txt could not be retrieved'
+        return {}
+    try:
+        # Parse the ascii file to get the data
+        
+        # Get time from header line 2
+        t = Time(lines[1][12:])
+        # Read file of delays (16 non-comment lines with ant, dlax, dlay)
+        tau_ns = np.zeros((16, 2), 'float')
+        for line in lines:
+            if line[0] != '#':
+                ant, xdla, ydla = line.strip().split()
+                tau_ns[int(ant) - 1] = np.array([float(xdla), float(ydla)])
+        return {'Time':t, 'Delaycen_ns':tau_ns}
+    except:
+        print 'ACCdlatable2dict: delay_centers.txt not of expected format.'
+        return ()
+
+def dla_update2table(dla_update, xy_delay=None, t=None, lorx=False, acc=True):
+    ''' Write delay_center updates to a standard delay_centers.txt file
+        in the /nas4/Tables/Delays folder.  Optionally send the table to the ACC
+
+        Input:
+          dla_update   a 14-element array of delay differences [ns], already
+                          converted to be relative to Ant 1
+          xy_delay     an optional 14-element array of delay differences [ns] in 
+                          Y relative to X
+        Optional argument:
+          t            the Time object from which to get the Time string for
+                          the file header (uses the current time if None)
+          lorx         if True, ONLY the Ant 14 delay update is applied, and ONLY
+                          to the Ant 15 slot, which is the delay setting to use
+                          for Ant 14 Lo-frequency receiver.
+          acc          if True (default), the table is also written to the ACC
+    '''
+    import time
+    if dla_update[0] != 0.0:
+        print 'First delay in list is not zero.  Delays must be relative to Ant 1'
+        return False
+    if t is None:
+        # If no time is defined, use the current time
+        t = util.Time.now()
+    if xy_delay is None:
+        # If no xy_delay was given, use zeros
+        xy_delay = np.zeros(14, dtype=float)
+    # Read the current ACC table to get delay_centers current at the given time
+    dladict = ACCdlatable2dict()
+    if dladict == {}:
+        print 'Error retrieving the delay_centers.txt from the ACC'
+        return False
+    dcen = dladict['Delaycen_ns']
+    # Apply corrections, forcing them to be relative to ant 1 (reference antenna),
+    rel_dla_ns = dla_update
+    xy_dla_ns = xy_delay  # XY delay is not relative to Ant 1
+    if lorx:
+        # This is the case of updating the Lo-frequency receiver delays ONLY
+        # Only change Ant 15 entries, using the Ant 14 information
+        dcen[14, 0] -= rel_dla_ns[13]
+        dcen[14, 1] -= rel_dla_ns[13] + xy_dla_ns[13]
+    else:
+        dcen[:14, 0] -= rel_dla_ns
+        dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
+
+    timestr = t.iso
+    datstr = timestr[:19].replace('-','').replace(' ','_').replace(':','')
+    filename = '/nas4/Tables/Delays/delay_centers_'+datstr+'.txt'
+    f = open(filename, 'w')
+    f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
+    f.write('#     Date: ' + timestr + '\n')
+    f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
+    f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
+    fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
+    for i in range(16):
+        f.write(fmt.format(i + 1, *dcen[i]))
+    f.close()
+    time.sleep(1)  # Make sure file has time to be closed.
+    if acc:
+        from ftplib import FTP
+        f = open(filename, 'r')
+        acc = FTP('acc.solar.pvt')
+        acc.login('admin', 'observer')
+        acc.cwd('parm')
+        # Send delay_center table lines to ACC
+        print acc.storlines('STOR delay_centers.txt', f)
+        f.close()
+        print 'Successfully wrote delay_centers.txt to ACC'
+    
 def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
     ''' Write delays given in file filename to SQL server table abin
         with the timestamp given by Time() object t (or current time, if none)

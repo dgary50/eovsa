@@ -43,6 +43,9 @@
 #   2021-Aug-11  DG
 #      Attempt to make get_dbrecs() more robust to failure (now returns empty
 #      dict on failure)
+#   2022-Mar-05  DG
+#      Cleaned up some weird code that was trying to avoid importing the numpy
+#      namespace, since it is imported anyway.
      
 import stateframedef
 import util
@@ -134,12 +137,12 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
         print stateframedef.sys.exc_info()[0]
         return {}
     # Extract the data
-    data = stateframedef.numpy.transpose(stateframedef.numpy.array(cursor.fetchall(),'object'))
+    data = np.transpose(np.array(cursor.fetchall(),'object'))
     # Override nrecs with the number of records actually read (could be less than requested)
     try:
         nrecs = len(data[0])/dimension
         # Get names from description
-        names = stateframedef.numpy.array(cursor.description)[:,0]
+        names = np.array(cursor.description)[:,0]
         # Reshape data array for zipping into dictionary.  Each dictionary entry will be
         # an array of size nrecs x dimension.
         if dimension > 1:
@@ -163,8 +166,8 @@ def do_query(cursor,query):
     import sys
     try:
         cursor.execute(query)
-        data = stateframedef.numpy.transpose(stateframedef.numpy.array(cursor.fetchall(),dtype='object'))
-        names = stateframedef.numpy.array(cursor.description)[:,0]
+        data = np.transpose(np.array(cursor.fetchall(),dtype='object'))
+        names = np.array(cursor.description)[:,0]
         result = dict(zip(names,data))
         msg = 'Success'
     except:

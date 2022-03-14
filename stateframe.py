@@ -81,6 +81,9 @@
 #   2021-Feb-03  DG
 #      Added a tracksrcflag to indicate when the antennas are supposed to be
 #      tracking the source (i.e. no intentional offsets).
+#   2022-Mar-07  DG
+#      Oops--"temporary" change in 2018 (4 years ago!) was never reversed.  
+#      I have taken it out now, since SQL is not working...
 
 import struct, sys
 import socket
@@ -165,7 +168,8 @@ def weather(attempt=0):
     except:
         return ovro_dict
     ovro_dict['mtRawBaromPress'] = str(temp)
-    return get_median_wind(ovro_dict)
+#    return get_median_wind(ovro_dict)   # Removed due to loss of SQL
+    return ovro_dict
     
 def get_median_wind(wthr):
     '''  Temporary work-around for mis-behaving weather station.

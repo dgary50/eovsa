@@ -14,15 +14,17 @@
 #    Change plot to plot phases of antennas other than ant1 relative to ant1
 #  2019-May-04 DG
 #    Added mv_ptg_files().
-#  2019-Jun-21  DG
+#  2019-Jun-21 DG
 #    Fixed a bug in filenames when running on pipeline.
-#  2020-Jan-26  DG
+#  2020-Jan-26 DG
 #    mv_pcal_files() only worked for years 201*, so now works for 20*
-#  2020-05-29 SY
+#  2020-May-29 SY
 #    update calpntanal() to use util.get_idbdir() to find IDB root path.
-#  2021-08-02   DG
+#  2021-Aug-02 DG
 #    Fix a bug in findfile() introduced when FDB files were lost from the DPP.
 #    Now on pipeline the IFDB files are used, which do not have a key ST_SEC.
+#  2022-Mar-08 DG
+#    Temporarily commented out check for Windscram due to loss of SQL
 #
 
 import numpy as np
@@ -184,9 +186,11 @@ def graph(f,navg=None,path=None):
         return
     fig, ax = plt.subplots(4,13,sharex=True, sharey=True)
     trange = Time([fname2mjd(f[0]),fname2mjd(f[-1]) + ten_minutes],format='mjd')
-    times, wscram, avgwind = db.a14_wscram(trange)
-    nwind = len(wscram)
-    nbad = np.sum(wscram)
+    # ************ This block commented out due to loss of SQL **************
+    # times, wscram, avgwind = db.a14_wscram(trange)
+    # nwind = len(wscram)
+    # nbad = np.sum(wscram)
+    nbad = 0    # Skip Windscram check
     if nbad != 0:
         warn = ' --> Windscram! ('+str(nbad)+' of '+str(nwind)+')'
         color = '#d62728'   # Plot points with "warning" Red color

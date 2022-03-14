@@ -330,6 +330,15 @@
 #      wake_up() to cancel the inc_time timer and restart it.
 #    2022-Jan-12  DG
 #      Added a FLARE* project ID, to trigger the new fast recording mode.
+#    2022-Mar-07  DG
+#      Multiple changes due to loss of SQL.  Blocks changes are preceded by
+#            # ************ This block commented out due to loss of SQL **************
+#    2022-Mar-08  DG
+#      Added log_stateframe() routine to make logging to file work.
+#    2022-Mar-14  DG
+#      Changes to use new chan_info_52.py code to define a Chan_Info object.  The main
+#      purpose is to enable a fast FLARE mode by specifying a DWELL mode for
+#      one band specified in a dwellXX.fsq file.
 #
 
 import os, signal
@@ -349,7 +358,7 @@ from eovsa_array import *
 from eovsa_lst import eovsa_ha
 from math import pi
 from readvla import *
-import chan_util_52 as cu
+import chan_info_52 as ci
 from scan_header import scan_header
 from gen_schedule_sf import *
 import stateframe, stateframedef
@@ -462,31 +471,26 @@ def init_scanheader_dict(version=37.0):
         mjdacc0 = np.double(f.readline().split()[0])
         f.close()
       
-
-    #try:
-        ## Read delay center file from ACC
-        #dlafile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/delay_centers.txt',timeout=1)
-        #dcen = []
-        #dceny = []
-        #for line in dlafile.readlines():
-            #if line[0] != '#':
-                #ant,dx,dy = numpy.array(line.strip().split()).astype('float')
-                ## Skip comment lines and take second number as delay center [ns]
-                #dcen.append(dx)
-                #dceny.append(dy)
-    #except:
-        #print t.iso,'ACC connection for delay centers timed out.'
-        #dcen = [0]*16
-    try:
-        xml, buf = cal_header.read_cal(4)
-        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
-        dcen  = dcenters[:,0]
-        dceny = dcenters[:,1]
-    except:
-        print t.iso,'SQL connection for delay centers failed.'
+    # ************ This block commented out due to loss of SQL **************
+    # try:
+        # xml, buf = cal_header.read_cal(4)
+        # dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+        # dcen  = dcenters[:,0]
+        # dceny = dcenters[:,1]
+    # except:
+        # print t.iso,'SQL connection for delay centers failed.'
+        # dcen = [0]*16
+        # dceny = [0]*16
+    # Replaced by:
+    delaydict = cal_header.ACCdlatable2dict()
+    if delaydict != {}:
+        dcen  = delaydict['Delaycen_ns'][:,0]
+        dceny = delaydict['Delaycen_ns'][:,1]
+    else:
+        print t.iso,'ACC transfer of delay centers failed.  Delay center not updated'
         dcen = [0]*16
         dceny = [0]*16
-        
+    
     try:
         # Read eovsa_corr.ini file from ACC and get ROACH antenna assignments. 
         inifile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/eovsa_corr.ini',timeout=1)
@@ -508,6 +512,7 @@ def init_scanheader_dict(version=37.0):
                'operator':'Kjell Nelin',
                'comments':'None',
                'version':['1.0.0','1.0.0'],
+               'chinfo':ci.Chan_Info(),  # Handle to Chan_Info object
                'nants':16,
                'antlist':antlist,
                #'antlist':numpy.array([1,2,3,4,0,0,0,0,0,0,0,0,0,0,0,0]),  # 1,2,3,4 for prototype
@@ -683,9 +688,9 @@ class App():
         
         global sf_dict, sh_dict
         if self.subarray_name == 'Subarray1':
-            self.sh_datfile = '/tmp/scan_header.dat'
+            self.sh_datfile = '/nas4/Tables/scanheader/scan_header.dat'
         else:
-            self.sh_datfile = '/tmp/scan_header_' + self.subarray_name + '.dat'
+            self.sh_datfile = '/nas4/Tables/scanheader/scan_header_' + self.subarray_name + '.dat'
         if sh_dict == {}:
             init_scanheader_dict()
 #            if self.subarray_name == 'Starburst':
@@ -926,6 +931,12 @@ class App():
         self.PAthread = None
         self.wlimit = 17  # Default wind limit (mph) for 27-m antenna
         self.stale = True # Default status of weather station information (will be immediately set to False if not stale)
+        
+        # *************** New code due to loss of SQL ***************
+        # Log both stateframe and scanheader data to files instead of SQL
+        self.accini['sf_file'] = None
+        self.accini['sh_file'] = None
+        self.log_stateframe()
 
         # Start the clock ticking
         self.prev = time.time()
@@ -1910,19 +1921,31 @@ class App():
         else:
             self.error = msg
                 
-        # If we are connected to the SQL database, send converted stateframe (only master schedule is connected)
-        if msg == 'No Error' and self.sql['cnxn']:
-            bufout = stateframedef.transmogrify(data, self.sql['sfbrange'])
-            try:
-                self.sql['cursor'].execute('insert into fBin (Bin) values (?)', 
-                                           stateframedef.pyodbc.Binary(bufout))
-                #sys.stdout.write('*')
-                #sys.stdout.flush()
-                self.sql['cnxn'].commit()
-            except:
-                # An exception could be an error, or just that the entry was already inserted
-                self.error = 'Err: Cannot write stateframe to SQL'
-        
+        # ************ This block commented out due to loss of SQL **************
+        # # If we are connected to the SQL database, send converted stateframe (only master schedule is connected)
+        # if msg == 'No Error' and self.sql['cnxn']:
+            # bufout = stateframedef.transmogrify(data, self.sql['sfbrange'])
+            # try:
+                # self.sql['cursor'].execute('insert into fBin (Bin) values (?)', 
+                                           # stateframedef.pyodbc.Binary(bufout))
+                # #sys.stdout.write('*')
+                # #sys.stdout.flush()
+                # self.sql['cnxn'].commit()
+            # except:
+                # # An exception could be an error, or just that the entry was already inserted
+                # self.error = 'Err: Cannot write stateframe to SQL'
+        f = self.accini.get('sf_file',None)   
+        if f:
+            date_change = int(time.time() / 86400) > int(os.path.getctime(f.name) / 86400)
+            if date_change:
+                # Looks like the date has changed, so open a new file
+                self.log_stateframe()
+                f = self.accini.get('sf_file')
+        try:
+            f.write(data)
+        except:
+            print Time.now().iso+' Error writing stateframe to log file'
+
         # Create schedule part of stateframe from sf_dict
         # Subarray1 writes Weather, SolarPower, Roach whereas Subarray2/Starburst don't
         if self.subarray_name == 'Subarray1':
@@ -2005,6 +2028,39 @@ class App():
         # Debug info, simply logs that we have exited this procedure
         #sys.stdout.write('-')
         #sys.stdout.flush()  # Flush stdout (/tmp/schedule.log or /tmp/schedule_[self.subarray_name].log) so we can see this '-'.
+
+    def log_stateframe(self):
+        '''Called on init, or when it is time to close a log file and open 
+           a new one.  This logs both stateframe and scanheader.  This is
+           only needed if the SQL server is down.
+        '''
+        global sf_dict, sh_dict
+        # Create file name from date
+        # Get today's date
+        t = Time.now()
+        v = self.accini['version']
+        logfile = '/nas4/Tables/stateframe/sf_'+t.iso[:10].replace('-','')+'_v'+str(v)+'.log'
+        if os.path.isfile(logfile):
+            # Desired file name already exists, so simply append to it
+            self.accini['sf_file'] = open(logfile,'a')
+        else:
+            # Need to open a new file, so first check if old file is open
+            if self.accini['sf_file']:
+                self.accini['sf_file'].close()
+            self.accini['sf_file'] = open(logfile,'wb')
+        # Create scanheader log filename from date
+        # Get the current version number from accini
+        v = sh_dict['Version']
+        logfile = '/nas4/Tables/scanheader/sh_'+t.iso[:10].replace('-','')+'_v'+str(v)+'.log'
+        if os.path.isfile(logfile):
+            # Desired file name already exists, so simply append to it
+            self.accini['sh_file'] = open(logfile,'a')
+        else:
+            # Need to open a new file, so first check if old file is open
+            if self.accini['sh_file']:
+                self.accini['sh_file'].close()
+            self.accini['sh_file'] = open(logfile,'wb')
+
 
     #============================
     def dla2roach(self):
@@ -2125,10 +2181,16 @@ class App():
         '''
         # Convert from comma-separated variables to zero-based band numbers
         bands = numpy.array(sequence.split(',')).astype('int')-1
+        # ************ This block commented out due to loss of SQL **************
         # Read current DCM_Master_Table
-        dcm, buf = cal_header.read_cal(2)
-        dcm_m_attn = stateframe.extract(buf,dcm['Attenuation'])
-        dcm_attn = dcm_m_attn[bands]
+        #dcm, buf = cal_header.read_cal(2)
+        #dcm_m_attn = stateframe.extract(buf,dcm['Attenuation'])
+        #dcm_attn = dcm_m_attn[bands]
+        # Replaced by
+        dcm_dict = cal_header.ACC_DCMtable2dict()
+        dcm_attn = dcm_dict['DCMattn'][bands]
+
+        # Rest is unchanged
         lines = []
         for line in dcm_attn:
             l = ' '.join(map(str,line))
@@ -2144,8 +2206,10 @@ class App():
         for line in lines:
             g.write(line+'\n')
         g.close()
-        cal_header.dcm_table2sql(lines)
-        # Connect to ACC /parm directory and transfer scan_header files
+        # ************ This line commented out due to loss of SQL **************
+        #cal_header.dcm_table2sql(lines)         # Note that I don't think this caltype is used anyway
+        
+        # Connect to ACC /parm directory and transfer dcm.txt file
         try:
             g = open('DCM_table.txt','r')
             acc = FTP('acc.solar.pvt')
@@ -2494,39 +2558,47 @@ class App():
                     # else:
                         # print 'LO-Frequency Receiver check failed due to bad (0) stateframe.'
 
+                    # ************ This block commented out due to loss of SQL **************
+                    # Replaced by:
+                    delaydict = cal_header.ACCdlatable2dict()
+                    if delaydict == {}:
+                        print util.Time.now().iso,'ACC transfer of delay centers failed.  Delay center not updated'
+                    else:
+                        sh_dict['dlacen']  = delaydict['Delaycen_ns'][:,0]
+                        sh_dict['dlaceny'] = delaydict['Delaycen_ns'][:,1]
                     # Fetch current delay centers from SQL database, and write them to
                     # the ACC file /parm/delay_centers.txt, which is used by the dppxmp program
-                    xml, buf = cal_header.read_cal(4)
-                    try:
-                        xml, buf = cal_header.read_cal(4)
-                        dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
-                        if self.lorx:
-                            # If the LO-frequency receiver is active, put delays in slot for Ant 15 into Ant 14
-                            dcenters[13] = dcenters[14]
-                        timestr = Time(int(stateframe.extract(buf, xml['Timestamp'])), format='lv').iso
-                        f = open('/tmp/delay_centers.txt', 'w')
-                        f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
-                        f.write('#     Date: ' + timestr + '\n')
-                        f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
-                        f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
-                        fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
-                        for i in range(16):
-                            f.write(fmt.format(i + 1, *dcenters[i]))
-                        f.close()
-                        time.sleep(0.1)  # Make sure file has time to be closed.
-                        f = open('/tmp/delay_centers.txt', 'r')
-                        acc = FTP('acc.solar.pvt')
-                        acc.login('admin', 'observer')
-                        acc.cwd('parm')
-                        # Send DCM table lines to ACC
-                        print acc.storlines('STOR delay_centers.txt', f)
-                        f.close()
-                        print 'Successfully wrote delay_centers.txt to ACC'
+                    # xml, buf = cal_header.read_cal(4)
+                    # try:
+                        # xml, buf = cal_header.read_cal(4)
+                        # dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
+                        # if self.lorx:
+                            ## If the LO-frequency receiver is active, put delays in slot for Ant 15 into Ant 14
+                            # dcenters[13] = dcenters[14]
+                        # timestr = Time(int(stateframe.extract(buf, xml['Timestamp'])), format='lv').iso
+                        # f = open('/tmp/delay_centers.txt', 'w')
+                        # f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
+                        # f.write('#     Date: ' + timestr + '\n')
+                        # f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
+                        # f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
+                        # fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
+                        # for i in range(16):
+                            # f.write(fmt.format(i + 1, *dcenters[i]))
+                        # f.close()
+                        # time.sleep(0.1)  # Make sure file has time to be closed.
+                        # f = open('/tmp/delay_centers.txt', 'r')
+                        # acc = FTP('acc.solar.pvt')
+                        # acc.login('admin', 'observer')
+                        # acc.cwd('parm')
+                        ## Send DCM table lines to ACC
+                        # print acc.storlines('STOR delay_centers.txt', f)
+                        # f.close()
+                        # print 'Successfully wrote delay_centers.txt to ACC'
                         
-                        sh_dict['dlacen']  = dcenters[:,0]
-                        sh_dict['dlaceny'] = dcenters[:,1]
-                    except:
-                        print util.Time.now().iso,'SQL connection for delay centers failed.  Delay center not updated'
+                        # sh_dict['dlacen']  = dcenters[:,0]
+                        # sh_dict['dlaceny'] = dcenters[:,1]
+                    # except:
+                        # print util.Time.now().iso,'SQL connection for delay centers failed.  Delay center not updated'
 
                     if self.subarray_name == 'Subarray1':
                         try:
@@ -2587,7 +2659,7 @@ class App():
                             #    # In case of failure, set to empty dictionary
                             #    sh_dict['katadc'][rnum] = {}                            
                             #    sys.stdout.write('Failed:'+r.msg+'\n')
-                            #    sh_dict['roach_brd_clk'][rnum] = 0                            
+                            #    sh_dict['roach_brd_clk'][rnum] = 0
                         else:
                             # In case of no communication, set to empty dictionary
                             sh_dict['katadc'][rnum] = {}
@@ -2616,23 +2688,34 @@ class App():
 #                    else: # write OVSA scan header and store on ACC
                     scan_header(sh_dict,self.sh_datfile)
                     
-                    # If we are connected to the SQL database, send converted scan header
-                    if self.sql['cnxn']:
-                        f = open(self.sh_datfile)
-                        data = f.read()
-                        f.close()
-                        bufout = stateframedef.transmogrify(data, self.sql['shbrange'])
-                        try:
-                            self.sql['cursor'].execute('insert into hBin (Bin) values (?)', 
-                        stateframedef.pyodbc.Binary(bufout))
-                            self.sql['cnxn'].commit()
-                            sys.stdout.write('Scan Header Record successfully written to SQL Server\n')
-                            sys.stdout.flush()
-                        except:
-                            # An exception could be an error, or just that the entry was already inserted
-                            sys.stdout.write('Writing Scan Header record to SQL Server FAILED\n')
-                            sys.stdout.flush()
-                            self.error = 'Err: Cannot write scan header to SQL'
+                    # ************ This block commented out due to loss of SQL **************
+                    # # If we are connected to the SQL database, send converted scan header
+                    # if self.sql['cnxn']:
+                        # f = open(self.sh_datfile)
+                        # data = f.read()
+                        # f.close()
+                        # bufout = stateframedef.transmogrify(data, self.sql['shbrange'])
+                        # try:
+                            # self.sql['cursor'].execute('insert into hBin (Bin) values (?)', 
+                        # stateframedef.pyodbc.Binary(bufout))
+                            # self.sql['cnxn'].commit()
+                            # sys.stdout.write('Scan Header Record successfully written to SQL Server\n')
+                            # sys.stdout.flush()
+                        # except:
+                            # # An exception could be an error, or just that the entry was already inserted
+                            # sys.stdout.write('Writing Scan Header record to SQL Server FAILED\n')
+                            # sys.stdout.flush()
+                            # self.error = 'Err: Cannot write scan header to SQL'
+                    # Replaced by
+                    f2 = open(self.sh_datfile)
+                    data = f2.read()
+                    f2.close()
+                    f = self.accini.get('sh_file')
+                    try:
+                        f.write(data)
+                    except:
+                        print Time.now().iso+' Error writing stateframe to log file'
+
                     
                     if nodata == 'NODATA':
                         pass
@@ -2885,7 +2968,9 @@ class App():
                 cmds = ctlline.split()
                 if cmds[0].upper() == 'FSEQ-FILE':
                     # This is an FSEQ-FILE command, so find and set frequency sequence
-                    # Just FTP sequence file from ACC
+                    # First set up channel info for this sequence
+                    sh_dict['chinfo'].fseq2nsavg(cmds[1])
+                    # Then FTP sequence file from ACC
                     fseqfile = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/'+cmds[1])
                     nrpt = None     # Initially not defined
                     fsequence = ''  # Initially empty
@@ -2918,13 +3003,13 @@ class App():
                         sh_dict.update({'chanmask':numpy.array([1]*204800,'byte')})
                     else:
                         sh_dict.update({'fsequence':fsequence[:-1]})   # -1 removes trailing ','
-                        chanmask = cu.get_chanmask(fsequence[:-1])
+                        chanmask = ci.get_chanmask(fsequence[:-1])
                         sh_dict.update({'chanmask': chanmask})
                         # Get nominal Chan2Wide assignment, then multiply by chanmask and update it
                         fseqlist = fsequence[:-1].rsplit(',')
                         item = []
                         for band in fseqlist:
-                            ch = cu.chan_asmt(int(band))
+                            ch = sh_dict['chinfo'].chan_asmt(int(band))
                             item += ch
                         sh_dict.update({'chan2wide':numpy.array(item)*sh_dict['chanmask']})
                         self.sequence2roach(fsequence[:-1])

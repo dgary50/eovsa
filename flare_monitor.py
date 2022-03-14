@@ -68,7 +68,8 @@
 #      Due to a (hopefully) temporary outage of the SQL server, I wrote a
 #      new version of get_projects() called get_projects_nosql() that
 #      does almost the same thing using the FDB files.  Calling get_projects()
-#      with nosql=True also works.
+#      with nosql=True also works.  The __main__ routine has some changes
+#      to avoid reading from SQL.
 #
 import numpy as np
 from util import Time,get_idbdir
@@ -458,23 +459,26 @@ if __name__ == "__main__":
         # append or replace with the newly determined levels
         #times, tlevel, bflag = get_history(times, tlevel, bflag)
 
-    ut, fl, projdict = flare_monitor(t)
-    if fl == []:
-        print 'Error retrieving data for',t.iso[:10],'from SQL database.'
-        exit()
+    # ************ This block commented out due to loss of SQL **************
+    projdict = get_projects_nosql(t)
+    ut = [Time(projdict['Timestamp'],format='lv').plot_date[0]]*2
+    # ut, fl, projdict = flare_monitor(t)
+    # if fl == []:
+        # print 'Error retrieving data for',t.iso[:10],'from SQL database.'
+        # exit()
     f, ax = plt.subplots(1,1)
     f.set_size_inches(10,3)
-    plt.plot_date(ut,fl,'b')
-    if tlevel:
-        plt.plot_date(times.plot_date,tlevel,'r,')
-    ax.set_xlabel('Time [UT]')
-    ax.set_ylabel('RF Detector [arb. units]')
-    ax.set_title('EOVSA Flare Monitor for '+t.iso[:10])
+    # plt.plot_date(ut,fl,'b')
+    # if tlevel:
+        # plt.plot_date(times.plot_date,tlevel,'r,')
+    # ax.set_xlabel('Time [UT]')
+    # ax.set_ylabel('RF Detector [arb. units]')
+    # ax.set_title('EOVSA Flare Monitor for '+t.iso[:10])
     ymax = 1.4
-    if np.max(fl) > ymax: ymax = np.max(fl)
-    # Get level max, ignoring nan and inf
-    #lmax = np.max(tlevel[np.isfinite(tlevel)])
-    #if lmax > ymax: ymax = lmax
+    # if np.max(fl) > ymax: ymax = np.max(fl)
+    # # Get level max, ignoring nan and inf
+    # #lmax = np.max(tlevel[np.isfinite(tlevel)])
+    # #if lmax > ymax: ymax = lmax
     ax.set_ylim(0.8,ymax)
     ax.set_xlim(int(ut[0])+13/24.,int(ut[0])+26/24.)  # Time plot ranges from 13 UT to 02 UT
     if projdict == {}:

@@ -411,9 +411,13 @@ class App():
             delays[bad] = 0.0
             if askyesno("Write Delays",question):
                 # All Y-X delays need a sign flip, hence the minus sign
-                ch.dla_update2sql(delays,-xydelays)
-                #ch.dla_update2sql(-delays,xydelays)  # 300 MHz design uses flipped signs!
-                ch.dla_censql2table()
+                # ************ This block commented out due to loss of SQL **************
+                #ch.dla_update2sql(delays,-xydelays)
+                ##ch.dla_update2sql(-delays,xydelays)  # 300 MHz design uses flipped signs!
+                #ch.dla_censql2table()
+                # Replaced by
+                ch.dla_update2table(delays,-xydelays)
+
 
     def SaveLoRX(self):
         # Send saved Ant 14 delays as Ant 15 to the SQL database and the ACC (if the data source is not 'Simulation')
@@ -443,9 +447,12 @@ class App():
             
             if askyesno("Write Delays",question):
                 # All Y-X delays need a sign flip, hence the minus sign
-                ch.dla_update2sql(delays,-xydelays,lorx=True)
-                #ch.dla_update2sql(-delays,xydelays,lorx=True)  # 300 MHz design uses flipped signs!
-                ch.dla_censql2table()
+                # ************ This block commented out due to loss of SQL **************
+                #ch.dla_update2sql(delays,-xydelays,lorx=True)
+                ##ch.dla_update2sql(-delays,xydelays,lorx=True)  # 300 MHz design uses flipped signs!
+                #ch.dla_censql2table()
+                # Replaced by
+                ch.dla_update2table(delays,-xydelays,lorx=True)
                 
 app = App()
 

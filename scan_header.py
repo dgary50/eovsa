@@ -26,18 +26,24 @@
 #     IF filters, e.g. 52 channels of 325 MHz bandwidth.
 #   2019-Feb-23  DG
 #     Several other changes for 52-channel mode.
+#   2022-Mar-07  DG
+#     Made some adjustments related to unavailability of SQL--default
+#     file location is now on the /nas4 RAID disk.
+#   2022-Mar-14  DG
+#     Changes to use the new Chan_Info object defined in chan_info_52 to 
+#     implement a fast FLARE mode.
 #
 import struct,sys
 from sun_pos import *
 from math import pi
 import numpy as np
 import util
-import chan_util_52 as cu
+import chan_info_52 as ci
 from eovsa_array import *
 from eovsa_lst import *
 from ftplib import FTP
 
-def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
+def scan_header(sh_dict,datfile='/nas4/Tables/scanheader/scan_header.dat'):
     '''Writes the state frame header file from the scan header dictionary 
        created by the schedule. Returns file names datfile and xmlfile 
        corresponding to the output files in the /tmp directory that are 
@@ -589,9 +595,10 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     xml.write('<Val></Val>\n')
     xml.write('</DBL>\n')
 
+    chinfo = sh_dict.get('chinfo',ci.Chan_Info())
     # Number of 'wide' spectral channels (unsigned int)
     # Default 504, max 511
-    item = sh_dict.get('nchan',cu.tot_scichan())
+    item = sh_dict.get('nchan',chinfo.tot_scichan())
     fmt += 'I'
     buf = struct.pack('I',item)
     f.write(buf)
@@ -607,7 +614,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     if item is None:
         item = []
         for band in range(1,53):
-            item += cu.start_freq(band)
+            item += chinfo.start_freq(band)
     nchan = len(item)
     fmt += 'I511d'
     buf = struct.pack('I',511)
@@ -629,7 +636,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
     if item is None:
         item = []
         for band in range(1,53):
-            item += cu.sci_bw(band)
+            item += chinfo.sci_bw(band)
     nchan = len(item)
     fmt += 'I511d'
     buf = struct.pack('I',511)
@@ -663,7 +670,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
         # Create default channel assignments for the list of frequencies (bands) in fseqlist
         item = []
         for band in fseqlist:
-            ch = cu.chan_asmt(int(band))
+            ch = chinfo.chan_asmt(int(band))
             #ch[0] = 0  # Assign first subband to purgatory (unused subband)
             item += ch
     nsubchan = len(item)
@@ -922,7 +929,7 @@ def scan_header(sh_dict,datfile='/tmp/scan_header.dat'):
             f.close()
             # Send DAT file to ACC    
             g = open(datfile,'rb')
-            acc.storbinary('STOR '+datfile[5:],g)
+            acc.storbinary('STOR scan_header.dat',g)
             acc.close()
             g.close()
             sys.stdout.write('Successfully transferred scan_header files to ACC.\n')
