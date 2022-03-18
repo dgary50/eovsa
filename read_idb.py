@@ -128,6 +128,10 @@
 #  2022-01-30  DG
 #    Found a bug in read_idb(), where the frequency list was from the last file read,
 #    even if it did not match the first file.
+#  2022-03-15  DG
+#    Added an nmax parameter to read_idb() and readXdata() to override previous limitation
+#    of reading only 600 times from a file.  With the new 20-ms files there can be 30000
+#    records in a 10-min file!
 #
 
 import aipy
@@ -236,15 +240,20 @@ import copy
     # out = {'a':outa, 'x':outx, 'uvw':uvwarray, 'fghz':freq, 'time':np.array(timearray),'source':src,'ha':ha,'ra':uv['ra'],'dec':uv['dec']}#,'p':outp,'p2':outp2,'m':outm
     # return out
     
-def readXdata(filename, filter=False, tp_only=False, src=None, desat=False):
+def readXdata(filename, filter=False, tp_only=False, src=None, desat=False, nmax=600):
     ''' This routine reads the data from a single IDBfile.
         
-        Optiona Keywords:
+        Optional Keywords:
         filter   boolean--if True, returns only non-zero frequencies 
                     if False (default), returns uniform set of 500 frequencies
         tp_only  boolean--if True, returns only TP information
                     if False (default), returns everything (including 
                     auto & cross correlations)
+        nmax     max number of times to read from the file.  Defaults to 600,
+                    which is the number of records in a 10-min file of 1-s
+                    records.  This affects memory usage if it is much larger 
+                    than the number of times in the file, but with the new 
+                    20-ms files there can be 30000 recs in a 10-min file.
     '''
 
     # Open uv file for reading
@@ -288,12 +297,12 @@ def readXdata(filename, filter=False, tp_only=False, src=None, desat=False):
     nants = uv['nants']
     nbl = nants*(nants-1)/2
     if not tp_only:
-        outa = np.zeros((nants,npol,nf,600),dtype=np.complex64)  # Auto-correlations
-        outx = np.zeros((nbl,npol,nf,600),dtype=np.complex64)  # Cross-correlations
-    outp = np.zeros((nants,2,nf,600),dtype=np.float)
-    outp2 = np.zeros((nants,2,nf,600),dtype=np.float)
-    outm = np.zeros((nants,2,nf,600),dtype=np.int)
-    uvwarray = np.zeros((nbl,600,3),dtype=np.float)
+        outa = np.zeros((nants,npol,nf,nmax),dtype=np.complex64)  # Auto-correlations
+        outx = np.zeros((nbl,npol,nf,nmax),dtype=np.complex64)  # Cross-correlations
+    outp = np.zeros((nants,2,nf,nmax),dtype=np.float)
+    outp2 = np.zeros((nants,2,nf,nmax),dtype=np.float)
+    outm = np.zeros((nants,2,nf,nmax),dtype=np.int)
+    uvwarray = np.zeros((nbl,nmax,3),dtype=np.float)
     timearray = []
     lstarray = []
     l = -1
@@ -368,7 +377,7 @@ def readXdata(filename, filter=False, tp_only=False, src=None, desat=False):
                     # Some kind of glitch, so skip the whole thing
                     continue
                 l += 1
-                if l == 600:
+                if l == nmax:
                     break
                 tprev = t
                 timearray.append(t)
@@ -948,7 +957,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, gain_corr=Fals
             # plt.savefig('/common/webplots/flaremon/XSP_later.png',bbox_inches='tight')
     # return out
         
-def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_only=False, desat=False):
+def read_idb(trange,navg=None, nmax=600, quackint=0.,filter=True,srcchk=True,src=None,tp_only=False, desat=False):
     ''' This finds the IDB files within a given time range and concatenates 
         the times into a single dictionary.  If trange is not a Time() object,
         assume that it is the list of files to read.
@@ -980,7 +989,7 @@ def read_idb(trange,navg=None,quackint=0.,filter=True,srcchk=True,src=None,tp_on
         #  The names of the bad or unreadable files will
         #  be printed.
         try:
-            out = readXdata(file,tp_only=tp_only,src=src, desat=desat)
+            out = readXdata(file,tp_only=tp_only,src=src, desat=desat, nmax=nmax)
             if type(out) is str:
                 print 'Source name:',out,'does not match requested name:',src+'.  Will skip',file
             else:

@@ -21,6 +21,9 @@ class Chan_Info():
         self.nschanx = 256  # Number of subchannels to drop at low end
         self.nschan = 4096  # Total number of subchannels
         self.fsx = 1.075    # Frequency in GHz assigned to first subchannel
+        #  There are 3328 subchannels in 325 MHz => n_sci = 3328/fast_nsavg
+        #  n_sci = (416, 208, 104, 52) for fast_nsavg = (8, 16, 32, 64)
+        self.fast_nsavg = 16   # Number of subschannels to average in fast mode
         # Default number of subchannels to average in each of 52 IF bands
         self.std_nsavg = [110,151,175,208,256,277,302,332,369]+[416]*43
         self.nsavg = copy(self.std_nsavg)
@@ -62,7 +65,8 @@ class Chan_Info():
             for i in range(52):
                 if (i+1) == dwellband:
                     # Minimum averaging will yield 416 channels in this band
-                    self.nsavg[i] = 8
+                    #self.nsavg[i] = 8
+                    self.nsavg[i] = self.fast_nsavg  
                 else:
                     if (i+1) in bands:
                         # Will use the standard science channels in this band
@@ -113,7 +117,7 @@ class Chan_Info():
             for n in nscichan[0:band]:
                 nsci += n
         for i in range(nscichan[band]):
-            if self.nsavg[band] == 8:
+            if self.nsavg[band] == self.fast_nsavg:
                 # This is a "dwell" band, so mark its channels by adding 512
                 chasmt += [i+nsci+1+512]*self.nsavg[band]
             else:

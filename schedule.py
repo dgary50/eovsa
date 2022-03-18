@@ -1031,7 +1031,7 @@ class App():
         # Try to reestablish connection to the ROACHes, and set self.fpga accordingly
         # This will keep dla2roach() from hanging.
         self.connect2roach()
-        os.kill(self.mypid, signal.SIGINT)
+        os.kill(int(self.mypid), signal.SIGINT)
         # Kill the inc_time timer and restart it.
         self.root.after_cancel(self.tmr)
         self.prev = time.time()
