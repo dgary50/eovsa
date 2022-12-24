@@ -23,6 +23,8 @@ def make_flare_fsq(dwellband, bandlist=None, acc=True, check=True, verbose=False
         check        optional boolean.  If True (default), perform a check
                        that the sequence does not exceed the maximum 512
                        channels that dppxmp can handle.
+                       the terminal.
+        verbose      optional boolean.  If True, print the final fseq file to
         Examples:
             make_flare_fsq(13,[13])     dwells full time on band 13
             make_flare_fsq(29)          dwells for 0.8 on band 29, plus
@@ -73,6 +75,7 @@ def make_flare_fsq(dwellband, bandlist=None, acc=True, check=True, verbose=False
         f.close()
     if check and not acc:
         print 'Must use acc=True if check=True!'
+        return None
     if check:
         import chan_info_52 as ci
         print ''

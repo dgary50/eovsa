@@ -43,7 +43,7 @@ from eovsa_array import *
 from eovsa_lst import *
 from ftplib import FTP
 
-def scan_header(sh_dict,datfile='/nas4/Tables/scanheader/scan_header.dat'):
+def scan_header(sh_dict,datfile='/common/Tables/scanheader/scan_header.dat'):
     '''Writes the state frame header file from the scan header dictionary 
        created by the schedule. Returns file names datfile and xmlfile 
        corresponding to the output files in the /tmp directory that are 

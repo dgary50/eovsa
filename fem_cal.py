@@ -32,6 +32,7 @@ def fem_cal(ant):
     elif isinstance(ant,list):
         if isinstance(ant[0],str) and isinstance(ant[1],str):
             tp=1
+            print 'openning file ' + ant[0]
             f = open(ant[0],'r')
     
     if tp==-1:
@@ -62,6 +63,7 @@ def fem_cal(ant):
         print(vfiles[-1])
         f = open(vfiles[-1],'r')
     else:
+        print 'openning file ' + ant[1]
         f = open(ant[1],'r')
     
     lines = f.readlines()

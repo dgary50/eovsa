@@ -32,6 +32,9 @@
 #    to the times of those lines.
 #  2022-03-14  DG
 #    Changes to reduce the length of PHASECALs to from 25-30 minutes to 20 minutes.
+#  2022-05-14  DG
+#    Added a remove_cal() function to remove all 27-m calibration lines from
+#    the solar schedule created by make_sched().
 
 import os
 from util import Time
@@ -549,5 +552,37 @@ def chk_sched(lines):
                 lines[i] = (Time(lines[i][:19])+dt).iso[:19]+lines[i][19:]
                 next = -1
     return lines
-                    
-        
+
+def remove_cal(lines):
+    from util import Time
+    keepidx = []
+    sunidx = []
+    rmidx = []
+    for i,line in enumerate(lines):
+        if line.find('SUN') > 0:
+            keepidx.append(i)
+            keepidx.append(i+1)
+        if line.find('SKYCAL') > 0:
+            keepidx.append(i-1)
+            keepidx.append(i)
+    keepixd = np.array(keepidx)
+    keeplines = np.array(lines)
+    keeplines = keeplines[keepidx]
+    for i,line in enumerate(keeplines):
+        if line.find('SUN') > 0:
+            sunidx.append(i)
+        if line.find('PHASECAL') > 0:
+            # Subtract 1 min from time in this line and use that time in previous (ACQUIRE) line
+            mjd = Time(line[:19]).mjd - 60./86400
+            keeplines[i-1] = Time(mjd,format='mjd').iso[:19] + keeplines[i-1][19:]
+    for i in sunidx[1:-1]:
+        if keeplines[i+1].find('ACQUIRE') > 1:
+            rmidx.append(i+1)
+            rmidx.append(i+2)
+    outlines = []
+    for i,line in enumerate(keeplines):
+        if not i in rmidx:
+            outlines.append(line)
+    outlines[-1] = outlines[-1][:19]+' STOW'
+    return outlines
+    

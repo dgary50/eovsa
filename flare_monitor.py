@@ -70,9 +70,14 @@
 #      does almost the same thing using the FDB files.  Calling get_projects()
 #      with nosql=True also works.  The __main__ routine has some changes
 #      to avoid reading from SQL.
+#   2022-Jul-26  DG
+#      Fix error in projdict['EOS'] returned from get_projects_nosql().
+#   2022-Sep-05  DG
+#      For some reason, rd_fdb is returning an extra blank file now.
+#      I added a check for that in get_projects_nosql().
 #
 import numpy as np
-from util import Time,get_idbdir
+from util import Time, get_idbdir
 
 def RT_flare_monitor():
     ''' Read "real-time" data file once and obtain the median over antenna
@@ -167,19 +172,23 @@ def get_projects_nosql(t):
         # No FDB file found, so return empty project dictionary
         print 'No Project data [FDB file] found for the given date.'
         return {}
-    if fdb == {}:
+    if fdb2 == {}:
         pass
     else:
         #  Concatenate the two dicts into one
-        fdb = dict([(k, np.concatenate((fdb.get(k,[]),fdb2.get(k,[])))) for k in set(fdb)|set(fdb2)])  
+        if fdb['FILE'][-1] == '':
+            fdb = dict([(k, np.concatenate((fdb.get(k,[])[:-1],fdb2.get(k,[])))) for k in set(fdb)|set(fdb2)])
+        else:
+            fdb = dict([(k, np.concatenate((fdb.get(k,[]),fdb2.get(k,[])))) for k in set(fdb)|set(fdb2)])  
     # Get "good" indexes for times between 12 UT on date and 12 UT on next date
     gidx, = np.where(np.logical_and(fdb['SCANID']>tstart,fdb['SCANID']<tend))        
     scanid,idx = np.unique(fdb['SCANID'][gidx],return_index=True)
     sidx = gidx[idx]   # Indexes into fdb for the start of each scan
+    eidx = np.concatenate((sidx[1:]-1,np.array([gidx[-1]])))   # Indexes into fdb for the end of each scan
     # Get the project IDs for scans during the period
     projdict = {'Timestamp':fdb['ST_TS'][sidx].astype(float),
                 'Project':fdb['PROJECTID'][sidx],
-                'EOS':fdb['EN_TS'][sidx].astype(float)}
+                'EOS':fdb['EN_TS'][eidx].astype(float)}
     return projdict
 
 def flare_monitor(t):
@@ -313,7 +322,7 @@ def xdata_display(t,ax=None):
                 ax.set_xlabel('Time [UT on '+datstr+']')
                 ax.set_ylabel('Frequency [GHz]')
                 ax.set_title('EOVSA Summed Cross-Correlation Amplitude for '+datstr)
-            pdata = np.sum(np.sum(np.abs(data[0:11,:]),1),0)  # Spectrogram to plot
+            pdata = np.nansum(np.nansum(np.abs(data[0:11,:]),1),0)  # Spectrogram to plot
             X = np.sort(pdata.flatten())   # Sorted, flattened array
             dmax = X[int(len(X)*0.95)]  # Clip at 5% of points
             sp.plot_spectrogram(fghz, times, pdata, 
@@ -411,6 +420,36 @@ def get_history(times, tlevel, bflag):
     f.close()
     return times, tlevel, bflag
 
+def rd_RT(filename=None):
+    import os
+    from util import Time
+    if filename is None:
+        datstr = Time.now().iso[:10]
+        filename = '/data1/RT/RT_'+datstr+'.txt'
+    if not os.path.exists(filename):
+        print 'File',filename,'not found.'
+        return {}
+    f = open(filename,'r')
+    lines = f.readlines()
+    f.close()
+    t = []
+    amp = []
+    tp = []
+    from util import Time
+    for line in lines:
+        t.append(Time(line[:19]).plot_date)
+        tp.append(float(line[24:31]))
+        amp.append(float(line[32:-3]))
+    t = np.array(t)
+    dt = t[1:] - t[:-1]
+    jmp, = np.where(dt < -0.75)
+    if len(jmp) == 1:
+        # This is a day jump, so add one to later times
+        t[jmp[0]+1:] += 1
+    
+    return {'time':t,'tp':tp,'amp':amp}
+
+    
 if __name__ == "__main__":
     ''' For non-interactive use, use a backend that does not require a display
         Usage python /common/python/current/flare_monitor.py "2014-12-20" <skip>
@@ -462,24 +501,27 @@ if __name__ == "__main__":
     # ************ This block commented out due to loss of SQL **************
     projdict = get_projects_nosql(t)
     ut = [Time(projdict['Timestamp'],format='lv').plot_date[0]]*2
+    out = rd_RT()
     # ut, fl, projdict = flare_monitor(t)
     # if fl == []:
         # print 'Error retrieving data for',t.iso[:10],'from SQL database.'
         # exit()
     f, ax = plt.subplots(1,1)
     f.set_size_inches(10,3)
+    if len(out) == 3:
+        ax.plot_date(out['time'],out['amp'],'-',drawstyle='steps')
     # plt.plot_date(ut,fl,'b')
     # if tlevel:
         # plt.plot_date(times.plot_date,tlevel,'r,')
-    # ax.set_xlabel('Time [UT]')
-    # ax.set_ylabel('RF Detector [arb. units]')
-    # ax.set_title('EOVSA Flare Monitor for '+t.iso[:10])
-    ymax = 1.4
+        ax.set_xlabel('Time [UT]')
+        ax.set_ylabel('RF Detector [arb. units]')
+        ax.set_title('EOVSA Flare Monitor for '+t.iso[:10])
+#    ymax = 1.4
     # if np.max(fl) > ymax: ymax = np.max(fl)
     # # Get level max, ignoring nan and inf
     # #lmax = np.max(tlevel[np.isfinite(tlevel)])
     # #if lmax > ymax: ymax = lmax
-    ax.set_ylim(0.8,ymax)
+#    ax.set_ylim(0.8,ymax)
     ax.set_xlim(int(ut[0])+13/24.,int(ut[0])+26/24.)  # Time plot ranges from 13 UT to 02 UT
     if projdict == {}:
         print 'No annotation can be added to plot for',t.iso[:10]

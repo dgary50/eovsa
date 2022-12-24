@@ -64,13 +64,20 @@
 #  2021-Jan-01  DG
 #    Added freq2bdname(), to call function of the same name from either chan_util_bc
 #    or chan_util_52, depending on the date.
+#  2022-Jun-23  DG
+#    Added suppression of spurious ERFA warnings involving absence of leap
+#    seconds for some (mainly future) dates.
 # *
 
 import StringUtil as su
 from numpy import pi, sqrt, array, mat, matrix, dot, where, ndarray
 import datetime as dt
 from time import gmtime
-
+#
+# Suppress spurious warnings from ERFA
+import warnings
+from astropy._erfa.core import ErfaWarning
+warnings.simplefilter('ignore', category=ErfaWarning)
 
 class Angle:
     """General angle class, converts input to radians, but handles input

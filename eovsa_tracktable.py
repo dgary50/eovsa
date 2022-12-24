@@ -12,6 +12,9 @@
 #   2017-Jan-05  DG
 #      Tried to get make_tracktable work with GEOSATS, but gave up and
 #      reinstated make_geosattable()
+#   2022-Mar-20  DG
+#      Today the 100-ms increments were too small for the Sun (it moves slowly
+#      in RA).  Modified it to use 2-s increments when src.name == 'Sun'.
 #
 import aipy, ephem, numpy
 import util
@@ -61,9 +64,12 @@ def make_tracktable(srcname,aa,mjd1=None,mjd2=None,dt=1/24.):
             mjd0 = mjd-dt # previous time
             mjd1 = mjd    # current time
             mjdz = (2*pi - raprev)*(mjd1 - mjd0)/((src.ra+2*pi)-raprev) + mjd0  # time of transition
-            # Create lines -2, -1, 0, 1, and 2 s around transition time
+            # Create lines around transition time
             for i in range(-2,3):
-                mjd = mjdz + i/864000.
+                if src.name == 'Sun':
+                    mjd = mjdz + i*2/86400. # Sun moves slowly... -4, -2, 0, 2, 4 s
+                else:
+                    mjd = mjdz + i/864000. # -0.2, -0.1, 0, 0.1, 0.2 s
                 aa.date = mjd - 15019.5
                 src.compute(aa)
                 msec = round((mjd % 1)*86400000.)        

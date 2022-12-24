@@ -298,7 +298,10 @@ def pcal_anal(trange,path=None):
         elif len(good) == len(filelist[i])-1:
             # This scan is still active, so process all files up to this point.
             print 'Processing active scan',i+1
-            graph(flist,path=path)
+            if flist != []:
+                graph(flist,path=path)
+            else:
+                print 'No files to process (yet).'
 
             
 if __name__ == '__main__':

@@ -132,6 +132,9 @@
 #    I discovered a bug in skycal_anal() where the times of SQL levels and data 
 #    power levels could be mismatched.  Now finds the common value indexes first.
 #    Argh.  Use of median() instead of nanmedian() got me again.
+#  2022-Jun-28  DG
+#    Found that offsets2ants() sometimes read zeros from SQL.  It now bails
+#    with a message to try a different timestamp.
 #
 
 if __name__ == "__main__":
@@ -517,7 +520,7 @@ def solpntanal(t, udb=False, auto=False, find=True, desat=False):
     qual = sp_check_qual(x,y)
     return x,y, qual
         
-def skycal_anal(t=None, do_plot=False, last=False, desat=False):
+def skycal_anal(t=None, do_plot=False, last=False, desat=False, file=''):
     ''' Reads the daily SKYCALTEST data and returns the far "off Sun" background for use with
         total power calibration.  The SKYCALTEST observation can double as a GAINCAL if needed,
         but this has not yet been implemented.
@@ -577,7 +580,9 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False):
         #     datadir += fdb['FILE'][gcidx][3:11]+'/'
         if host == 'pipeline': datadir += fdb['FILE'][gcidx][3:11]+'/'
 
-        file = datadir+fdb['FILE'][gcidx]
+        if file == '':
+            file = datadir+fdb['FILE'][gcidx]
+        
         out = ri.read_idb([file], desat=desat)
         skytrange = Time(out['time'][[0,-1]],format='jd')
         nant, npol, nf, nt = out['p'].shape
@@ -1149,18 +1154,27 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         return
     from util import ant_str2list
     import dbutil as db
-    import stateframe as stf
-    accini = stf.rd_ACCfile()
-    acc = {'host': accini['host'], 'scdport':accini['scdport']}
     antlist = ant_str2list(ant_str)
     if antlist is None:
         return
     cursor = db.get_cursor()
-    # Read current stateframe data (as of 10 s ago)
+    # Read stateframe data at timestamp (as of 10 s ago)
     D15data = db.get_dbrecs(cursor,dimension=15,timestamp=timestamp,nrecs=1)
     p1_cur, = D15data['Ante_Cont_PointingCoefficient1']
     p7_cur, = D15data['Ante_Cont_PointingCoefficient7']
+    err_rtn = False
+    for i in antlist:
+        if p1_cur[i] == 0 and p7_cur[i] == 0:
+            # This is probably a glitch where the SQL record for this ant is all zeros
+            print 'Ant'+str(i+1)+' SQL record returned zeros.  Adjust the time and try again.'
+            err_rtn = True
+    if err_rtn:
+        print 'No updates sent to antennas'
+        return
     
+    import stateframe as stf
+    accini = stf.rd_ACCfile()
+    acc = {'host': accini['host'], 'scdport':accini['scdport']}
     for i in antlist:
         if i in oldant:
             # Change sign of RA offset to be HA, for old antennas (9, 10, 11 or 13)

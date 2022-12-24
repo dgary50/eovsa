@@ -40,7 +40,7 @@
 #   results.
 # 2021-Jul-21  OG
 #   Added statement to Skip commented out lines in filename in procedure 
-#   starobs2dxeldel  
+#   starobs2dxeldel
 # Must be run from Dropbox/PythonCode/Current directory
 
 from numpy import array, zeros, ones, arange, where, argsort, sort, pi, median, argmin
@@ -652,3 +652,4 @@ def star_shape(img):
     except:
         print 'No fit'
         return None, None, 9999.
+

@@ -16,10 +16,10 @@
 #     the already read-in data as input.
 #
 import numpy as np
-from util import lobe, Time
+from util import lobe, Time, ant_str2list
 import read_idb as ri
 
-def get_xy_corr(out, doplot=True):
+def get_xy_corr(out, ant_str='ant1-13',doplot=True):
     ''' Analyze a pair of parallel and cross polarization calibration scans and
         return the X vs. Y delay phase corrections on all antennas 1-14.
         
@@ -36,13 +36,16 @@ def get_xy_corr(out, doplot=True):
     ph0 = np.angle(np.sum(out[0]['x'][ri.bl2ord[:13,13]],3))
     ph1 = np.angle(np.sum(out[1]['x'][ri.bl2ord[:13,13]],3))
     ph0[:,2:] = ph1[:,2:]  # Insert crossed-feed phases from ph1 into ph0
+    #import pdb; pdb.set_trace()
 
     fghz = out[0]['fghz']
     nf = len(fghz)
     dph = np.zeros((14,nf),np.float)
+    dphi = np.zeros((2,13,nf),np.float)
     # Determine xi_rot
     xi2 = ph0[:,2] - ph0[:,0] + ph0[:,3] - ph0[:,1]  # This is 2 * xi, measured separately on each of 13 antennas
-    xi_rot = np.unwrap(np.angle(np.sum(np.exp(1j*xi2),0)))/2.   # Very clever average does not suffer from wrapping issues
+    antlist = ant_str2list(ant_str)
+    xi_rot = np.unwrap(np.angle(np.sum(np.exp(1j*xi2[antlist]),0)))/2.   # Very clever average does not suffer from wrapping issues
     # Form differential delay phase from channels, and average them
     # dph14 = XY - XX and YY - YX + pi
     #dph14 = np.concatenate((lobe(ph0[:,2] - ph0[:,0] + np.pi/2),lobe(ph0[:,1] - ph0[:,3] - np.pi/2)))  # 26 values for Ant 14
@@ -51,11 +54,11 @@ def get_xy_corr(out, doplot=True):
     #dphi = np.array((lobe(ph0[:,0] - ph0[:,3] - np.pi/2),lobe(ph0[:,2] - ph0[:,1] + np.pi/2)))  # 2 values for Ant 14
     #dph[:13] = np.angle(np.sum(np.exp(1j*dphi),0))
     # dph14 = XY - XX - xi_rot and YY - YX + xi_rot
-    dph14 = np.concatenate((lobe(ph0[:,2] - ph0[:,0] - xi_rot),lobe(ph0[:,1] - ph0[:,3] + xi_rot)))  # 26 values for Ant 14
+    dph14 = np.concatenate((lobe(ph0[antlist,2] - ph0[antlist,0] - xi_rot),lobe(ph0[antlist,1] - ph0[antlist,3] + xi_rot)))  # 26 values for Ant 14
     dph[13] = np.angle(np.sum(np.exp(1j*dph14),0))  # Very clever average does not suffer from wrapping issues
     # dphi = XX - YX + xi_rot and XY - YY - xi_rot 
-    dphi = np.array((lobe(ph0[:,0] - ph0[:,3] + xi_rot),lobe(ph0[:,2] - ph0[:,1] - xi_rot)))  # 2 values for Ant 14
-    dph[:13] = np.angle(np.sum(np.exp(1j*dphi),0))
+    dphi[:,antlist] = np.array((lobe(ph0[antlist,0] - ph0[antlist,3] + xi_rot),lobe(ph0[antlist,2] - ph0[antlist,1] - xi_rot)))  # 2 values for Ant 14
+    dph[antlist] = np.angle(np.sum(np.exp(1j*dphi[:,antlist]),0))
     
     if doplot:
         f, ax = plt.subplots(4, 4, num='XY_Phase')
@@ -64,7 +67,7 @@ def get_xy_corr(out, doplot=True):
             ax[i].plot(fghz,dphi[0,i],'.')
             ax[i].plot(fghz,dphi[1,i],'.')
             ax[i].plot(fghz,dph[i],'k.')
-        for i in range(26):
+        for i in range(len(dph14[:,0])):
             ax[13].plot(fghz,dph14[i],'.')
         ax[13].plot(fghz,dph[13],'k.')
         for i in range(14): ax[i].set_ylim(-4,4)
@@ -73,7 +76,7 @@ def get_xy_corr(out, doplot=True):
     xy_phase = {'timestamp':Time(out[0]['time'][0],format='jd').lv,'fghz':fghz,'xyphase':dph,'xi_rot':xi_rot, 'dphi':dphi, 'dph14':dph14}
     return xy_phase
 
-def xydelay_anal(npzfiles, fix_tau_lo=None):
+def xydelay_anal(npzfiles, ant_str='ant1-13', fix_tau_lo=None):
     ''' Analyze a "standard" X vs. Y delay calibration, consisting of four observations
         on a strong calibrator near 0 HA, in the order:
            90-degree  Low-frequency  receiver,
@@ -118,8 +121,8 @@ def xydelay_anal(npzfiles, fix_tau_lo=None):
                 out[icorr]['x'][ri.bl2ord[iant,13],1,:,i] *= np.exp(1j*dp_y)
                 out[icorr]['x'][ri.bl2ord[iant,13],2,:,i] *= np.exp(1j*dp_y)
                 out[icorr]['x'][ri.bl2ord[iant,13],3,:,i] *= np.exp(1j*dp_x)
-    dph_lo = get_xy_corr(out[[3,0]], doplot=False)
-    dph_hi = get_xy_corr(out[[2,1]])
+    dph_lo = get_xy_corr(out[[3,0]], ant_str=ant_str, doplot=False)
+    dph_hi = get_xy_corr(out[[2,1]], ant_str=ant_str)
     fghz = np.union1d(dph_lo['fghz'],dph_hi['fghz'])
     # Check for LO and HI being off by pi due to pi-ambiguity in xi_rot
     lo_com, hi_com = common_val_idx(dph_lo['fghz'],dph_hi['fghz'])
@@ -140,7 +143,7 @@ def xydelay_anal(npzfiles, fix_tau_lo=None):
         ax[i].plot(dph_lo['fghz'], lobe(dph_lo['dphi'][1,i]), '.',color='C1')    
         ax[i].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][i]),'r.')
         ax[i].set_xlim(0,20)
-    for i in range(26):
+    for i in range(len(dph_lo['dph14'][:,0])):
         ax[13].plot(dph_lo['fghz'],lobe(dph_lo['dph14'][i]),'.')
     ax[13].plot(dph_lo['fghz'],lobe(dph_lo['xyphase'][13]),'r.')
     nf, = fghz.shape

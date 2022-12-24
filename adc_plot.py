@@ -329,7 +329,7 @@ def adc_monitor(nloop=None, verbose=False):
         #    projid = result['Project'][0].strip('\0')
         # Replaced by:
         # Read scan_header.dat file at /nas4/Tables/scanheader
-        f = open('/nas4/Tables/scanheader/scan_header.dat')
+        f = open('/common/Tables/scanheader/scan_header.dat')
         buf = f.read()
         f.close()
         msg = 'Success'
@@ -538,16 +538,16 @@ def adc2master_table(fname=None, time=None, navg=10, attnval=None):
         print line
 
     # ************ This block commented out due to loss of SQL **************
-    #ans = raw_input('Do you want to write this to the SQL database DCM master table? [y/n]?')
-    #if ans.upper() == 'Y':
-    #    import cal_header
-    #    print cal_header.dcm_master_table2sql(newtbl)
+    ans = raw_input('Do you want to write this to the SQL database DCM master table? [y/n]?')
+    if ans.upper() == 'Y':
+        import cal_header
+        print cal_header.dcm_master_table2sql(newtbl)
     # Replaced by:
     ans = raw_input('Do you want to save this to a DCM master table file? [y/n]?')
     if ans.upper() == 'Y':
         timestr = time.iso
         datstr = timestr[:19].replace('-','').replace(' ','_').replace(':','')
-        filename = '/nas4/Tables/DCM_master/DCM_master_table_'+datstr+'.txt'
+        filename = '/common/Tables/DCM_master/DCM_master_table_'+datstr+'.txt'
         f = open(filename, 'w')
         for line in newtbl:
             f.write(line+'\n')

@@ -106,7 +106,7 @@ def combine_subtracted(out, bgidx=[100,110], vmin=0.1, vmax=10, ant_str='ant1-13
             idx.append(ri.bl2ord[i,j])
     idx = np.array(idx)
     good, = np.where(np.logical_and(blen[idx] > 150.,blen[idx] < 1000.))
-    bgd = np.nanmean(np.abs(out['x'][idx[good],0,:,120:130]),2).repeat(nt).reshape(len(idx[good]),nf,nt)
+    bgd = np.nanmean(np.abs(out['x'][idx[good],0,:,bgidx[0]:bgidx[1]]),2).repeat(nt).reshape(len(idx[good]),nf,nt)
     spec = np.nanmean(np.abs(out['x'][idx[good],0])-bgd,0)
     return spec
     
@@ -183,7 +183,7 @@ def make_plot(out, spec, bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreq
     ax1 = plt.subplot(212)
     im2 = ax0.pcolormesh(times.plot_date,out['fghz'],np.log10(np.clip(subspec+vmin,vmin,vmax)))
     for frq in lcfreqs:
-        lc = np.mean(subspec[frq-5:frq+5],0)
+        lc = np.nanmean(subspec[frq-5:frq+5],0)
         ax1.step(times.plot_date,lc,label=str(out['fghz'][frq])[:6]+' GHz')
     ax1.set_ylim(-0.5,vmax)
     ax1.xaxis_date()

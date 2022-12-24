@@ -579,6 +579,7 @@ def log2sql(log_file=None):
         resume the transfer.
     '''
     from util import Time
+    import traceback
     
     if log_file is None:
         print 'Error: a stateframe log filename must be provided.'
@@ -659,9 +660,225 @@ def log2sql(log_file=None):
                         cursor.execute('insert into fBin (Bin) values (?)',pyodbc.Binary(bufout))
                         print 'Record '+str(lineno)+' successfully written\r',
                         cnxn.commit()
-                    except:
+                    except Exception:
                         # An exception could be an error, or just that the entry was already inserted
+                        traceback.print_exc()
                         pass
+                bufin = f.read(recsize)
+    print '\n'
+    return True
+
+#=============== log2sql ===============
+def badlog2sql(log_file=None):
+    ''' This version checks for bad (short) records in the log file (caused by a bug
+        in the schedule in March/April 2022) and skips any short records.
+        
+        Transfers the named stateframe log file to the SQL database.  This transfer can
+        take a long time, so this should allow interruption of the transfer, and then
+        a subsequent call on the same log file should find the place where it left off to
+        resume the transfer.
+    '''
+    from util import Time
+    import traceback
+    
+    if log_file is None:
+        print 'Error: a stateframe log filename must be provided.'
+        return False
+    if not os.path.isfile(log_file):
+        print 'Error: Named stateframe log file',log_file,'not found.'
+        return False
+    # Log file basename is expected to be in format 'sf_yyyymmdd_vxx.0.log', 
+    # where xx is the version number
+    basename = os.path.basename(log_file) 
+    logname = basename.split('_')
+    if logname[0] == 'sf':
+        sfdate = logname[1]
+        try:
+            sftime = datetime.datetime.strptime(logname[1],'%Y%m%d')
+            t = Time(str(sftime))
+            sftimestamp = int(t.lv + 0.5)  # Start timestamp, as nearest integer
+            sfver = int(logname[2].split('.')[0][1:])
+        except:
+            print 'Error: File ',basename,'does not have expected basename format sf_yyyymmdd_vxx.0.log'
+            return False
+    else:
+        return False
+    
+    # At this point, the log file exists and the name is of the right format
+    # Connect to the database and see if there are any data already for this date, and if so
+    # determine the time range.
+    with pyodbc.connect("DRIVER={FreeTDS};SERVER=192.168.24.106,1433; \
+                             DATABASE=eOVSA06;UID=aaa;PWD=I@bsbn2w;") as cnxn:
+        cursor = cnxn.cursor()
+        tblname = 'fV'+str(sfver)+'_vD1'
+        cursor.execute("select top 1 Timestamp from "+tblname+" where Timestamp between "+str(sftimestamp)+" and "+str(sftimestamp+86400-2)+" order by Timestamp desc")
+        rows = cursor.fetchall()
+        if len(rows) == 1:
+            # There are data for this date, and rows[1].Timestamp should be the last time entry,
+            # so start at last time entry + 1 s
+            try:
+                sftimestamp2 = int(rows[0].Timestamp + 1)
+            except:
+                print 'Error: Unexpected data returned from database.  Returned value:',rows[0]
+                return False
+        elif len(rows) > 1:
+            print 'Error: Unexpected data returned from database.'
+            return False
+        else:
+            # No data returned from call, which means we should start with current value of sftimestamp
+            pass
+    
+        # We now know where to start, so open log file and read to start of data
+        # First need to find out record length
+        f = open(log_file,'rb')
+        buf = f.read(32)
+        recsize = struct.unpack_from('i', buf, 16)[0]
+        version = struct.unpack_from('d', buf, 8)[0]
+        srchstr = buf[8:24]   # Binary-coded version string + recsize
+        f.close()
+        if int(version) != sfver:
+            print 'Error: Version in file name is',sfver,'but version in file itself is',int(version)
+            return False
+            
+        # We need the "brange" variable, which is used by transmogrify() to reformat the binary data.
+        # Therefore, the defining stateframe XML file is needed.        
+        # The correct XML file for this version must exist in the same directory as the log file
+        xml_file = os.path.dirname(log_file)+'/'+'stateframe_v'+str(sfver)+'.00.xml'
+        if not os.path.isfile(xml_file):
+            print 'Error: Stateframe xml file',xml_file,'not found.'
+            return False        
+        sf, version = rxml.xml_ptrs(xml_file)
+        brange, outlist = sfdef(sf)
+        lineno = 0
+        fptr = 0
+        with open(log_file,'rb') as f:
+            bufin = f.read(recsize)
+            while len(bufin) == recsize:
+                lineno += 1
+                fptr += recsize   # Current byte in file
+                pos = bufin[16:].find(srchstr) + 16    # See if version+recsize occurs elsewhere in buffer => short buffer
+                if pos > 15:
+                    # Bad record, so seek to that position-8 (back up)
+                    print 'Bad rec at', lineno, 'skipped'
+                    fptr -= recsize - pos + 8
+                    f.seek(fptr)
+                else:
+                    if struct.unpack_from('d', bufin, 0)[0] >= sftimestamp:
+                        # This is new data, so write to database
+                        bufout = transmogrify(bufin, brange)
+                        try:
+                            cursor.execute('insert into fBin (Bin) values (?)',pyodbc.Binary(bufout))
+                            print 'Record '+str(lineno)+' successfully written\r',
+                            cnxn.commit()
+                        except Exception:
+                            # An exception could be an error, or just that the entry was already inserted
+                            traceback.print_exc()
+                            pass
+                bufin = f.read(recsize)
+    print '\n'
+    return True
+
+def scanheader_log2sql(log_file):
+    from util import Time
+    import traceback
+    
+    if log_file is None:
+        print 'Error: a scanheader log filename must be provided.'
+        return False
+    if not os.path.isfile(log_file):
+        print 'Error: Named scanheader log file',log_file,'not found.'
+        return False
+    # Log file basename is expected to be in format 'sh_yyyymmdd_vxx.0.log', 
+    # where xx is the version number
+    basename = os.path.basename(log_file) 
+    logname = basename.split('_')
+    if logname[0] == 'sh':
+        sfdate = logname[1]
+        try:
+            shtime = datetime.datetime.strptime(logname[1],'%Y%m%d')
+            t = Time(str(shtime))
+            shtimestamp = int(t.lv + 0.5)  # Start timestamp, as nearest integer
+            shver = int(logname[2].split('.')[0][1:])
+        except:
+            print 'Error: File ',basename,'does not have expected basename format sh_yyyymmdd_vxx.0.log'
+            return False
+    else:
+        return False
+    
+    # At this point, the log file exists and the name is of the right format
+    # Connect to the database and see if there are any data already for this date, and if so
+    # determine the time range.
+    with pyodbc.connect("DRIVER={FreeTDS};SERVER=192.168.24.106,1433; \
+                             DATABASE=eOVSA06;UID=aaa;PWD=I@bsbn2w;") as cnxn:
+        cursor = cnxn.cursor()
+        tblname = 'hV'+str(shver)+'_vD1'
+        cursor.execute("select top 1 Timestamp from "+tblname+" where Timestamp between "+str(shtimestamp)+" and "+str(shtimestamp+86400-2)+" order by Timestamp desc")
+        rows = cursor.fetchall()
+        if len(rows) == 1:
+            # There are data for this date, and rows[1].Timestamp should be the last time entry,
+            # so start at last time entry + 1 s
+            try:
+                shtimestamp2 = int(rows[0].Timestamp + 1)
+            except:
+                print 'Error: Unexpected data returned from database.  Returned value:',rows[0]
+                return False
+        elif len(rows) > 1:
+            print 'Error: Unexpected data returned from database.'
+            return False
+        else:
+            # No data returned from call, which means we should start with current value of sftimestamp
+            pass
+    
+        # We now know where to start, so open sample data file and get its length
+        template_file = os.path.dirname(log_file)+'/'+'scan_header.dat'
+        # First need to find out record length
+        f = open(template_file,'rb')
+        buf = f.read()
+        recsize = len(buf)
+        version = struct.unpack_from('d', buf, 8)[0]
+        srchstr = buf[8:16]   # Binary-coded version string
+        f.close()
+        if int(version) != shver:
+            print 'Error: Version in file name is',shver,'but version in file itself is',int(version)
+            return False
+            
+        # We need the "brange" variable, which is used by transmogrify() to reformat the binary data.
+        # Therefore, the defining stateframe XML file is needed.        
+        # The correct XML file for this version must exist in the same directory as the log file
+        xml_file = os.path.dirname(log_file)+'/'+'scanheader_v'+str(shver)+'.00.xml'
+        if not os.path.isfile(xml_file):
+            print 'Error: Scanheader xml file',xml_file,'not found.'
+            return False
+        sh, version = rxml.xml_ptrs(xml_file)
+        brange, outlist = sfdef(sh)
+        lineno = 0
+        fptr = 0
+#        import pdb; pdb.set_trace()
+        with open(log_file,'rb') as f:
+            bufin = f.read(recsize)
+            while len(bufin) == recsize:
+                lineno += 1
+                fptr += recsize   # Current byte in file
+                pos = bufin[16:].find(srchstr) + 16    # See if version+recsize occurs elsewhere in buffer => short buffer
+                if pos > 15:
+                    # Bad record, so seek to that position-8 (back up)
+                    print 'Bad rec at', lineno, 'truncated'
+                    fptr -= recsize - pos + 8
+                    f.seek(fptr)
+                # else:
+                if struct.unpack_from('d', bufin, 8)[0] >= version:
+                    # This is new data, so write to database
+                    bufout = transmogrify(bufin, brange)
+                    try:
+                        cursor.execute('insert into hBin (Bin) values (?)',pyodbc.Binary(bufout))
+                        print 'Record '+str(lineno)+' successfully written\r',
+                        cnxn.commit()
+                    except Exception:
+                        # An exception could be an error, or just that the entry was already inserted
+                        traceback.print_exc()
+                        pass
+                else:
+                    print 'Error in record',lineno,'so not sent.'
                 bufin = f.read(recsize)
     print '\n'
     return True

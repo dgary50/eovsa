@@ -12,6 +12,10 @@
 #    Initial complete version
 #  2020-05-13  DG
 #    Removed calls to EOVSA local routines
+#  2022-06-24  DG
+#    Suddenly the GOES Hi and Lo arrays began having different numbers of
+#    times in the json file, so this case has now been taken care of by
+#    returning only common times.
 #
 
 if __name__ == '__main__':
@@ -24,6 +28,7 @@ from astropy.time import Time
 import matplotlib.pylab as plt
 import numpy as np
 from matplotlib.dates import DateFormatter
+from util import common_val_idx
 
 def smooth(x,window_len=11,window='hanning'):
     """smooth the data using a window with requested size.
@@ -101,18 +106,29 @@ def get_goes(url='https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.j
     goeshi = []
     goeslo = []
     goestime = []
+    goeslotime = []
     for i in goes:
         if i['energy'] == '0.05-0.4nm':
             goeshi.append(i['flux'])
             goestime.append(i['time_tag'])
         else:
             goeslo.append(i['flux'])
-    goeslo = np.array(goeslo)
-    goeslo[np.where(goeslo == 0.0)] = np.nan
-    goeshi = np.array(goeshi)
-    goeshi[np.where(goeshi == 0.0)] = np.nan
+            goeslotime.append(i['time_tag'])
     if len(goestime) == 0:
         return [], [], []
+    # Convert to arrays
+    goestime = np.array(goestime)
+    goeslotime = np.array(goeslotime)
+    goeslo = np.array(goeslo)
+    goeshi = np.array(goeshi)
+    # Reduce to common times in case they are different
+    idx1, idx2 = common_val_idx(goeslotime, goestime)
+    goestime = goestime[idx1]
+    goeslo = goeslo[idx1]
+    goeshi = goeshi[idx2]
+    # Set zeros to nans
+    goeslo[np.where(goeslo == 0.0)] = np.nan
+    goeshi[np.where(goeshi == 0.0)] = np.nan
     return goeslo, goeshi, Time(goestime)
 
 def goes_std_plots(outpath='./'):

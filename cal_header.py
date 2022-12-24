@@ -1956,7 +1956,7 @@ def dla_update2table(dla_update, xy_delay=None, t=None, lorx=False, acc=True):
 
     timestr = t.iso
     datstr = timestr[:19].replace('-','').replace(' ','_').replace(':','')
-    filename = '/nas4/Tables/Delays/delay_centers_'+datstr+'.txt'
+    filename = '/common/Tables/Delays/delay_centers_'+datstr+'.txt'
     f = open(filename, 'w')
     f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
     f.write('#     Date: ' + timestr + '\n')

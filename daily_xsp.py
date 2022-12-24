@@ -40,6 +40,9 @@
 #    is that ACQUIRE states are not displayed (they are in SQL but not fdb files).
 #  2022-03-10  DG
 #    A couple of other changes due to loss of SQL, marked with comments.
+#  2022-06-23  DG
+#    Suddenly getting GOES data returns unequal-length arrays for time and data,
+#    so truncate output from get_goes() to equal lengths.
 #
 
 if __name__ == "__main__":
@@ -76,6 +79,12 @@ def get_goes_data(t=None,sat_num=None):
         # Got the data, now isolate the requested day
         good, = np.where(np.floor(goes_t.mjd) == np.floor(t.mjd))
         if len(good) != 0:
+            lent = len(goes_t.plot_date) 
+            lend = len(lo)
+            if lent != lend:
+                lmin = min(lent,lend)
+                goes_t.plot_date = goes_t.plot_date[:lmin]
+                lo = lo[:lmin]
             return goes_t.plot_date,lo
                 
     from sunpy.util.config import get_and_create_download_dir
@@ -161,6 +170,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
     except:
         print 'No files found in /data1/eovsa/fits/UDB/ for',date
         return {}
+    #import pdb; pdb.set_trace()
     out = ri.read_idb(files,src='Sun')
     if out.keys() == []:
         print 'Read error, or no Sun data in',files
@@ -170,7 +180,7 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
         out = gc.apply_gain_corr(out)
     trange = Time(out['time'][[0,-1]], format = 'jd')
     fghz = out['fghz']
-    pdata = np.sum(np.sum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+    pdata = np.nansum(np.nansum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
     if savfits:
         print "***************** PDATA OUTPUT *********"
         print pdata.shape
@@ -447,8 +457,8 @@ if __name__ == "__main__":
     goes_plot = True
     doplot=True
     # ************ This line added due to loss of SQL **************
-    gain_corr = False
-    
+    #gain_corr = False
+    gain_corr = True
     argin = ''
     if len(sys.argv) >= 2:
         try:
