@@ -764,6 +764,11 @@ def udb_reprocess_days(start_day, end_day):
     time1 = time.mktime(time.strptime(end_day, tform))
     #number of days to load
     ndays0 = int((time1-time0)/one_day)+1
+    
+    from util import get_idbdir, Time
+    global idbfinaldir
+    tobj = Time(start_day)
+    idbfinaldir = get_idbdir(tobj)
 
     #get ifdb files for this time range, set status to 0 for all and rewrite
     ifdb_files = udb_init_fdbfiles(ndays=ndays0, fdbtype='IFDB', day0=end_day)

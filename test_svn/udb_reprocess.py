@@ -15,7 +15,7 @@ else:
     
     # process 5 days
     #pipeline.udb_reprocess(ndays=5)
-    pipeline.udb_reprocess_days('2020-12-28 13:00:00','2020-12-28 23:59:00')
+    pipeline.udb_reprocess_days('2018-12-20 13:00:00','2018-12-20 23:00:00')
 
     print 'Removing ', lockfilename
     os.remove(lockfilename)

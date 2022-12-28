@@ -6,15 +6,29 @@ ysampler) rather than (xtyys, ytsys)'''
 #
 # dg, 2017-08-30 -- Changes to allow these routines to work on IDB or UDB
 #                   reprocessing via calls to readXdata() followed by udb_write()
-# dg, 2021-06-01 -- It seems the IDB files occasionally have time glitches where 
-#                   the time jumps back, I think due to resetting the network every 
-#                   15 minutes.  Now readXdata() just skips such records.
+# dg, 2021-01-10 -- Added autocorr_desat() routine to correct for correlator
+#                   saturation that was discovered recently.  This is a big
+#                   change, with more to come as we attempt to fix this.
+# dg, 2021-01-12 -- I found a better way to determine the correction factor using 
+#                   the SK m values to adjust for variations in power level due 
+#                   to different numbers of subchannels. Also added a test for
+#                   date that allows this to work for older and newer data.
+# dg, 2021-03-18 -- Long-standing bug where the uv['ut'] (header) array variable 
+#                   apparently has glitches.  Now the test for a bad record is 
+#                   done using the variable t in each individual visibility record
+#                   (which is how read_idb.py has always done it).
+# dg, 2021-05-18 -- The correlator equalizer coefficient was changed from 8.0
+#                   to 2.0, necessitating a change in the saturation correction
+#                   factor in autocorr_desat().  This is applied to all data
+#                   after 2021-05-16, when the change was made.
 
 #needed for file creation
 import time, os
 import aipy
 from astropy.io import fits
 from util import Time
+import util
+
 import numpy as np
 #data is a masked array
 import numpy.ma as ma
@@ -152,8 +166,13 @@ def udbfile_write(y, ufile_in, ufilename):
     # Ready to output
     # Open the file and use that to replicate the NRV
     # (non-record-variable) variables
+    print ufile_in
     uv = aipy.miriad.UV(ufile_in)
-    src = uv['source']
+    if 'source' in uv.vartable: 
+        src = uv['source']
+    else: 
+        src = 'None' #fix for bad files produced for GAINCALC 2018-04-06 to 2018-04-09, jmm
+    #endif
     scanid = uv['scanid']
     nants = uv['nants']
     # The assumption here is that all the variables are going to be
@@ -162,8 +181,13 @@ def udbfile_write(y, ufile_in, ufilename):
 
     uvout.add_var('name', 'a')
     uvout['name'] = strip_non_printable(ufilename)
+
+    #handle source separately, jmm, 2018-04-09
+    uvout.add_var('source', 'a')
+    uvout['source'] = strip_non_printable(src)
+
     nrv_varlist_string = ['telescop', 'project', 'operator', 'version', 
-                          'source', 'scanid', 'proj', 'antlist', 'obstype']
+                          'scanid', 'proj', 'antlist', 'obstype']
     for j in range(len(nrv_varlist_string)):
         uvout.add_var(nrv_varlist_string[j], 'a')
         uvout[nrv_varlist_string[j]] = strip_non_printable(uv[nrv_varlist_string[j]])
@@ -284,21 +308,28 @@ def udbfile_write(y, ufile_in, ufilename):
 
 #End of udbfile_write
 
-def readXdata(filename, filter=False):
+def readXdata(filename, filter=False, desat=False):
     '''This routine reads the data from a single IDB or UDB file.
        Optional Keywords: filter boolean--if True, returns only
        non-zero frequencies if False (default), returns all
        frequencies. This differs from Dale's version in that it
        includes all correlations, drops the tp_only option, and the
        outputs that are not in the UDB files.
+       
+       Added desat keyword so that saturation can be applied or not as desired.
     '''
 
     # Open uv file for reading
-    uv = aipy.miriad.UV(filename)
+    print 'Processing: ', filename
+    try:
+        uv = aipy.miriad.UV(filename)
+    except:
+        print "UDB_UTIL.READXDATA: Bad File at initialzation: "+filename
+        return []
+    #endexcept
     # Read all to get a time array
     utcount = 0
     ut = 0.0
-    # skip out bad Miriad files
     try:
         for preamble, data in uv.all():
             # Look for time change
@@ -309,9 +340,13 @@ def readXdata(filename, filter=False):
         #endfor
         uv.rewind()
     except:
+        utcount = 0
         print "UDB_UTIL.READXDATA: Bad File: "+filename
-        return []
     #endexcept
+    if utcount == 0:
+        print 'Returning: '
+        return uv #done to fool the program to avoid segmentation fault -  core dump, jmm, 2019-08-08
+    #endif
     nf_orig = len(uv['sfreq'])
     good_idx = np.arange(nf_orig)
     if filter:
@@ -332,7 +367,7 @@ def readXdata(filename, filter=False):
 
     #set up outputs
     nf = len(good_idx)
-    print 'NF: ', nf
+#    print 'NF: ', nf
     freq = uv['sfreq'][good_idx]
     npol = uv['npol']
     polarr = np.array([-5, -6, -7, -8])
@@ -384,11 +419,12 @@ def readXdata(filename, filter=False):
         # Assumes uv['pol'] is one of -5, -6, -7, -8
         k = -5 - uv['pol']
         if filter:
-            if len(data.nonzero()[0]) == nf and uv['ut'] > 0:
+            if len(data.nonzero()[0]) == nf:
                 if t != tprev:
                     # New time 
-                    if t < tprev:
-                        # Some kind of glitch, so skip this record
+                    if t == 2440587.5:
+                        # Time is 1970-01-01, which means a zero-filled record, so skip
+                        # the entire thing.
                         continue
                     l += 1
                     if l == utcount:
@@ -418,37 +454,38 @@ def readXdata(filename, filter=False):
                 #endif
             #endif, for len(data.nonzero()) == nf and uv['ut'] > 0
         else:
-            if uv['ut'] > 0:
-                if t != tprev:
-                    # New time 
-                    if t < tprev:
-                        # Some kind of glitch, so skip this record
-                        continue
-                    l += 1
-                    if l == utcount:
-                        break
-                    #endif
-                    tprev = t
-                    timearray.append(t)
-                    utarray.append(uv['ut'])
-                    try:
-                        lstarray.append(uv['lst'])
-                    except:
-                        pass
-                    #endexcept
-                    xdata = uv['xsampler']
-                    outpx[:,l] = xdata
-                    ydata = uv['ysampler']
-                    outpy[:,l] = ydata
-                    delayarray[:,l] = uv['delay']
+#            if uv['ut'] > 0:
+            if t != tprev:
+                # New time 
+                if t == 2440587.5:
+                    # Time is 1970-01-01, which means a zero-filled record, so skip
+                    # the entire thing.
+                    continue
+                l += 1
+                if l == utcount:
+                    break
                 #endif
-                outx[:,bl2ord[i,j],k,l] = data
-                if k == 3:
-                    uvwarray[:,bl2ord[i,j],l] = uvw
-                    i0array[bl2ord[i,j],l] = i0
-                    j0array[bl2ord[i,j],l] = j0
-                #endif 
-            #endif (uv['ut'] > 0)
+                tprev = t
+                timearray.append(t)
+                utarray.append(uv['ut'])
+                try:
+                    lstarray.append(uv['lst'])
+                except:
+                    pass
+                    #endexcept
+                xdata = uv['xsampler']
+                outpx[:,l] = xdata
+                ydata = uv['ysampler']
+                outpy[:,l] = ydata
+                delayarray[:,l] = uv['delay']
+            #endif
+            outx[:,bl2ord[i,j],k,l] = data
+            if k == 3:
+                uvwarray[:,bl2ord[i,j],l] = uvw
+                i0array[bl2ord[i,j],l] = i0
+                j0array[bl2ord[i,j],l] = j0
+            #endif 
+#            #endif (uv['ut'] > 0)
         #endelse (not filter)
     #endfor
     # Truncate in case of early end of data, return if there is no good data
@@ -472,18 +509,110 @@ def readXdata(filename, filter=False):
         #i0 and j0 should always be the same
         i0array = i0array[:,0]
         j0array = j0array[:,0]
+        bd = util.freq2bdname(freq, Time(timearray[0],format='jd'))
         #timearray, lstarray and utarray are lists
         out = {'x':outx,'uvw':uvwarray,'time':np.array(timearray),'px':outpx,'py':outpy,
                'i0':i0array,'j0':j0array,'lst':np.array(lstarray),'pol':polarr,
-               'delay':delayarray,'ut':np.array(utarray),'file0':filename,'fghz':freq}
+               'delay':delayarray,'ut':np.array(utarray),'file0':filename,'fghz':freq,'band':bd}
         if nsamples is None:
             pass
         else:
             out.update({'nsamples':nsamples})
     #endelse
+    if desat:
+        out = autocorr_desat(out)
     return out
 #end of readXdata
 
+def autocorr_desat(out):
+    ''' Corrects for correlator saturation effects.  Applies a correction to 
+        auto- and cross-correlation amplitudes based on total power amplitudes.
+        
+        Calculates the function eta = (x + d - c)/[(a*erf((x-c)/b) + d], where x = log(P),
+        a,b,c,d = [1.22552, 1.37369, 2.94536, 2.14838], and erf() is the error function.
+        However, eta is set to 1 for A < 50.
+        
+        Applies the function to autocorrelations A_i and cross-correlations xi_ij to obtain
+        A'_i = A**eta_i and xi'_ij = xi_ij**[(eta_i + eta_j)/2].
+        
+        Since 2021-05-16, the correlator equalizer coefficient changed from 8.0 to 2.0,
+        necessitating a different fit function.  This one combines two fits, one for
+        auto-correlation amplitudes < 300 and another for > 300.
+    '''
+    from scipy.special import erf
+    def eta_f(x, A):
+        a,b,c,d = [1.22552, 1.37369, 2.94536, 2.14838]  # Parameters define the invariant saturation curve
+        eta = (x + d - c)/(a*erf((x-c)/b) + d)
+        bad = np.where(A < 50)
+        eta[bad] = 1.0
+        return eta
+
+    def eta_2(x, A):
+        ''' This is the desaturation fuction for data taken with equalizer coefficient 2.0,
+            which is data after to 5/16/2021.
+        '''
+        a1,b1,c1,d1 = [0.88025122, 1.0221639 , 4.39845723, 2.38911615]
+        a2,b2,c2,d2 = [2.28517281, 2.64619331, 4.38657476, 2.37753165]
+        hi = np.where(A > 300)
+        low = np.where(A <= 300)
+        eta = np.ones_like(x)
+        eta[hi] = (x[hi] + d1 - c1)/(a1*erf((x[hi]-c1)/b1) + d1)
+        eta[low] = (x[low] + d2 - c2)/(a2*erf((x[low]-c2)/b2) + d2)
+        return eta
+        
+    # Determine required "m" value for standardized power level.  The power changes
+    # depending on number of channels averaged, etc., and the SK m value keeps track
+    # of all of that.
+    mjd = Time(out['time'][0],format='jd').mjd
+    if mjd > 58536:
+        m0 = 745472.  # Standard for most recent data (325 MHz bandwidth)
+    else:
+        m0 = 721536.  # Standard for earlier data (ca. 2017)
+    bl2ord = util.bl2ord
+    nant = 16
+    nf, = out['fghz'].shape
+    nt, = out['time'].shape
+    npol, = out['pol'].shape
+    Px = copy.deepcopy(out['px'].reshape(nf, nant, 3, nt))
+    Py = copy.deepcopy(out['py'].reshape(nf, nant, 3, nt))
+#    n0 = len(np.where(out['band'] == np.max(out['band']))[0])
+#    # Modify measured power to correct for variable science-channel bandwidth
+#    for i in range(nf):
+#        bnd = out['band'][i]
+#        n = np.float(len(np.where(out['band'] == bnd)[0]))
+#        Px[i] *= n/n0
+#        Py[i] *= n/n0
+    Px = Px[:,:,0]*m0/Px[:,:,2]
+    Py = Py[:,:,0]*m0/Py[:,:,2]
+    
+    x = np.log10(Px)
+    # Calculate correction for X pol (returns size [nf, nant, nt])
+    if mjd < 59350:   # 2021-05-16
+        eta_x = eta_f(x, abs(out['x'][:,np.arange(120,136),0]))
+    else:
+        eta_x = eta_2(x, abs(out['x'][:,np.arange(120,136),0]))
+    x = np.log10(Py)
+    # Calculate correction for Y pol (returns size [nf, nant, nt])
+    if mjd < 59350:   # 2021-05-16
+        eta_y = eta_f(x, abs(out['x'][:,np.arange(120,136),1]))
+    else:
+        eta_y = eta_2(x, abs(out['x'][:,np.arange(120,136),1]))
+    eta = np.zeros_like(out['x'])
+    # Loop over baselines and calculate correction for different polarization states.
+    for i in range(nant):
+        for j in range(i,nant):
+            eta[:,bl2ord[i,j],0] = eta_x[:,i]+eta_x[:,j]
+            eta[:,bl2ord[i,j],1] = eta_y[:,i]+eta_y[:,j]
+            eta[:,bl2ord[i,j],2] = eta_x[:,i]+eta_y[:,j]
+            eta[:,bl2ord[i,j],3] = eta_x[:,j]+eta_y[:,i]
+    eta = eta/2.
+    #  Correction is to log of values, so apply by raising to eta power.
+    amp = abs(out['x'])
+    pha = np.angle(out['x'])
+    amp = amp**eta
+    out['x'] = amp*np.exp(1j*pha)
+    return out
+    
 def concatXdata(x0, x):
     ''' Concatenates readXdata outputs'''
     #check for ok variable
@@ -563,13 +692,17 @@ def valid_miriad_dataset(filelist0):
     for j in range(n):
         filename = filelist[j]
         tempvar = True
-        if (os.path.isdir(filename) == False or 
-            os.path.isfile(filename+'/flags') == False or
-            os.path.isfile(filename+'/header') == False or 
-            os.path.isfile(filename+'/vartable') == False or 
-            os.path.isfile(filename+'/visdata') == False):
+        if (os.path.isdir(filename) == False):
             tempvar = False
-        #end if
+        if(os.path.isfile(filename+'/flags') == False or os.path.getsize(filename+'/flags') == 0):
+            tempvar = False
+        if(os.path.isfile(filename+'/header') == False or os.path.getsize(filename+'/header') == 0):
+            tempvar = False
+        if(os.path.isfile(filename+'/vartable') == False or os.path.getsize(filename+'/vartable') == 0):
+            tempvar = False
+        if(os.path.isfile(filename+'/visdata') == False or os.path.getsize(filename+'/visdata') == 0):
+            tempvar = False
+        #end ifs
         otp.append(tempvar)
         if tempvar == True:
             ok_filelist.append(filelist[j])
@@ -588,34 +721,56 @@ def udbfile_create(filelist, ufilename, nsec=60):
 
     if len(filelist) == 0:
         print 'udbfile_create: No files input'
-        return []
+        return [], []
     #endif
 
     # Be sure that files exist, and has all of the appropriate elements
     filelist_test, ok_filelist, bad_filelist = valid_miriad_dataset(filelist)
     if len(ok_filelist) == 0:
         print 'udbfile_create: No valid files input'
-        return []
+        return [], []
     #endif
 
     #For each file, read in the data, then concatenate and average
+    bad_filename = []
     ufile_out = []
     fc = 0
     for filename in ok_filelist:
-        xj = readXdata(filename)
-        fc = fc+1
-        if fc == 1:
-            x = xj
-            print x['x'].shape
+        xj = readXdata(filename, desat=True)
+        #print 'Out of readXdata'
+
+        #test for bad file, due to miriad bug, a bad file returns the
+        #aipy.miriad.UV object itself, but a 0 filename will return []
+        #print type(xj)
+        if isinstance(xj, aipy.miriad.UV) == False:
+            if len(xj) > 0:
+                print 'concat :'+filename
+                fc = fc+1
+                if fc == 1:
+                    x = xj
+                    print x['x'].shape
+                else:
+                    x = concatXdata(x, xj)
+                    print x['x'].shape
+                #endelse
+            else:
+                print 'file skipped: ', filename
+                return [], filename
+            #endeles
         else:
-            x = concatXdata(x, xj)
-            print x['x'].shape
-        #endelse
-        #Now do the time average
+            #as soon as you are here, aipy is toast. Pass out the
+            #object, and let UDB_PROCESS handle the repercussions
+            #by getting the bad IFDB entry out of the database.
+            #Jmm, 2019-08-08
+            print 'file skipped: ', filename
+            return xj, filename
+        #endeles
+        #endif, error check, 2019-08-08, jmm
     #endfor
+    #Now do the time average
     if fc == 0:
         print 'UDB_UTIL: No good data?'
-        return ufilename
+        return ufilename, bad_filename
     #endif
     #average data here
     y = avXdata(x,nsec=nsec)
@@ -624,7 +779,7 @@ def udbfile_create(filelist, ufilename, nsec=60):
     ufile_out = udbfile_write(y, ok_filelist[0], ufilename)
     print 'UDBFILE_CREATE: UFILE_OUT: ', ufile_out
 
-    return ufile_out
+    return ufile_out, bad_filename
 #End of udbfile_create
 
 def xpx_comp(x):
