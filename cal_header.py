@@ -110,6 +110,9 @@
 #      the SQL server is not available.  The new scheme that is meant to allow us to take data is to
 #      keep a record of the DCM attenuations in the folder /nas4/Tables/DCM_master/ and maintain the most
 #      current one on the ACC as /parm/DCM_master_table.txt (which is the file read by schedule).
+#   2023-02-17  DG
+#      Added a new calibration type 13, SKYcal, and added skycal2xml() and skycal2sql() routines to write
+#      it to the abin table.
 
 import struct, util
 import stateframe as sf
@@ -137,7 +140,8 @@ def cal_types():
             9: ['Daily phase calibration', 'phacal2xml', 2.0],  # Version 2.0 (2019-02-22)
            10: ['Total power calibration', 'tpcal2xml', 1.0],
            11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0],  # Changed the definition of this, so version is 2.0 (2018-01-01)
-           12: ['RSTN noon flux', 'rstnflux2xml', 1.0]}
+           12: ['RSTN noon flux', 'rstnflux2xml', 1.0],
+           13: ['Sky calibration', 'skycal2xml', 1.0]}
 
 
 def str2bin(string):
@@ -329,6 +333,96 @@ def tpcal2xml(nant, nfrq):
     # Auto-Correlation Offsun values (nfrq x 2) = nfreq x npol
     buf += str2bin('<Array>')
     buf += str2bin('<Name>ACOffsun</Name>')
+    buf += str2bin(
+        '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # End cluster
+    buf += str2bin('</Cluster>')  # End Calinfo cluster
+    buf += str2bin('</Array>')  # End Antenna array
+    buf += str2bin('</Cluster>')  # End TPcal cluster
+
+    return buf
+
+def skycal2xml(nant, nfrq):
+    ''' Writes the XML description of the receiver background binary
+        data (SKYCAL_ANAL result), for both power and auto-correlation.  
+        Returns a binary representation of the text file, for putting into the SQL 
+        database.  The format varies due to variable numbers of antennas/frequencies.
+    '''
+    version = cal_types()[13][2]
+
+    buf = ''
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name>SKYcal</Name>')
+    buf += str2bin('<NumElts>5</NumElts>')
+
+    # Timestamp (double) [s, in LabVIEW format]
+    # Start time of SKYCAL observation on which calibration is based
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Timestamp</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</DBL>')
+
+    # Version of this XML file.  This number should be incremented each
+    # time there is a change to the structure of this file.
+    buf += str2bin('<DBL>')
+    buf += str2bin('<Name>Version</Name>')
+    buf += str2bin('<Val>' + str(version) + '</Val>')
+    buf += str2bin('</DBL>')
+
+    # Array of frequencies in GHz (nfrq)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>FGHz</Name>')
+    buf += str2bin('<Dimsize>' + str(nfrq) + '</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Array of Poln (2)
+    # Polarization list (Miriad definition) (signed int)
+    #     1: Stokes I
+    #     2: Stokes Q
+    #     3: Stokes U
+    #     4: Stokes V
+    #    -1: Circular RR
+    #    -2: Circular LL
+    #    -3: Circular RL
+    #    -4: Circular LR
+    #    -5: Linear XX
+    #    -6: Linear YY
+    #    -7: Linear XY
+    #    -8: Linear YX
+    #     0: Not used
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Poln</Name>')
+    buf += str2bin('<Dimsize>2</Dimsize>\n<I32>\n<Name></Name>\n<Val></Val>\n</I32>')
+    buf += str2bin('</Array>')
+
+    # Array of clusters for each antenna (nant)
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>Antenna</Name>')
+    buf += str2bin('<Dimsize>' + str(nant) + '</Dimsize>')
+
+    # Cluster containing information for one antenna
+    buf += str2bin('<Cluster>')
+    buf += str2bin('<Name></Name>')
+    buf += str2bin('<NumElts>3</NumElts>')
+
+    # Antenna number (1-13).
+    buf += str2bin('<U16>')
+    buf += str2bin('<Name>Antnum</Name>')
+    buf += str2bin('<Val></Val>')
+    buf += str2bin('</U16>')
+
+    # Backend receiver power with full 62 dB frontend attenuation (nfrq x 2) = nfreq x npol
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>RcvrBgd</Name>')
+    buf += str2bin(
+        '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('</Array>')
+
+    # Auto-Correlation with full 62 dB frontend attenuation (nfrq x 2) = nfreq x npol
+    buf += str2bin('<Array>')
+    buf += str2bin('<Name>ACRcvrBgd</Name>')
     buf += str2bin(
         '<Dimsize>' + str(nfrq) + '</Dimsize><Dimsize>2</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
@@ -996,8 +1090,8 @@ def send_xml2sql(type=None, t=None, test=False, nant=None, nfrq=None):
     for key in typdict.keys():
         # print 'Working on',typdict[key][0]
         # Execute the code to create the xml description for this key
-        if key == 1 or key == 10:
-            # Special case for TP calibration
+        if key == 1 or key == 10 or key == 13:
+            # Special case for TP or SKYCAL calibration
             if nant is None or nfrq is None:
                 print 'For', typdict[key][0], 'values for both nant and nfrq are required.'
                 cursor.close()
@@ -1604,6 +1698,49 @@ def tpcal2sql(tpcal_dict, t=None):
         buf += struct.pack(str(nf * 2) + 'f', *(tpcal_dict['acoffsun'][:, :, i].reshape(nf * 2)))
     return write_cal(typedef, buf, t)
 
+def skycal2sql(skycal_dict, t=None):
+    ''' Writes Skycal calibration data from the input dictionary, as a record into 
+        the SQL server table abin.  The timestamp of the SQL record is given by
+        parameter t, or the timestamp of the start of the SKYCAL if None.
+
+        The dictionary has the keys:
+        'fghz': List of frequencies, in GHz (nf)
+        'timestamp': The 'lv' format timestamp of the start of the SKYCAL
+        'rcvr_bgd': The receiver power with full 62 dB frontend attnuation [corrrelator-unit] (nant,npol,nf)
+        'rcvr_bgd_auto': The same for auto-correlation [correlator-unit] (nant,npol,nf)
+
+        This kind of record is type definition 13.
+    '''
+    typedef = 13
+    ver = cal_types()[typedef][2]
+    nant, npol, nf = skycal_dict['rcvr_bgd'].shape
+    if t is None:
+        t = util.Time(skycal_dict['timestamp'],format='lv')
+    # For Skycal calibration, must explicitly write xml for this nant and nfrq, since
+    # the definition changes if nant and nfrq change
+    send_xml2sql(typedef, t, nant=nant, nfrq=nf)
+    # Write timestamp of data
+    tdata = util.Time(skycal_dict['timestamp'],format='lv')
+    buf = struct.pack('d', int(tdata.lv))
+    # Write version number
+    buf += struct.pack('d', ver)
+    buf += struct.pack('I', nf)  # Length of frequency array
+    buf += struct.pack(str(nf) + 'f', *skycal_dict['fghz'])
+    buf += struct.pack('I', 2)  # Length of frequency array
+    buf += struct.pack('2i', *np.array([-5, -6]))  # Polarizations XX and YY
+    buf += struct.pack('I', nant)  # Length of antenna array
+    for i in range(nant):
+        # Antenna number
+        buf += struct.pack('H', i + 1)
+        # Receiver Background
+        buf += struct.pack('I', nf)  # Number of frequencies
+        buf += struct.pack('I', 2)  # Number of polarizations
+        buf += struct.pack(str(nf * 2) + 'f', *(skycal_dict['rcvr_bgd'][i, :, :].reshape(nf * 2)))
+        # Auto-Correlation Receiver Background
+        buf += struct.pack('I', nf)  # Number of frequencies
+        buf += struct.pack('I', 2)  # Number of polarizations
+        buf += struct.pack(str(nf * 2) + 'f', *(skycal_dict['rcvr_bgd_auto'][i, :, :].reshape(nf * 2)))
+    return write_cal(typedef, buf, t)
 
 def xy_phasecal2sql(xyphase_dict, t=None):
     ''' Writes X-Y calibration data from the input dictionary, as a record into 

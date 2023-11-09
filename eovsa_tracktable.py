@@ -15,10 +15,14 @@
 #   2022-Mar-20  DG
 #      Today the 100-ms increments were too small for the Sun (it moves slowly
 #      in RA).  Modified it to use 2-s increments when src.name == 'Sun'.
+#   2023-Oct-16  DG
+#      Added make_trajtables() routine.
+#   2023-Oct-22  DG
+#      Changed sign of El/Dec sweep to start at higher point and sweep lower.
 #
 import aipy, ephem, numpy
 import util
-from numpy import pi,abs
+from numpy import pi, abs, array, cos, sin
 from eovsa_array import *
 
 def make_tracktable(srcname,aa,mjd1=None,mjd2=None,dt=1/24.):
@@ -202,3 +206,61 @@ def make_geosattable(sat,aa,mjd1=None,mjd2=None,dt=1/24.):
         mjd = mjd + dt
 
     return tbl
+
+def make_trajtables(srcname, aa, fname, mjd=None):
+    ''' Makes two trajectory tables for the time given by mjd, or if None, 
+        the current time, specifying an X cross-pattern of offsets relative 
+        to the current source.  Text message is returned, and if
+        'Success' then two files have been successfully created: 
+        /tmp/<fname>.azel and /tmp/<fname>.radec.
+    '''
+    from stateframe import par_angle
+    # make sure the source is in the source catalog aa.cat
+    try:
+        src = aa.cat[srcname]
+    except:
+        return 'Source ',srcname,' not found in catalog!  Trajtables not generated.'
+    
+    if mjd is None:
+        aa.date = Time.now().mjd - 15019.5
+    else:
+        aa.date = mjd - 15019.5
+    src = aa.cat[srcname]
+    src.compute(aa)
+    alt = src.alt
+    az = src.az
+    chi = par_angle(alt, az)   # Paralactic angle for given location
+    dec = src.dec
+    # Vector positions (distances) from center of source
+    v = array([-100000, -50000, -20000, -10000, -5000, -2000, -1000, 0, 
+                     1000, 2000, 5000, 10000, 20000, 50000])
+    toff = array([30, 20, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 20])
+    xoff = v*cos(pi/4) # Nominal x coordinates of vector positions (using 45-degree angle)
+    # For antenna 12, we have to rotate Az-El offsets by the parallactic angle
+    # There are many opportunities for sign errors, so I'll check by trial-and-error...
+    xdecoff1 = xoff*cos(chi) + xoff*sin(chi)
+    decoff1 = -xoff*sin(chi) + xoff*cos(chi)
+    xdecoff2 = -xoff*cos(chi) + xoff*sin(chi)
+    decoff2 = xoff*sin(chi) + xoff*cos(chi)
+    try:
+        f = open('/tmp/'+fname+'.azel', 'w')
+        for i in range(len(xoff)):
+            f.write(str(int( xoff[i]/cos(alt)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+        for i in range(len(xoff)):
+            f.write(str(int(-xoff[i]/cos(alt)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+        f.close()
+        f = open('/tmp/'+fname+'.radec', 'w')
+        for i in range(len(xoff)):
+            f.write(str(int(-xoff[i]/cos(dec)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+        for i in range(len(xoff)):
+            f.write(str(int( xoff[i]/cos(dec)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+        f.close()
+        f = open('/tmp/'+fname+'12.radec','w')
+        for i in range(len(xoff)):
+            f.write(str(int(-xdecoff1[i]/cos(dec)))+' '+str(int(-decoff1[i]))+' '+str(toff[i])+'\n')
+        for i in range(len(xoff)):
+            f.write(str(int(-xdecoff2[i]/cos(dec)))+' '+str(int(-decoff2[i]))+' '+str(toff[i])+'\n')
+        f.close()
+        return 'Success'
+    except:
+        return 'Error: Writing of /tmp/solpnt.azel and /tmp/solpnt.radec failed!'

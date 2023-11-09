@@ -8,6 +8,9 @@
 #   Initial code formalized and documented.
 # 2021-Sep-18  DG
 #   Slight change to make this work for pre-2019 data.
+# 2023-May-26  DG
+#   Added combine_subtracted as standard way to calculate the median spectrum,
+#   since it has superior background subtraction.
 
 import matplotlib.pylab as plt
 import numpy as np
@@ -110,7 +113,7 @@ def combine_subtracted(out, bgidx=[100,110], vmin=0.1, vmax=10, ant_str='ant1-13
     spec = np.nanmean(np.abs(out['x'][idx[good],0])-bgd,0)
     return spec
     
-def make_plot(out, spec, bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreqs=[25, 235], name=None):
+def make_plot(out, spec=None, ant_str='ant1-13', bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreqs=[25, 235], name=None):
     ''' Makes the final, nicely formatted plot and saves the spectrogram as a binary data
         file for subsequent sharing/plotting.  It used the out and spec outputs from inspect()
         and makes a background-subtracted two-panel plot with properly formatted axes.  The
@@ -124,7 +127,10 @@ def make_plot(out, spec, bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreq
           out       The standard output dictionary from read_idb (returned by inspect()), needed
                       because it contains the time and frequency lists for the data.  No default.
           spec      The spectrogram formed by inspect(), which is a median over baselines between
-                      150 and 1000 nsec between antennas given in the inspect() call.  No default.
+                      150 and 1000 nsec between antennas given in the inspect() call.  If None (default),
+                      a new median spectrum is calculated using combine_subtracted().
+          antstr    The standard string of antennas to use (see util.ant_str2list()). 
+                          Default is all antennas 'ant1-13'
           bgidx     The time index range to use for creating the background to be subtracted from
                       the spectrogram.  This is just a mean over those time indexes.  Generally
                       a range of ten is sufficient.  Use the displayed spectrum from inspect()
@@ -145,6 +151,8 @@ def make_plot(out, spec, bgidx=[100,110], bg2idx=None, vmin=0.1, vmax=10, lcfreq
           ax0       The handle to the upper plot axis, for tweaking.
           ax1       The handle to the lower plot axis, for tweaking.
     '''
+    if spec is None:
+        spec = combine_subtracted(out, bgidx=bgidx, vmin=vmin, vmax=vmax, ant_str=ant_str)
     nf, nt = spec.shape
     ti = (out['time'] - out['time'][0])/(out['time'][-1] - out['time'][0]) # Relative time (0-1) of each datapoint
     if bgidx is None:

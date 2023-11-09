@@ -351,6 +351,24 @@
 #    2022-Dec-11  DG
 #      Explicitly set implicit_transactions to OFF, since it seems to be getting turned
 #      on somehow, resulting in a spurious error on writing stateframe to SQL.
+#    2023-Jan-14  DG
+#      The implicit transactions thing is still occurring, so just detect and ignore it.
+#    2023-Jul-31  DG
+#      Added SK command to $SCAN-START, e.g. $SCAN-START SK2 will set the SK-Mode to 2
+#      for the current scan.
+#   2023-Oct-12 DG
+#       Changed to attempt to read the stateframe multiple times until success. Fails
+#       only if it cannot read it after 100 tries.
+#   2023-Oct-16  DG
+#       Added $MK_TRAJ command and associated code to create and send trajectory files
+#       for new SOLPNTCAL scheme.  Two different files are created, one for equatorial
+#       dishes and one for AzEl dishes.
+#   2023-Oct-31  DG
+#       Added code to attempt to be more resilient on 15-s timeout.  Also to retry ftp
+#       of acc0time.txt and shorten its timeout.
+#   2023-Nov-09  DG
+#       Update $MK_TRAJ to do something special with Ant 12, which doesn't act like
+#       the other AzEl dishes.
 #
 
 import os, signal
@@ -988,12 +1006,6 @@ class App():
                          'roach5.solar.pvt','roach6.solar.pvt','roach7.solar.pvt','roach8.solar.pvt')
             boffile_name = self.accini['boffile']
             self.brd_clk_freq = None   # Start with no clock defined
-            #self.brd_clk_freq = 200
-#        elif self.subarray_name == 'Starburst': # STARBURST ONLY: connect to Starburst ROACHs
-#            roachModule = starburst.roach
-#            roach_ips = starburst.roach.get_roach_ips()
-#            boffile_name = starburst.roach.get_boffile_name()
-#            self.brd_clk_freq = starburst.roach.get_brd_clk_freq()
         else:  # OVSA SCHEDULE 2: do not connect to any ROACHs (self.roaches will be an empty list)
             roach_ips = ()
         
@@ -1003,24 +1015,21 @@ class App():
                 if r.fpga: r.fpga.stop()
         self.roaches = []
         
-        # This will eventually be a loop over all active ROACHes, and must
-        # tolerate a missing ROACH
+        # This loops over all active ROACHes, and must tolerate a missing ROACH
         for roach_ip in roach_ips:
             # Make connection to ROACHes
             rnum = int(roach_ip[5:6])-1
-            #if len(self.roaches) > 0:
-                #cfg = self.roaches[0].cfg
-                #for line in cfg:
-                    #if line.find('adc clock') != -1:
-                        #self.brd_clk_freq = int(line.strip().split('=')[1])/4
-                        #break
-            #else:
-                #cfg = None
-            #if self.brd_clk_freq is None:
-                #self.brd_clk_freq = 300
             self.roaches.append(roachModule.Roach(roach_ip, boffile_name))#, cfg))
             if self.roaches[-1].msg == 'Success':
                 print roach_ip,'serving ants',self.roaches[-1].ants,'is reachable'
+                if self.roaches[-1].ants is None:
+                    print roach_ip,'ants is None, so retry the connection.'
+                    # Something weird happened, so retry the connection
+                    self.roaches[-1] = roachModule.Roach(roach_ip, boffile_name)
+                    if self.roaches[-1].msg != 'Success':
+                        print 'Reconnect failed.'
+                    else:
+                        print roach_ip,'serving ants',self.roaches[-1].ants,'is reachable'
                 self.roaches[-1].dlasweep = None
                 try:
                     self.roaches[-1].brd_clk = self.roaches[-1].fpga.est_brd_clk()
@@ -1035,6 +1044,12 @@ class App():
                     self.roaches[-1].brd_clk = 0.0
                     self.roaches[-1].fpga.stop()
                     self.roaches[-1].fpga = None
+                if self.roaches[-1].ants is None:
+                    print roach_ip,'ants is still None.  Will mark unreachable'
+                    self.roaches[-1].brd_clk = 0.0
+                    self.roaches[-1].fpga.stop()
+                    self.roaches[-1].fpga = None
+                    self.error = roach_ip+' ants is None, so is marked unreachable!!!'
                 sh_dict['roach_brd_clk'][rnum] = self.roaches[-1].brd_clk
             else:
                 print roach_ip,'is unreachable!',self.roaches[-1].msg
@@ -1919,7 +1934,10 @@ class App():
 
         # Get current stateframe (from ACC) and update sf_dict with Azimuth, Elevation, TrackFlag 
         # and parallactic angle information from it (all in degrees!)
-        data, msg = stateframe.get_stateframe(self.accini)
+        for i in range(100):
+            data, msg = stateframe.get_stateframe(self.accini)
+            if msg == 'No Error':
+                break
         if msg == 'No Error':
             version = struct.unpack_from('d',data,8)[0]   # Get stateframe version from data
             if version > 0.0 and version != self.accini['version']:
@@ -1947,7 +1965,7 @@ class App():
         # ************ This block commented out due to loss of SQL **************
         # If we are connected to the SQL database, send converted stateframe (only master schedule is connected)
         if msg == 'No Error' and self.sql['cnxn']:
-            self.sql['cursor'].execute('set implicit_transactions off')
+            #self.sql['cursor'].execute('set implicit_transactions off')
             bufout = stateframedef.transmogrify(data, self.sql['sfbrange'])
             try:
                 self.sql['cursor'].execute('insert into fBin (Bin) values (?)', 
@@ -1956,9 +1974,18 @@ class App():
                 #sys.stdout.flush()
                 self.sql['cnxn'].commit()
             except Exception as e:
-                print e
-                # An exception could be an error, or just that the entry was already inserted
-                self.error = 'Err: Cannot write stateframe to SQL'
+                if len(e) > 1:
+                    if str(e[1]).find('COMMIT TRANSACTION request has no corresponding BEGIN TRANSACTION') != -1:
+                        # This exception just means that the entry was already inserted
+                        pass
+                    else:
+                        # This exception could be a real error
+                        print e
+                        self.error = 'Err: Cannot write stateframe to SQL'
+                else: 
+                    print e
+                    # This exception could be a real error
+                    self.error = 'Err: Cannot write stateframe to SQL'
         # ********** End of block **************
         f = self.accini.get('sf_file',None)   
         if f:
@@ -2497,6 +2524,40 @@ class App():
                     if tbl != tbl_echo:
                         print 'Error: Transfer of track table',fname,'failed!'
                         print tbl,'not equal\n',tbl_echo
+                #==== MK_TRAJ ====
+                elif ctlline.split()[0].upper() == '$MK_TRAJ':
+                    cmd, fname, src = ctlline.split()
+                    msg = make_trajtables(src,self.aa,fname)
+                    if msg != 'Success':
+                        print msg
+                    else:
+                        # Send AzEl trajtable file to acc
+                        fname_ext = '/tmp/'+fname+'.azel'
+                        f = open(fname_ext,'r')
+                        acc = FTP(self.accini['host'])
+                        acc.login('admin','observer')
+                        acc.cwd('parm')
+                        acc.storlines('STOR '+fname+'.azel',f)
+                        acc.close()
+                        f.close()
+                        # Send RADec trajtable file to acc
+                        fname_ext = '/tmp/'+fname+'.radec'
+                        f = open(fname_ext,'r')
+                        acc = FTP(self.accini['host'])
+                        acc.login('admin','observer')
+                        acc.cwd('parm')
+                        acc.storlines('STOR '+fname+'.radec',f)
+                        acc.close()
+                        f.close()
+                        # Send Ant12 RADec trajtable file to acc
+                        fname_ext = '/tmp/'+fname+'12.radec'
+                        f = open(fname_ext,'r')
+                        acc = FTP(self.accini['host'])
+                        acc.login('admin','observer')
+                        acc.cwd('parm')
+                        acc.storlines('STOR '+fname+'12.radec',f)
+                        acc.close()
+                        f.close()
                 #==== FEM-INIT ====
                 elif ctlline.split()[0].upper() == '$FEM-INIT':
                     ant_str = 'ant1-13'
@@ -2698,14 +2759,22 @@ class App():
                             
                     # Read acc0time.txt file from ACC and update scan header
                     try:
-                        f = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/acc0time.txt',timeout=1)
+                        f = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/acc0time.txt',
+                                            timeout=0.1)
                         mjdacc0 = np.double(f.readline().split()[0])
                         f.close()
                     except:
-                        print t.iso,'ACC connection for acc0 time timed out.  Reading from /tmp/acc0time.txt'
-                        f = open('/tmp/acc0time.txt','r')
-                        mjdacc0 = np.double(f.readline().split()[0])
-                        f.close()
+                        print util.Time.now().iso,'ACC connection for acc0 time timed out. Retry.'
+                        try:
+                            f = urllib2.urlopen('ftp://'+userpass+'acc.solar.pvt/parm/acc0time.txt',
+                                                timeout=0.1)
+                            mjdacc0 = np.double(f.readline().split()[0])
+                            f.close()
+                        except:
+                            print util.Time.now().iso,'ACC connection for acc0 time timed out twice.  Reading from /tmp/acc0time.txt'
+                            f = open('/tmp/acc0time.txt','r')
+                            mjdacc0 = np.double(f.readline().split()[0])
+                            f.close()
                     sh_dict['time_at_acc0'] = Time(mjdacc0,format='mjd')
 
 #                    if self.subarray_name == 'Starburst':
@@ -2750,6 +2819,15 @@ class App():
                     if nodata == 'NODATA':
                         pass
                     else:
+                        if nodata[:2] == 'SK':
+                            try:
+                                sknum = int(nodata[2:3])
+                            except:
+                                sknum = 0
+                            if sknum < 0 or sknum > 2:
+                                sknum = 0
+                            sh_dict['sk_mode'] = sknum 
+                            scan_header(sh_dict,self.sh_datfile)
                         # Set scan state to on
                         sf_dict['scan_state'] = 1
                 #==== SCAN-RESTART ====

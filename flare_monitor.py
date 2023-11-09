@@ -75,6 +75,8 @@
 #   2022-Sep-05  DG
 #      For some reason, rd_fdb is returning an extra blank file now.
 #      I added a check for that in get_projects_nosql().
+#   2023-Aug-16  DG
+#      Fixed problem with plots not showing up past new-day boundary
 #
 import numpy as np
 from util import Time, get_idbdir
@@ -499,6 +501,8 @@ if __name__ == "__main__":
         #times, tlevel, bflag = get_history(times, tlevel, bflag)
 
     # ************ This block commented out due to loss of SQL **************
+    if t.mjd % 1 < 0.5:
+        t = Time(t.mjd - 0.5, format='mjd')
     projdict = get_projects_nosql(t)
     ut = [Time(projdict['Timestamp'],format='lv').plot_date[0]]*2
     out = rd_RT()

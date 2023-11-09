@@ -97,6 +97,9 @@ def get_attncal(trange, do_plot=False, dataonly=False):
             print fdb['FILE'][gcidx]
             gcidx = gcidx[0]
         else:
+            if len(gcidx) == 0:
+                # There is no GAINCALTEST for this date, so return a list of empty dict.
+                return [{}]
             for i, fname in enumerate(fdb['FILE'][gcidx]):
                 print str(i)+': GAINCALTEST File',fname
             idex = input('There is more than one GAINCALTEST. Select: '+str(np.arange(len(gcidx)))+':')
@@ -217,5 +220,6 @@ if __name__ == "__main__":
     print t.iso
     attn_list = get_attncal(t)
     for attn in attn_list:
-        ch.fem_attn_val2sql([attn])
+        if attn != {}:
+            ch.fem_attn_val2sql([attn])
         

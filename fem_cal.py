@@ -123,7 +123,7 @@ def striplines(infile,pol):
                 tv.append(v)
             else:
                 p = len(tv) // 2
-                pp.append(np.median(np.array(tv)[:,4]))
+                pp.append(np.median(np.array(tv)[:,0]))
                 if pol == 'h':
                     vv.append(tv[p][4])
                 elif pol == 'v':
@@ -133,7 +133,7 @@ def striplines(infile,pol):
     
     p = len(tv) // 2
     #pp.append(np.median(tv[0:len(tv)][0]))
-    pp.append(np.median(np.array(tv)[:,4]))
+    pp.append(np.median(np.array(tv)[:,0]))
     if pol == 'h':
         vv.append(tv[p][4])
     elif pol == 'v':

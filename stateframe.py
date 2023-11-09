@@ -380,7 +380,7 @@ def get_stateframe(accini):
             return None, 'Cannot read from port '+str(accini['sfport'])
         s.close()
     except:
-        return None, 'Cannot connect to port '+str(accini['sfport'])
+        return None, 'Cannot open socket to port '+str(accini['sfport'])
 
 #============================
 def get_stateframefromfile(filename,f=None,recsiz=None):

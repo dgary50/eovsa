@@ -102,6 +102,9 @@
 #       Added Currently used CPUs to the fix packets title
 #   2021-Sep-20 OG
 #       Added check to make sure two cpus are found in the dpp section.
+#   2023-Oct-12 DG
+#       Changed to attempt to read the stateframe multiple times until success. Fails
+#       only if it cannot read it after 100 tries.
 
 from Tkinter import *
 from ttk import *
@@ -814,8 +817,11 @@ class App():
 
 #   pos7 = self.S7.get()
 #   pos8 = self.S8.get()
-        data, msg = stf.get_stateframe(self.accini)
-
+        # Try reading stateframe multiple times (up to 100!), but break on first successful read.
+        for i in range(100):
+            data, msg = stf.get_stateframe(self.accini)
+            if msg == 'No Error':
+                break
         if msg != 'No Error':
             print msg
             data = None

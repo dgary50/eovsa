@@ -82,6 +82,8 @@
 #      Added a legend to each plot in prt_dla().
 #   2021-Jul-02  DG
 #      Change font size in legend in prt_dla().
+#   2023-Nov-07  DG
+#      Added a chans argument in prt_dla() to allow restriction of channels for fitting.
 
 import numpy as np
 import pdb
@@ -538,7 +540,7 @@ def rd_jspec(filename):
         out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr,'delays':outdla, 'time': t}
     return out
 
-def prt_dla(out, ref, refant=14, doplot=False):
+def prt_dla(out, ref, refant=14, doplot=False, band=2, chans=[1000,4000], pol=0):
     ''' Print (and optionally plot) the delay differences between a PRT file from one correlator state
         (the reference PRT file) and those in another correlator state after the correlator has been rebooted,
         relative to the reference antenna specified in refant.  If ref is None, the phase differences are just
@@ -556,7 +558,10 @@ def prt_dla(out, ref, refant=14, doplot=False):
                      refant only.
             refant The ordinal number of the reference antenna (not 0-based).  Default is Ant 14.
             doplot An optional keyword.  If True, a plot is created to visually compare the results
-        
+            band   Integer 0-4 to select one of the observation bands (33-37).  
+            chans  The channel range to use for the fitting
+            pol    Polarization index to use (0 == XX, 1 == YY, 2 == XY, 3 = YX)
+            
         The results are printed to the terminal.  The purpose of this routine is as a sanity check for
         possible glitches as described above, and as an aid to setting the delay centers using delay_widget.py.
     '''
@@ -571,14 +576,14 @@ def prt_dla(out, ref, refant=14, doplot=False):
         f.set_size_inches(12,9.5)
         f.suptitle('Geosat Phase Diff for '+out['time'].iso[:19]+' UT (Ref Time: '+ref['time'].iso[:19]+' UT)',fontsize=16)
         ax.shape = (16,)
-    dladiff = out['delays'][:,:,35]-ref['delays'][:,:,35]  # Difference in delay settings
+    dladiff = out['delays'][:,:,band*10+5]-ref['delays'][:,:,band*10+5]  # Difference in delay settings
     for i in range(14):
         ddiff = dladiff[i,0] - dladiff[refant-1,0]  # Difference in delay settings relative to refant
-        xax = np.arange(2048)*0.2/2048. * 2*np.pi * 1.25
+        xax = np.arange(chans[0],chans[1])*0.2/2048. * 2*np.pi * 1.25
         if i == refant-1:
-            pdiff = np.zeros(2048,np.float)
+            pdiff = np.zeros_like(xax)
         else:
-            pdiff = np.unwrap(np.angle(out['x'][bl2ord[refant-1,i],0,:2048,35]) - np.angle(ref['x'][bl2ord[refant-1,i],0,:2048,35]) 
+            pdiff = np.unwrap(np.angle(out['x'][bl2ord[refant-1,i],pol,chans[0]:chans[1],band*10+5]) - np.angle(ref['x'][bl2ord[refant-1,i],pol,chans[0]:chans[1],band*10+5]) 
                   - xax*ddiff)
         res = np.polyfit(xax, pdiff, 1)
         #steps = np.round(res[0])

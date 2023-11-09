@@ -107,6 +107,9 @@
 #    A total-power calibration was done with all 14 antennas (Ant A in the subarray),
 #    which caused problems in get_calfac().  Some slight changes to get_calfac() and
 #    apply_calfac() should allow this rare case to work.
+#  2023-02-17  DG
+#    Add get_skycal() routine to read a SKYCAL record from SQL rather than creating one
+#    by reading from existing IDB files.
 #
 
 import dbutil as db
@@ -141,7 +144,7 @@ def get_sql_info(trange):
     return azeldict
 
 
-def apply_fem_level(data, gctime=None, skycal=None):
+def apply_fem_level(data, gctime=None, skycal={}):
     ''' Applys the FEM level corrections to the given data dictionary.
         
         Inputs:
@@ -167,8 +170,12 @@ def apply_fem_level(data, gctime=None, skycal=None):
     # Get time cadence
     dt = np.int(np.round(np.nanmedian(data['time'][1:] - data['time'][:-1]) * 86400))
     if dt == 1: dt = None
+    cdata = copy.deepcopy(data)
     # Get the FEM levels of the requested timerange
     src_lev = get_fem_level(trange, dt)  # solar gain state for timerange of file
+    if src_lev == {}:
+        print 'APPLY_FEM_LEVEL: No GAINCALTEST scans for this date, so no FEM level correction applied.'
+        return cdata
     nf = len(data['fghz'])
     nt = len(src_lev['times'])
     attn = ac.read_attncal(gctime)[0]  # Reads attn from SQL database (returns a list, but use first, generally only, one)
@@ -203,7 +210,6 @@ def apply_fem_level(data, gctime=None, skycal=None):
             for k, j in enumerate(idx1):
                 antgain[i, 0, j] = a[src_lev['hlev'][i], i, 0, idx2[k]]
                 antgain[i, 1, j] = a[src_lev['vlev'][i], i, 1, idx2[k]]
-    cdata = copy.deepcopy(data)
     nblant = 136
     blgain = np.zeros((nf, nblant, 4, nt), float)  # Baseline-based gains vs. frequency
 
@@ -221,7 +227,7 @@ def apply_fem_level(data, gctime=None, skycal=None):
     idx = nearest_val_idx(data['time'], src_lev['times'].jd)
     nt = len(idx)  # New number of times
     # If a skycal dictionary exists, subtract auto-correlation receiver noise before scaling (clip to 0)
-    if skycal:
+    if skycal != {}:
         sna, snp, snf = skycal['rcvr_bgd_auto'].shape
         bgd = skycal['rcvr_bgd_auto'].repeat(nt).reshape((sna,snp,snf,nt))
         bgd = bgd[:,:,idx2]  # Extract only frequencies matching the data
@@ -238,7 +244,7 @@ def apply_fem_level(data, gctime=None, skycal=None):
     cdata['py'].shape = (nf, 16, 3, nt)
     # If a skycal dictionary exists, subtract total power receiver noise before scaling (clip to 0)
     # NB: This will break SK!
-    if skycal:
+    if skycal != {}:
         sna, snp, snf = skycal['rcvr_bgd'].shape
         bgd = skycal['rcvr_bgd'].repeat(nt).reshape((sna,snp,snf,nt))
         bgd = bgd[:,:,idx2]  # Extract only frequencies matching the data
@@ -380,6 +386,30 @@ def get_calfac(t=None):
     return {'fghz': fghz, 'timestamp': stateframe.extract(buf, xml['Timestamp']), 'sqltime': sqltime,
             'tpcalfac': tpcalfac, 'accalfac': accalfac, 'tpoffsun': tpoffsun, 'acoffsun': acoffsun}
 
+def get_skycal(t=None):
+    ''' Read receiver background and auto-correlation receiver background from the SQL
+        database, for the time specified by Time() object t, or if None, at the
+        next earlier calibration time to the current time.
+    '''
+    tpcal_type = 13  # Calibration type specified in cal_header.py
+    if t is None:
+        t = Time.now()
+    xml, buf = ch.read_cal(tpcal_type, t=t)
+    fghz = stateframe.extract(buf, xml['FGHz'])
+    nf = len(fghz)
+    nant = len(xml['Antenna'])
+    rcvrbgd = np.zeros((nant, 2, nf), np.float)
+    acrcvrbgd = np.zeros((nant, 2, nf), np.float)
+    for i in range(nant):
+        iant = stateframe.extract(buf, xml['Antenna'][i]['Antnum']) - 1
+        rcvrbgd[iant] = stateframe.extract(buf, xml['Antenna'][i]['RcvrBgd'])
+        acrcvrbgd[iant] = stateframe.extract(buf, xml['Antenna'][i]['ACRcvrBgd'])
+    try:
+        sqltime = stateframe.extract(buf, xml['SQL_timestamp'])
+    except:
+        sqltime = None
+    return {'fghz': fghz, 'timestamp': stateframe.extract(buf, xml['Timestamp']), 'sqltime': sqltime,
+            'rcvr_bgd': rcvrbgd, 'rcvr_bgd_auto': acrcvrbgd}
 
 def apply_calfac(data, calfac):
     ''' Applies calibration factors in calfac dictionary returned by get_calfac(),
@@ -603,7 +633,6 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
         sys.stdout.flush()
         ## Correct data for attenuation changes
         if attncal:
-            from calibration import skycal_anal
             t1 = time.time()
             if calibrate:
                 # For the skycal, use the date that the total power calibration was taken
@@ -616,11 +645,11 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
                     mjd = int(trange[0].mjd) + 20. / 24
                 calfac = get_calfac(Time(mjd, format='mjd'))
                 caltime = Time(calfac['timestamp'],format='lv')
-                skycal = skycal_anal(t=caltime,do_plot=False)
+                skycal = get_skycal(caltime)
                 if np.abs(caltime - trange[0]) > 0.5:
                     print 'Note, SKYCAL is being read from',caltime.iso[:10],'to match TP calibration date.'
             else:
-                skycal = skycal_anal(t=trange[0],do_plot=False)
+                skycal = get_skycal(trange[0])
             if new:
                 # Subtract receiver noise, then correct for front end attenuation
                 cout = apply_fem_level(out, gctime, skycal=skycal)

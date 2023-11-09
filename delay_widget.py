@@ -30,6 +30,9 @@
 #      allow the user to mark missing antennas.
 #   2020-May-02  DG
 #      Added some much-needed legends to the plots
+#   2023-Oct-07  DG
+#      Add refant checkbox and ability to change the reference antenna.  This is
+#      for the display only.  The delay center reference remains with Ant 1.
 
 from Tkinter import *
 from tkFileDialog import askopenfile
@@ -40,7 +43,7 @@ from util import Time, lobe, common_val_idx
 import read_idb as ri
 import matplotlib.pylab as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, \
-                                              NavigationToolbar2TkAgg
+                                              NavigationToolbar2Tk
 
 #============================
 class App():
@@ -102,7 +105,7 @@ class App():
         self.antupbtn.pack(padx=1,pady=0)
         self.antdnbtn = Button(antupdown, text=u'\u25BC', command=self.down, borderwidth=0, pady=0)
         self.antdnbtn.pack(padx=1,pady=0)
-
+        
         leftdla = Frame(fleft)
         leftdla.pack()
         Label(leftdla, text='X Delay', font="Helvetica 14").pack(side=LEFT)
@@ -145,6 +148,15 @@ class App():
         self.chkbox.pack(side=LEFT)
         self.missing = np.zeros(13,dtype=int) # None of the antennas are missing
 
+        refvar = IntVar()
+        leftckbox = Frame(fleft)
+        leftckbox.pack()
+        self.refchkbox = Checkbutton(leftckbox, text="Mark Ant as Refant", variable=refvar, command=self.refcb)
+        self.refchkbox.refvar = refvar
+        self.refchkbox.pack(side=LEFT)
+        self.refant = np.array([1]+[0]*12)  # Ant 1 is the default refant
+        self.refchkbox.select()
+
         fright = Frame(line2)
         fright.pack()
         
@@ -155,9 +167,9 @@ class App():
             self.ax.append(self.fig.add_subplot(i))
             #self.ax[i].grid()
         self.canvas = FigureCanvasTkAgg(self.fig, fright)
-        self.canvas.show()
+        self.canvas.draw()
         self.canvas.get_tk_widget().pack(side=TOP, expand=1)
-        toolbar1 = NavigationToolbar2TkAgg(self.canvas, fright)
+        toolbar1 = NavigationToolbar2Tk(self.canvas, fright)
         toolbar1.update()
         self.canvas._tkcanvas.pack(side=TOP, fill=BOTH, expand=1)
 
@@ -196,6 +208,21 @@ class App():
         ant = int(ant_str)
         self.missing[ant-1] = self.chkbox.var.get()  # List indicating missing ant (if 1)
         
+    def refcb(self):
+        # Handle the refant checkbox widget
+        ant_str = self.ant.get()  # Current antenna showing
+        ant = int(ant_str)
+        print 'Ant',ant,'selected.', self.chkbox.var.get(), 'is the state.'
+        self.refant = np.zeros(13,np.int)
+        self.refant[ant-1] = 1  # List indicating reference antenna (if 1)
+        print 'Refant selection going in is',self.refant
+        refant, = np.where(self.refant == 1)
+        if len(refant) == 0:
+            # If no refant selected, set refant to ant 1
+            self.refant = np.array([1]+[0]*12)  # Ant 1 is the default refant
+            if ant == 1: self.refchkbox.select()
+        print 'Refant selection going out is',self.refant
+
     def fetch(self, e):
         ant_str = self.ant.get()
         ant = int(ant_str)
@@ -237,6 +264,11 @@ class App():
             self.chkbox.select()
         else:
             self.chkbox.deselect()
+        if self.refant[ant-1]:
+            self.refchkbox.select()
+        else:
+            self.refchkbox.deselect()
+        print 'Up: The current refant selection is',self.refant
         dla = self.delays[ant-1]
         self.dlavar.set(str(dla))
         dla = self.xydelays[ant-1]
@@ -256,6 +288,11 @@ class App():
             self.chkbox.select()
         else:
             self.chkbox.deselect()
+        if self.refant[ant-1]:
+            self.refchkbox.select()
+        else:
+            self.refchkbox.deselect()
+        print 'Down: The current refant selection is',self.refant
         dla = self.delays[ant-1]
         self.dlavar.set(str(dla))
         dla = self.xydelays[ant-1]
@@ -346,7 +383,9 @@ class App():
                 tau = dla + ydla
                 tau1 = dla1 + ydla1
             ax.cla()
-            if ant == 1:
+            refant, = np.where(self.refant==1)
+            refant = refant[0]
+            if ant == refant+1:
                 ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau),'.',label=polstr[i])
                 if self.pol[i] == 0:
                     pxx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
@@ -357,7 +396,7 @@ class App():
                 if self.pol[i] == 3:
                     pyx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
             else:
-                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - self.ph[0,self.pol[i]] - 2*np.pi*self.fghz*(tau-tau1)),'.',label=polstr[i])
+                ax.plot(self.fghz,lobe(self.ph[ant-1,self.pol[i]] - self.ph[refant,self.pol[i]] - 2*np.pi*self.fghz*(tau-tau1)),'.',label=polstr[i])
                 if self.pol[i] == 0:
                     pxx = lobe(self.ph[ant-1,self.pol[i]] - 2*np.pi*self.fghz*tau)
                 if self.pol[i] == 1:

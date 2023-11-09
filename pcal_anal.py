@@ -25,6 +25,8 @@
 #    Now on pipeline the IFDB files are used, which do not have a key ST_SEC.
 #  2022-Mar-08 DG
 #    Temporarily commented out check for Windscram due to loss of SQL
+#  2023-Oct-29 DG
+#    Added back the Windscram check.
 #
 
 import numpy as np
@@ -186,10 +188,9 @@ def graph(f,navg=None,path=None):
         return
     fig, ax = plt.subplots(4,13,sharex=True, sharey=True)
     trange = Time([fname2mjd(f[0]),fname2mjd(f[-1]) + ten_minutes],format='mjd')
-    # ************ This block commented out due to loss of SQL **************
-    # times, wscram, avgwind = db.a14_wscram(trange)
-    # nwind = len(wscram)
-    # nbad = np.sum(wscram)
+    times, wscram, avgwind = db.a14_wscram(trange)
+    nwind = len(wscram)
+    nbad = np.sum(wscram)
     nbad = 0    # Skip Windscram check
     if nbad != 0:
         warn = ' --> Windscram! ('+str(nbad)+' of '+str(nwind)+')'

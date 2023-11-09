@@ -35,6 +35,17 @@
 #  2022-05-14  DG
 #    Added a remove_cal() function to remove all 27-m calibration lines from
 #    the solar schedule created by make_sched().
+#  2023-05-06  DG
+#    Temporarily shift the last calibration of the day 1 hour earlier so as not to
+#    overlap with SRH solar observations (for summer 2023 at least).
+#  2023-10-12  DG
+#    Remove solpnt.trj filename from each of the SOLPNTCAL lines, since with the
+#    new feeds the search pattern is different for the two types of antenna.  This is
+#    now set in the SOLPNTCAL.ctl file itself.
+#  2023-10-16  DG
+#    Added 2 minutes to SOLPNTCAL to account for longer trajectory duration.
+#  2023-10-29  DG
+#    Removed the now unneeded SKYCALTEST
 
 import os
 from util import Time
@@ -337,7 +348,9 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
     refcaltrans = np.array([[0,121,210,242,305,366],[0,31,37,84,210,366]])
     # Nominal phasecal scan start times
     pcal2s = np.array([(17. + 10./60.)/24.,(22. + 10./60.)/24.])  # 17:10 and 22:10 UT
-    pcal3s = np.array([(15. + 10./60.)/24.,(19. + 50./60.)/24.,(24. + 10./60.)/24.]) # 15:10, 19:50 and 24:10 UT
+#    pcal3s = np.array([(15. + 10./60.)/24.,(19. + 50./60.)/24.,(24. + 10./60.)/24.]) # 15:10, 19:50 and 24:10 UT
+# For summer 2023, shift the last calibrator earlier, to complete before 24:00 UT and maximize overlap with SRH
+    pcal3s = np.array([(15. + 10./60.)/24.,(19. + 50./60.)/24.,(23. + 10./60.)/24.]) # 15:10, 19:50 and 23:10 UT
     # Source designations for each range
     pcal2srcs  = [[3,4,5,-1,2],[5,0,-1,2,3,4,5]] 
     pcal3srcs  = [[-1,5,0,1,-1],[-1,5,0,1,2,-1],[-1,1,2,-1]]
@@ -393,18 +406,15 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         pc2start = min(pc2start,pc2set-caldur/1440.)
         lines.append('{:} {:} {:}'.format(Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'))
-        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
-        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
-        lines.append('{:} {:}'.format(Time(imjd + pc1start + 25./1440.,format='mjd').iso[:19],'SUN'))
-#        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
-#        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
-#        lines.append('{:} {:}'.format(Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'))
-        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'))
-        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'))
+#        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
+#        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
+        lines.append('{:} {:}'.format(Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'SUN'))
+        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'))
+        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:}'.format(Time(imjd + (20.*60. + 00.)/1440.,format='mjd').iso[:19],'GAINCALTEST'))
         lines.append('{:} {:}'.format(Time(imjd + (20.*60. + 03.)/1440.,format='mjd').iso[:19],'SUN'))
-        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'))
-        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'))
+        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'))
+        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:} {:}'.format(Time(imjd + pc2start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal2]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc2start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal2],'pcal_hi-all.fsq'))
         lines.append('{:} {:}'.format(Time(imjd + pc2start + 20./1440.,format='mjd').iso[:19],'SUN'))
@@ -412,18 +422,15 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         if verbose:
             print Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]
             print Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'
-            print Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
-            print Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
-            print Time(imjd + pc1start + 25./1440.,format='mjd').iso[:19],'SUN'
-#            print Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
-#            print Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
-#            print Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'
-            print Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'
-            print Time(imjd + (18.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'
+#            print Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
+#            print Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
+            print Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'SUN'
+            print Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'
+            print Time(imjd + (18.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + (20.*60. + 00.)/1440.,format='mjd').iso[:19],'GAINCALTEST'          
             print Time(imjd + (20.*60. + 03.)/1440.,format='mjd').iso[:19],'SUN'
-            print Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'
-            print Time(imjd + (21.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'
+            print Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'
+            print Time(imjd + (21.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + pc2start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal2]
             print Time(imjd + pc2start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal2],'pcal_hi-all.fsq'
             print Time(imjd + pc2start + 20./1440.,format='mjd').iso[:19],'SUN'
@@ -453,22 +460,19 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
 
         lines.append('{:} {:} {:}'.format(Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'))
-        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
-        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
-        lines.append('{:} {:}'.format(Time(imjd + pc1start + 25./1440.,format='mjd').iso[:19],'SUN'))
-#        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
-#        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
-#        lines.append('{:} {:}'.format(Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'))
+#        lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'))
+#        lines.append('{:} {:} {:}'.format(Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]))
+        lines.append('{:} {:}'.format(Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:}'.format(Time(imjd + (17.*60. + 00.)/1440.,format='mjd').iso[:19],'GAINCALTEST'))
         lines.append('{:} {:}'.format(Time(imjd + (17.*60. + 03.)/1440.,format='mjd').iso[:19],'SUN'))
-        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'))
-        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'))
+        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'))
+        lines.append('{:} {:}'.format(Time(imjd + (18.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:} {:}'.format(Time(imjd + pc2start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal2]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc2start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal2],'pcal_hi-all.fsq'))
         lines.append('{:} {:}'.format(Time(imjd + pc2start + 20./1440.,format='mjd').iso[:19],'SUN'))
 #        lines.append('{:} {:}'.format(Time(imjd + pc2start + 35./1440.,format='mjd').iso[:19],'SUN'))
-        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'))
-        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'))
+        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'))
+        lines.append('{:} {:}'.format(Time(imjd + (21.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'))
         lines.append('{:} {:} {:}'.format(Time(imjd + pc3start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal3]))
         lines.append('{:} {:} {:} {:}'.format(Time(imjd + pc3start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal3],'pcal_hi-all.fsq'))
         lines.append('{:} {:}'.format(Time(imjd + pc3start + 20./1440.,format='mjd').iso[:19],'SUN'))
@@ -476,22 +480,19 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
         if verbose:
             print Time(imjd + pc1start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal1]
             print Time(imjd + pc1start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'pcal_hi-all.fsq'
-            print Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
-            print Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
-            print Time(imjd + pc1start + 25./1440.,format='mjd').iso[:19],'SUN'
-#            print Time(imjd + pc1start + 30./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
-#            print Time(imjd + pc1start + 31./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
-#            print Time(imjd + pc1start + 35./1440.,format='mjd').iso[:19],'SUN'
+#            print Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal1],'solar.fsq'
+#            print Time(imjd + pc1start + 21./1440.,format='mjd').iso[:19],'SKYCALTEST',calnames[pcal1]
+            print Time(imjd + pc1start + 20./1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + (17.*60. + 00.)/1440.,format='mjd').iso[:19],'GAINCALTEST'          
             print Time(imjd + (17.*60. + 03.)/1440.,format='mjd').iso[:19],'SUN'
-            print Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'
-            print Time(imjd + (18.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'
+            print Time(imjd + (18.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'
+            print Time(imjd + (18.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + pc2start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal2]
             print Time(imjd + pc2start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal2],'pcal_hi-all.fsq'
             print Time(imjd + pc2start + 20./1440.,format='mjd').iso[:19],'SUN'
 #            print Time(imjd + pc2start + 35./1440.,format='mjd').iso[:19],'SUN'
-            print Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq solpnt.trj'
-            print Time(imjd + (21.*60. + 35.)/1440.,format='mjd').iso[:19],'SUN'
+            print Time(imjd + (21.*60. + 30.)/1440.,format='mjd').iso[:19],'SOLPNTCAL solar.fsq'
+            print Time(imjd + (21.*60. + 37.)/1440.,format='mjd').iso[:19],'SUN'
             print Time(imjd + pc3start,format='mjd').iso[:19],'ACQUIRE',calnames[pcal3]
             print Time(imjd + pc3start + 4./1440.,format='mjd').iso[:19],'PHASECAL',calnames[pcal3],'pcal_hi-all.fsq'
             print Time(imjd + pc3start + 20./1440.,format='mjd').iso[:19],'SUN'

@@ -135,6 +135,13 @@
 #  2022-Jun-28  DG
 #    Found that offsets2ants() sometimes read zeros from SQL.  It now bails
 #    with a message to try a different timestamp.
+#  2023-02-17  DG
+#    Changes to skycal_anal() to support new calibration type (13) in cal_header.py.
+#    This just adds the timestamp and frequency list to the dictionary.
+#  2023-03-13  DG
+#    Added azeloff parameter to allow SOLPNTANAL to work with Azimuth/Elevation offset data.
+#  2023-04-02  DG
+#    Fixed a couple of places where the above change was not fully accounted for.
 #
 
 if __name__ == "__main__":
@@ -468,7 +475,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
                    'rao':rao_fit,'deco':deco_fit,'time':midtime,'antidx':idx}
     
     
-def solpntanal(t, udb=False, auto=False, find=True, desat=False):
+def solpntanal(t, udb=False, auto=False, find=True, desat=False, azeloff=False):
     ''' Does a complete analysis of SOLPNTCAL, reading information from the SQL
         database, finding and dumping the corresponding Miriad IDB data, and 
         doing gaussian fit to beam to return the beam parameters.  The outputs
@@ -478,16 +485,18 @@ def solpntanal(t, udb=False, auto=False, find=True, desat=False):
         the Time() object t must be an actual SOLPNTCAL scan time.
     '''
     from copy import deepcopy
+    import cal_header as ch
+    from stateframe import extract
     
     def fname2mjd(filename):
         fstem = filename.split('/')[-1]
         fstr = fstem[3:7]+'-'+fstem[7:9]+'-'+fstem[9:11]+' '+fstem[11:13]+':'+fstem[13:15]+':'+fstem[15:17]
         return Time(fstr).mjd
 
-    pnt = solpnt.get_solpnt(t, find=find)
+    pnt = solpnt.get_solpnt(t, find=find, azeloff=azeloff)
     proc = solpnt.process_solpnt(pnt)
     trange = Time([pnt['Timestamp'],pnt['Timestamp']+300.],format='lv')
-    skycal = None
+    skycal = {}
     if trange[0].mjd < 57450:
         if auto: print "Warning: 'auto' keyword does nothing for older data.  Keyword ignored."
         otp = dump_tsys.rd_miriad_tsys(trange,udb=udb)
@@ -501,16 +510,23 @@ def solpntanal(t, udb=False, auto=False, find=True, desat=False):
         # for a far off-Sun background measurement.
         skycal = skycal_anal(trange[0], do_plot=False, last=True, desat=desat)
         otp = dump_tsys.rd_miriad_tsys_16(trange, udb=udb, auto=auto, tref=trange[0], skycal=skycal, desat=desat)
-    if skycal:
+    if skycal != {}:
+        # Check if skycal record exists in SQL database, and write it if not
+        xml, buf = ch.read_cal(13, trange[0])
+        sqlmjd = Time(extract(buf, xml['Timestamp']), format='lv').mjd  # Date of existing skycal record
+        if int(sqlmjd) != int(trange[0].mjd):
+            # Day numbers of existing and new records do not agree, so write a new record
+            ch.skycal2sql(skycal)
         newskycal = deepcopy(skycal)
         if auto:
             # Modify the skycal to put the auto information into the standard location
             newskycal['offsun'] = np.real(skycal['offsun_auto'])
             newskycal['rcvr_bgd'] = np.real(skycal['rcvr_bgd_auto'])
     else:
-        newskycal = None
+        newskycal = {}
     fghz = otp['fghz']
     xra,xdec,xrao,xdeco = solpnt.process_tsys(otp,proc,pol=0,skycal=newskycal)
+    #import pdb; pdb.set_trace()
     x = {'ut_mjd':otp['ut_mjd'],'fghz':fghz,'ra0':proc['ra0'],'dec0':proc['dec0'],'raparms':xra,'decparms':xdec,
          'rao':xrao,'deco':xdeco,'ra':proc['rao'],'dec':proc['deco'],'antlist':proc['antlist']}
 #    otp = solpnt.rd_tsys(yfile,sfile)
@@ -564,7 +580,11 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False, file=''):
         # This should be almost as good for receiver noise subtraction as a true SKYCAL
         from attncal import get_attncal
         outdict = get_attncal(t)
-        return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
+        if outdict[0] == {}:
+            print 'SKYCAL_ANAL: No available GAINCALTEST scans.  Returning {} result.'
+            return outdict
+        timestamp = int(Time(outdict[0]['time'],format='jd').lv)
+        return {'timestamp':timestamp, 'fghz':outdict[0]['fghz'], 'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
     fdb = dump_tsys.rd_fdb(t)
     gcidxes, = np.where(fdb['PROJECTID'] == 'SKYCALTEST')
     host = socket.gethostname()
@@ -597,6 +617,7 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False, file=''):
         lev = get_fem_level(skytrange)
         # Get indexes to common times
         idx1, idx2 = common_val_idx(lev['times'].jd,out['time'])
+        timestamp = int(Time(out['time'][idx2[0]],format='jd').lv)
         for i in range(nant):
             for j in range(npol):
                 idx0, = np.where(lev[hvlev[j]][i,idx1] == 0)   # 0 dB
@@ -639,8 +660,12 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False, file=''):
         # This should be almost as good for receiver noise subtraction as a true SKYCAL
         from attncal import get_attncal
         outdict = get_attncal(t)
-        return {'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
-    return {'offsun': offsun, 'rcvr_bgd': rcvr, 'offsun_auto': offsun_auto, 'rcvr_bgd_auto': rcvr_auto}
+        if outdict[0] == {}:
+            print 'SKYCAL_ANAL: No available SKYCAL or GAINCALTEST scans.  Returning {} result.'
+            return outdict
+        timestamp = int(Time(outdict[0]['time'],format='jd').lv)
+        return {'timestamp':timestamp, 'fghz':outdict[0]['fghz'], 'rcvr_bgd': outdict[0]['rcvr'], 'rcvr_bgd_auto': outdict[0]['rcvr_auto']}
+    return {'timestamp':timestamp, 'fghz':out['fghz'], 'offsun': offsun, 'rcvr_bgd': rcvr, 'offsun_auto': offsun_auto, 'rcvr_bgd_auto': rcvr_auto}
     
 def sp_get_calfac(x,y, do_plot=True):
     ''' Reads the RSTN/Penticton flux, fits to the observed frequencies, and applies
@@ -937,6 +962,7 @@ def sp_offsets(x,y,save_plot=False):
     fgood = np.where(x['fghz'] > 1.10)[0]
     xelx = []
     elx = []
+    #import pdb; pdb.set_trace()
     for ant in range(nant):
         ax[ant/ncol,ant % ncol].set_ylim(-0.5,0.5)
         ax[ant/ncol,ant % ncol].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
@@ -966,7 +992,7 @@ def sp_offsets(x,y,save_plot=False):
         if ant in oldant:
             # clip errors to 0.5 degree
             if  abs(ramed) > 5000: ramed = np.sign(ramed)*5000
-            if abs(decmed) > 5000: decmed = np.sign(ramed)*5000
+            if abs(decmed) > 5000: decmed = np.sign(decmed)*5000
             xelx.append(ramed/10000)
             elx.append(decmed/10000)
         else:
@@ -1012,7 +1038,7 @@ def sp_offsets(x,y,save_plot=False):
         if ant in oldant:
             # clip errors to 0.5 degree
             if  abs(ramed) > 5000: ramed = np.sign(ramed)*5000
-            if abs(decmed) > 5000: decmed = np.sign(ramed)*5000
+            if abs(decmed) > 5000: decmed = np.sign(decmed)*5000
             xely.append(ramed/10000)
             ely.append(decmed/10000)
         else:
@@ -1095,8 +1121,8 @@ def sp_gaussfit(x, y, aidx, fidx, ax=None):
             xdata = np.concatenate(([-100000],src[a],[100000]))
             ydata = src[a+'o'][fidx,:,aidx]
             ax[i,j].plot(xdata/10000.,ydata,'.',label=lbl[i][j])
-            low_bounds =  [0.1*np.max(ydata), -30000., anom*0.9, np.min(ydata)-0.1*np.max(ydata)]
-            high_bounds = [1.0*np.max(ydata),  30000., anom*1.1, np.min(ydata)+0.1*np.max(ydata)]
+            low_bounds =  [0.1*np.max(ydata), -30000., anom*0.5, np.min(ydata)-0.1*np.max(ydata)]
+            high_bounds = [1.0*np.max(ydata),  30000., anom*2, np.min(ydata)+0.1*np.max(ydata)]
             popt, pcov = curve_fit(func, xdata, ydata, bounds=(low_bounds,high_bounds))
             xarr = np.linspace(-100000.,100000,100)
             s1,x0,a1,o1 = src[a+'parms'][:,fidx,aidx]   # pk flux, offset, 1/e half-width
@@ -1220,11 +1246,12 @@ def solpnt2sql(t,tsql=None,prompt=True, desat=False):
     else:
         print 'Result was NOT written to the SQL database'
 
-def check_qual(x, qual):
+def check_qual(x, qual, nant=None):
     status = np.zeros(qual.shape,'S4')
     status[np.where(qual)] = 'Good'
     status[np.where(qual==False)] = '*Bad'
-    nparms,nf,nant = x['raparms'].shape
+    if nant is None:
+        nparms, nf, nant = x['raparms'].shape
     t = Time(x['ut_mjd'][0],format='mjd')
     print t.iso[:19],': Quality of TP Calibration'
     print '    Ant      X-Feed        Y-Feed'
@@ -1239,7 +1266,7 @@ def best_solpnt2sql(t):
         on a date given by Time() object t and send the best one to the SQL database.
     '''
     import cal_header as ch
-    ts, timestamp = solpnt.find_solpnt(t)
+    ts, timestamp, azeloff = solpnt.find_solpnt(t)
     pct_list = []   # List of percent-good quality (best will be used)
     tp_list = []    # List of results of solpntanal() for total power
     ac_list = []    # List of results of solpntanal() for autocorrelation
@@ -1294,7 +1321,7 @@ if __name__ == "__main__":
             exit()
 
     timestamp = t.lv  # Current timestamp
-    times, tstamp = solpnt.find_solpnt(t)
+    times, tstamp, azeloff = solpnt.find_solpnt(t)
     # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
     if len(times) == 0:
         # No SOLPNTCAL scans (yet)
@@ -1303,14 +1330,14 @@ if __name__ == "__main__":
     #elif type(times[0]) is np.ndarray:
     #    # Annoyingly necessary when only one time in tstamps
     #    times = times[0]
-    igt5 = np.where((timestamp - times) > 300)[0]
+    igt5 = np.where((timestamp - times) > 420)[0]
     if (Time.now().mjd - t.mjd) < 1:
         # This has a chance of being a "real-time" calibration, so make some further checks
         if len(igt5) == 0:
             # SOLPNTCAL scan in progress
             print t.iso[:19]+': SOLPNTCAL scan still in progress'
             exit()
-        if (timestamp - times[igt5[-1]]) > 600:
+        if (timestamp - times[igt5[-1]]) > 720:
             # Latest SOLPNTCAL scan is too old, so nothing to do
             print t.iso[:19]+': Last SOLPNTCAL scan too old. Age:',int(timestamp - times[igt5[-1]])/60,'minutes'
             exit()
@@ -1321,16 +1348,14 @@ if __name__ == "__main__":
  #   if socket.gethostname() == 'pipeline':
  #       x, y, qual = solpntanal(t,udb=True)
  #   elif socket.gethostname() == 'dpp':
-    x, y, qual = solpntanal(t,udb=False)  # NB: the desat keyword is irrelevant because udb=False
-    xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
- #   else:
- #       print 'CALIBRATION Error: This routine only runs on dpp or pipeline.'
- #       exit()
-    percent_good = check_qual(x, qual)
-    if percent_good > 50:
+    if t.mjd < Time('2023-10-20').mjd:
+        x, y, qual = solpntanal(t,udb=False)  # NB: the desat keyword is irrelevant because udb=False
+        xout,yout,dxout,dyout = sp_offsets(x,y,save_plot=True)
+        percent_good = check_qual(x, qual, nant=8)  #****Temporary due to only a few feeds working****
+        if percent_good > 50:
 #        if socket.gethostname() == 'dpp':
 #            # If this is the DPP, write the results to the SQL database automatically.
-        solpnt2sql(t,prompt=False, desat=True)
+            solpnt2sql(t,prompt=False, desat=True)
 #        else:
 #            # This is the old way of writing results to a disk file--should be removed...
 #            calfac, offsun = sp_get_calfac(x,y)
@@ -1342,6 +1367,14 @@ if __name__ == "__main__":
 #               x['ut_mjd'][0] = x['ut_mjd'][0]+1.   # Add one day to first timestamp
 #               sp_write_calfac(x,y,calfac,offsun)
 #               print "Also wrote tomorrow's file"
+        else:
+            print 'Calibration file not written--too many bad values.'
     else:
-        print 'Calibration file not written--too many bad values.'
+        # Date is after 2023 Oct 10, so use new VERY different calibration scheme
+        import solpnt_x as sx
+        tsolpnt = t
+        solout = sx.solpnt_xanal(tsolpnt)
+        offsets = sx.solpnt_offsets(solout,savefig=True)
+        calfac, offsun = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
+        print 'New-feed calibration written.'
     exit()  

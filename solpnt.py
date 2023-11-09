@@ -89,6 +89,11 @@
 #      The faroff (SKYCAL) values are only needed at low frequencies and can be deleterious
 #      in some cases, so they are now set to NaN for 2.75 GHz and above (so gaussfit will 
 #      ignore them)
+#   2023-Mar-13  DG
+#      Added axeloff parameter to allow SOLPNT to work with Azimuth/Elevation offset data.
+#   2023-Oct-13  DG
+#      Changes to interpret offsets for new antennas as Az-El offsets.  Old antennas
+#      continue to be RA-Dec offsets.  Applies only to dates after 2023-10-11.
 #
 
 import stateframe, stateframedef, struct, os, urllib2, sys
@@ -99,11 +104,14 @@ import numpy as np
 import datetime
 import matplotlib.pyplot as plt
 import util
+from coord_conv import radec2azel
+
+oldantlist = np.array([8,9,10,12])            # List of old antenna indexes
 
 if sys.platform[:5] == 'linux':
     from coord_conv import dradec2dazel
 
-def find_solpnt(t=None):
+def find_solpnt(t=None, azeloff=False):
     ''' Makes an SQL query to find the SOLPNTCAL scans for the date given in
         the Time() object t.  An array of timestamps is returned, along with 
         the timestamp of the object provided.
@@ -133,16 +141,19 @@ def find_solpnt(t=None):
     else:
         projdict = dict(zip(names,data))
         projdict['timestamp'] = projdict['timestamp'].astype('float')  # Convert timestamps from string to float
-    good = np.where(projdict['Project'] == 'SOLPNTCAL')[0]
+    if azeloff:
+        good = np.where(projdict['Project'] == 'AZELOFF')[0]
+    else:
+        good = np.where(projdict['Project'] == 'SOLPNTCAL')[0]
     if len(good) != 0:
         if len(good) == 1:
-            return np.array([projdict['timestamp'][good[0]]]), timestamp
+            return np.array([projdict['timestamp'][good[0]]]), timestamp, azeloff
         else:
-            return projdict['timestamp'][good], timestamp
+            return projdict['timestamp'][good], timestamp, azeloff
     else:
-        return np.array([]), timestamp
+        return np.array([]), timestamp, azeloff
 
-def get_solpnt(t=None, find=True):
+def get_solpnt(t=None, find=True, azeloff=False):
     ''' Get the SOLPNT data from the SQL database, occurring after 
         time given in the Time() object t.  If omitted, the first 
         SOLPNT scan for the current day is used (if it exists). 
@@ -153,7 +164,7 @@ def get_solpnt(t=None, find=True):
     '''
     import dbutil
     if find:
-        tstamps, timestamp = find_solpnt(t)
+        tstamps, timestamp, azeloff = find_solpnt(t, azeloff=azeloff)
         # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
         if len(tstamps) != 0:
             print 'SOLPNTCAL scans were found at ',        
@@ -212,19 +223,35 @@ def get_solpnt(t=None, find=True):
 #    vpol = np.zeros([15,300],dtype='float')
 #    ra = np.zeros(15,dtype='float')
 #    dec = np.zeros(15,dtype='float')
+    #import pdb; pdb.set_trace()
+    antlist = np.array(antlist)
     ra = (solpntdict['Ante_Cont_RAVirtualAxis'][:,antlist]*np.pi/10000./180.).astype('float')
     dec = (solpntdict['Ante_Cont_DecVirtualAxis'][:,antlist]*np.pi/10000./180.).astype('float')
     hpol = (solpntdict['Ante_Fron_FEM_HPol_Voltage'][:,antlist]).astype('float')
     vpol = (solpntdict['Ante_Fron_FEM_VPol_Voltage'][:,antlist]).astype('float')
-    rao = (solpntdict['Ante_Cont_RAOffset'][:,antlist]).astype('float')
-    deco = (solpntdict['Ante_Cont_DecOffset'][:,antlist]).astype('float')
+    if azeloff:
+        rao = (solpntdict['Ante_Cont_AzOffset'][:,antlist]).astype('float')
+        deco = (solpntdict['Ante_Cont_ElOffset'][:,antlist]).astype('float')
+    else:
+        if stimestamp > util.Time('2023-10-12').lv:
+            # Date is later than 2023-10-12, so use new azel feed pattern
+            oldidx, blah = util.common_val_idx(antlist,oldantlist)
+            # Default to AzEl offsets, valid for new antennas
+            rao  = (solpntdict['Ante_Cont_AzOffset' ][:,antlist]).astype('float')
+            deco = (solpntdict['Ante_Cont_ElOffset' ][:,antlist]).astype('float')
+            # Overwrite AzEL offsets at old antenna indexes with RADec offsets
+            rao[:,oldidx]  = (solpntdict['Ante_Cont_RAOffset' ][:,antlist[oldidx]]).astype('float')
+            deco[:,oldidx] = (solpntdict['Ante_Cont_DecOffset'][:,antlist[oldidx]]).astype('float')
+        else:
+            rao = (solpntdict['Ante_Cont_RAOffset'][:,antlist]).astype('float')
+            deco = (solpntdict['Ante_Cont_DecOffset'][:,antlist]).astype('float')
     times = solpntdict['Timestamp'][:,0].astype('int64').astype('float')
     # Convert pointing info to track information
     outdict = stateframe.azel_from_sqldict(solpntdict)
     trk = np.logical_and(outdict['dAzimuth'][:,antlist]<0.0020,outdict['dElevation'][:,antlist]<0.0020)
     
-    return {'Timestamp':stimestamp,'tstamps':times,'antlist':antlist,'trjfile':'SOLPNT.TRJ','ra':ra,'dec':dec,
-             'rao':rao,'deco':deco,'trk':trk,'hpol':hpol,'vpol':vpol}
+    return {'Timestamp':stimestamp,'tstamps':times,'antlist':antlist,'trjfile':'SOLPNT.TRJ',
+             'ra':ra,'dec':dec,'rao':rao,'deco':deco,'trk':trk,'hpol':hpol,'vpol':vpol}
              
              
 def process_solpnt(soldata,trj=None,antlist=None):
@@ -271,9 +298,12 @@ def process_solpnt(soldata,trj=None,antlist=None):
     # are tracking the correct declination)
     ra0 = np.median(soldata['ra'])
     dec0 = np.median(soldata['dec'])
+    # Get elevation center from RA, Dec, at 75 s past start of SOLPNT
+    az0, el0 = radec2azel(ra0, dec0, util.Time(soldata['Timestamp']+75,format='lv'))
     return {'Timestamp':soldata['Timestamp'],'tstamps':soldata['tstamps'],'antlist':antlist,
             'ra':soldata['ra'][:,antidx],'dec':soldata['dec'][:,antidx],'ra0':ra0,'dec0':dec0,
             'rao':  np.array(trjrao[:13])*np.cos(dec0), 'deco':np.array(trjdeco[13:]), 
+            'azo':np.array(trjrao[:13])*np.cos(el0),
             'hrao': hpol[:,:13], 'vrao': vpol[:,:13],
             'hdeco':hpol[:,13:], 'vdeco':vpol[:,13:], 'mask':mask}
 
@@ -337,7 +367,7 @@ def fitall(proc,plot=False,pp=None):
         ax[0,1].set_title('Dec Offset [blue=HPol, red=VPol]')
 
     # Temporary statement to make this work with no more than 7 antennas.
-    if nant > 7: nant = 7
+    # if nant > 7: nant = 7
     raoh =  np.zeros(nant,dtype='float')
     decoh = np.zeros(nant,dtype='float')
     raov =  np.zeros(nant,dtype='float')
@@ -583,7 +613,7 @@ def rd_tsys(tsysfile,sfreqfile):
     otp = {'ut_mjd':util.Time(tstamp[:j+1],format='lv').mjd,'fghz':sfreq[:nf],'tsys':np.swapaxes(out[:j+1,:nf,:],0,2),'header':header}
     return otp
 
-def process_tsys(otp, proc, pol=None, skycal=None):
+def process_tsys(otp, proc, pol=None, skycal={}):
     ''' OTP contains tsys, of size [nant, npol, nf, nt], ut_mjd of size [nt], fghz of size [nf]
             and a 4-line ascii header.  nant is 4 for prototype
         This only operates on one polarization at a time.  If npol = 2, use pol=0 and pol=1 in
@@ -640,12 +670,18 @@ def process_tsys(otp, proc, pol=None, skycal=None):
     deco = hpol[:,13:,:]  # Second 13 pointings are DECO
     # Handle skycal offsun modification, provided the number of frequencies
     # and number of antennas in skycal and solpnt match (they should!).  Otherwise, skip it.
-    if (not pol is None) and skycal:
+    if (not pol is None) and skycal != {}:
         skynant, skynpol, skynf = skycal['offsun'].shape
         if nf == skynf and nant == skynant:
             # Insert 10-degree offsets before and after actual offsets
             raopts = np.array([-100000.]+proc['rao'].tolist()+[100000.])
             decopts = np.array([-100000.]+proc['deco'].tolist()+[100000.])
+            try:
+                # Try to create parallel array of az offsets--will fail if data
+                # are from before 2023-10-12
+                azopts = np.array([-100000.]+proc['azo'].tolist()+[100000.])
+            except:
+                azopts = None
             faroff = np.swapaxes(skycal['offsun'][:,pol,:]-skycal['rcvr_bgd'][:,pol,:],0,1)
             faroff.shape = (nf,1,nant)
             # The faroff values are only needed for frequencies below about 2.75 GHz,
@@ -656,15 +692,19 @@ def process_tsys(otp, proc, pol=None, skycal=None):
             rao = np.concatenate((faroff,hpol[:,:13,:],faroff),1)
             deco = np.concatenate((faroff,hpol[:,13:,:],faroff),1)
     for iant in range(nant):
+        xdata = raopts
+        if not azopts is None and not iant in oldantlist:
+            # If azopts is not None (which can only happen after 2023-10-12) and this is
+            # not an old antenna, use azopts instead of raopts for the x coordinate positions.
+            xdata = azopts
         for ifreq in range(nf):
             ydata = rao[ifreq,:,iant]
             allzero = len(ydata.nonzero()[0]) == 0  # True if all data are zero
-            xdata = raopts
             ymax = np.nanmax(ydata)
             ymin = np.nanmin(ydata)
             yrange = ymax - ymin
-            low_bounds =  [0.1*yrange, -30000., aout[ifreq]*0.9, ymin - 0.1*yrange]
-            high_bounds = [1.0*yrange,  30000., aout[ifreq]*1.1, ymin + 0.1*yrange]    
+            low_bounds =  [0.1*yrange, -30000., aout[ifreq]*0.5, ymin - 0.1*yrange]
+            high_bounds = [1.0*yrange,  30000., aout[ifreq]*2.0, ymin + 0.1*yrange]    
             if allzero:
                 high_bounds[0] = 1  # Ensure that high bounds are greater than low bounds
                 high_bounds[3] = 1
@@ -672,14 +712,16 @@ def process_tsys(otp, proc, pol=None, skycal=None):
             #if iant == 1 and ifreq == 30:
             #    import pdb; pdb.set_trace()
             pra[:,ifreq,iant], x, y = gausfit(xdata, ydata, bounds=bounds)
+        xdata = decopts
+        for ifreq in range(nf):
             ydata = deco[ifreq,:,iant]
             allzero = len(ydata.nonzero()[0]) == 0  # True if all data are zero
-            xdata = decopts
             ymax = np.nanmax(ydata)
             ymin = np.nanmin(ydata)
             yrange = ymax - ymin
-            low_bounds =  [0.1*yrange, -30000., aout[ifreq]*0.9, ymin - 0.1*yrange]
-            high_bounds = [1.0*yrange,  30000., aout[ifreq]*1.1, ymin + 0.1*yrange]    
+            # width bounds are 0.9 to 1.1 nominally
+            low_bounds =  [0.1*yrange, -30000., aout[ifreq]*0.5, ymin - 0.1*yrange]
+            high_bounds = [1.0*yrange,  30000., aout[ifreq]*2.0, ymin + 0.1*yrange]    
 #            low_bounds =  [0.1*np.nanmax(ydata), -30000., aout[ifreq]*0.9, np.nanmin(ydata)-0.1*np.nanmax(ydata)]
 #            high_bounds = [1.0*np.nanmax(ydata),  30000., aout[ifreq]*1.1, np.nanmin(ydata)+0.1*np.nanmax(ydata)]
             if allzero:
