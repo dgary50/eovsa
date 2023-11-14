@@ -142,6 +142,9 @@
 #    Added azeloff parameter to allow SOLPNTANAL to work with Azimuth/Elevation offset data.
 #  2023-04-02  DG
 #    Fixed a couple of places where the above change was not fully accounted for.
+#  2023-11-13  DG
+#    Major change for newer data (after 2023-10-20) to use an entirely new solpnt
+#    scheme for the new feeds.
 #
 
 if __name__ == "__main__":
@@ -1375,6 +1378,6 @@ if __name__ == "__main__":
         tsolpnt = t
         solout = sx.solpnt_xanal(tsolpnt)
         offsets = sx.solpnt_offsets(solout,savefig=True)
-        calfac, offsun = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
+        tpcal_dict = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
         print 'New-feed calibration written.'
     exit()  
