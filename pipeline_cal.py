@@ -110,6 +110,10 @@
 #  2023-02-17  DG
 #    Add get_skycal() routine to read a SKYCAL record from SQL rather than creating one
 #    by reading from existing IDB files.
+#  2024-05-10  DG
+#    Important change! udb_corr() no longer fails if a TP calibration for a given day
+#    is not available.  Instead, it uses the nearest earlier calibration and writes
+#    a warning to the screen.
 #
 
 import dbutil as db
@@ -675,12 +679,13 @@ def udb_corr(filelist, outpath='./', calibrate=False, new=True, gctime=None, att
                 # Use current date at 20 UT
                 mjd = int(trange[0].mjd) + 20. / 24
             calfac = get_calfac(Time(mjd, format='mjd'))
+            coutu = apply_calfac(coutu, calfac)
+            print 'Applying calibration took', time.time() - t1, 's'
             if Time(calfac['sqltime'], format='lv').mjd == mjd:
-                coutu = apply_calfac(coutu, calfac)
-                print 'Applying calibration took', time.time() - t1, 's'
+                pass
             else:
-                print 'Error: no TP calibration for this date.  Skipping calibration.'
-        sys.stdout.flush()
+                print 'Warning: no TP calibration for this date.  Used previous calibration from',Time(calfac['sqltime'], format='lv').iso[:19]
+                sys.stdout.flush()
         filecount += 1
         if filecount == 1:
             x = coutu

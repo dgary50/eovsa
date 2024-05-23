@@ -105,6 +105,15 @@
 #   2023-Oct-12 DG
 #       Changed to attempt to read the stateframe multiple times until success. Fails
 #       only if it cannot read it after 100 tries.
+#   2024-Mar-09  DG
+#       Change bad FETemp line to yellow (warning) color.  Also made some cosmetic changes
+#       to the last few section headings.
+#   2024-Mar-20  DG
+#       Move "Last IDB File" section up to just below the Phase Tracking section and
+#       color it green if less than 15 min from the current time.
+#   2024-Apr-30  DG
+#       Temporary change to skip plotting Ant 10 temperature due to an interface board bug.
+#
 
 from Tkinter import *
 from ttk import *
@@ -345,10 +354,10 @@ class App():
                           font=font2use)
         self.L3.bind('<<ListboxSelect>>', self.toggle_heading)
         self.L3.pack(side=LEFT, fill=BOTH, expand=0)
-        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0, 1, 1]
+        self.sectionDisplayState = [1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1]
         self.colors = {'section0': '#757', 'section1': '#979',
                        'colhead': '#cfc', 'error': '#f88', 'warn': '#ff8',
-                       'na': '#ddd', 'offsets': '#feb'}
+                       'na': '#ddd', 'offsets': '#feb', 'good': '#8f8'}
 
         self.cryoLB = Listbox(fcryo, selectmode=SINGLE, width=102, height=46,
                           font=font2use)
@@ -1412,6 +1421,24 @@ class App():
                     # Gray out all lines if ant2 (or any ant other than 1) is all zeros 
                     self.L3.itemconfig(END,bg=self.colors['na'])
 
+        # ================= Section 9: Data Recording ===================
+        
+        t=Time.now() 
+        if int(t.mjd * 86400.0) % 60 == 0:
+            self.IDBfile = getIDBfile()
+        
+        heading = 'Data Recording--Last IDB File: '+self.IDBfile
+        self.L3.insert(END,heading)
+           
+        if self.IDBfile == "":
+            self.L3.itemconfig(END,bg=self.colors['error'])
+        else:
+            ct=Time(self.IDBfile[3:7]+"-"+self.IDBfile[7:9]+"-"+self.IDBfile[9:11]+" "+self.IDBfile[11:13]+":"+self.IDBfile[13:15]+":"+self.IDBfile[15:17])
+            if (t.mjd-ct.mjd)*86400 > 900.0:
+                self.L3.itemconfig(END,bg=self.colors['error'])
+            else:
+                self.L3.itemconfig(END,bg=self.colors['good'],fg='#000')
+        
         # ================= Section 5: Power and Attenuation ===================
         nsubarray = 0
         nbbad = 0
@@ -1518,11 +1545,11 @@ class App():
                     lairdtemp = stf.extract(data,sf['FEMA']['Thermal']['SecondStageTemp'])
                     line = '{:2d}     {:6.3f}       {:6.3f} K     --         --       --       --     ---     ---     ---'.format(i+1,fetemp,lairdtemp)
                 self.L3.insert(END,line)
+                if fetemp < 20 or fetemp > 30:
+                    self.L3.itemconfig(END,bg=self.colors['warn'])
                 if i == 13 and (lairdtemp < 10 or lairdtemp > 50):
                     self.L3.itemconfig(END,bg=self.colors['error'])
                 if i < 13 and (lairdtemp < 24 or lairdtemp > 26):
-                    self.L3.itemconfig(END,bg=self.colors['error'])
-                if fetemp < 20 or fetemp > 30:
                     self.L3.itemconfig(END,bg=self.colors['error'])
                 if not subarray1[i]:
                     self.L3.itemconfig(END,bg=self.colors['na'])
@@ -1595,34 +1622,16 @@ class App():
         if not self.sectionDisplayState[7]:
             headline = ' '+heading+' '*(100-len(heading)-len(expand))+expand
             self.L3.insert(END,headline)
-            self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
+            self.L3.itemconfig(END,bg=self.colors['section1'],fg=self.colors['na'])
         else:
             headline = ' '+heading+' '*(100-len(heading)-len(collapse))+collapse
             self.L3.insert(END,headline)
-            self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
+            self.L3.itemconfig(END,bg=self.colors['section1'],fg='white')
             for i in antindex:
                 parser = sf['Antenna'][i]['Parser']
                 an='  '+'{:2d}'.format(i+1)+":   "
                 self.L3.insert(END,an+stf.extract(data,parser['Command']).strip('\x00')+' '+str(stf.extract(data,parser['CommErr'])))
 
-        # ================= Section 9: Last IDB File ===================
-        
-        t=Time.now() 
-        if int(t.mjd * 86400.0) % 60 == 0:
-            self.IDBfile = getIDBfile()
-        
-        heading = 'Last IDB File: '+self.IDBfile
-        self.L3.insert(END,heading)
-           
-        if self.IDBfile == "":
-            self.L3.itemconfig(END,bg=self.colors['error'])
-        else:
-            ct=Time(self.IDBfile[3:7]+"-"+self.IDBfile[7:9]+"-"+self.IDBfile[9:11]+" "+self.IDBfile[11:13]+":"+self.IDBfile[13:15]+":"+self.IDBfile[15:17])
-            if (t.mjd-ct.mjd)*86400 > 900.0:
-                self.L3.itemconfig(END,bg=self.colors['error'])
-            else:
-                self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
-        
         # ================= Section 10: DPP Fix Packets Messages ===================
         
         t=Time.now()
@@ -1639,7 +1648,7 @@ class App():
                 line = 'CPUs Currently Used: {:2} {:2}'.format(self.dppcpu[0],self.dppcpu[1]).center(100-len(heading)-len(expand),'_')
             headline = ' '+heading+line+expand
             self.L3.insert(END,headline)
-            self.L3.itemconfig(END,bg=self.colors['section0'],fg=self.colors['na'])
+            self.L3.itemconfig(END,bg=self.colors['section1'],fg=self.colors['na'])
         else:
             if len(self.dppcpu) != 2:
                 line = 'CPUs Currently Used: Unknown!'.center(100-len(heading)-len(collapse),'_')
@@ -1647,7 +1656,7 @@ class App():
                 line = 'CPUs Currently Used: {:2} {:2}'.format(self.dppcpu[0],self.dppcpu[1]).center(100-len(heading)-len(collapse),'_')
             headline = ' '+heading+line+collapse
             self.L3.insert(END,headline)
-            self.L3.itemconfig(END,bg=self.colors['section0'],fg='white')
+            self.L3.itemconfig(END,bg=self.colors['section1'],fg='white')
             if len(self.dppmsg) <=5:
                 for msg in self.dppmsg:
                     self.L3.insert(END,msg)
@@ -1973,7 +1982,8 @@ class App():
         tim = Time(tm,format='lv').plot_date
         for i in range(13):
             self.sub_plot1.plot_date(tim,temps[:,i,0],label='Laird A'+str(i+1),marker=None,linestyle='-')
-            self.sub_plot1.plot_date(tim,temps[:,i,1],label='FEM A'+str(i+1),marker='.',markersize=0.5)
+            if i!=9: # will be removed when ant10's temperature is fixed
+                self.sub_plot1.plot_date(tim,temps[:,i,1],label='FEM A'+str(i+1),marker='.',markersize=0.5)
         # Plot Ant 14 temperatures in RED to highlight them somewhat
         self.sub_plot1.plot_date(tim,temps[:,13,0],label='A14 Cryo [K]',marker=None,color='red',linestyle='-')
         self.sub_plot1.plot_date(tim,temps[:,13,1],label='A14 FE Box'+str(i+1),marker='.',color='red',markersize=0.5)

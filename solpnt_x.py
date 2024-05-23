@@ -20,16 +20,33 @@
 #     Rather large change to add back autocorrelation calibration, which
 #     unfortunately nearly doubles the running time.  I thought it was not
 #     really needed, but it is critical for the correct running of udb_corr().
+#   2023-Dec-02  DG
+#     Fixed a problem where the apply_fem_level() was not applied (with the side
+#     effect that no attncal record was ever written)!
+#   2024-Jan-15  DG
+#     Cosmetic change to plot offset points with transparency (alpha=0.2).
+#   2024-Apr-29  DG
+#     Add attncal_from_solpnt_to_sql() routine to analyze and write to SQL
+#     the "new" GAINCAL information, which is now appended to a SOLPNTCAL scan.
+#   2024-May-22  DG
+#     Fixed a number of display glitches (some really stupid mistakes...).  Also
+#     fixed problem in attncal_from_solpnt_to_sql() that resulted in a new
+#     attncal record being written even when one existed already. Wow!  I just
+#     discovered that putting an Az offset into a 2-m azel antenna is really
+#     a cross-El offset, so I have been calculating it all wrong.  I have
+#     to update my trajectories (and the code here) to account for this.
 #
 import dbutil
 import stateframe
 import cal_header as ch
+from disk_conv import disk_conv
 import urllib2
 from util import Time, common_val_idx, ant_str2list
 from eovsa_array import eovsa_array
 from eovsa_tracktable import make_trajtables
 import read_idb
 from coord_conv import radec2azel
+import gaincal2 as gc
 import numpy as np
 from time import time
 import warnings
@@ -65,7 +82,7 @@ def solpnt_meta(tsolpnt):
     elo = (solpntdict['Ante_Cont_ElOffset'][:,antlist]).astype('float')
     times = solpntdict['Timestamp'][:,0].astype('int64').astype('float')
     outdict = stateframe.azel_from_sqldict(solpntdict)
-    trk = np.logical_and(outdict['dAzimuth'][:,antlist]<0.0020,outdict['dElevation'][:,antlist]<0.0020)
+    trk = outdict['TrackFlag'][:,antlist]
     meta = {'Timestamp':times[0],'tstamps':times,'antlist':antlist,'ra':ra,'dec':dec,'rao':rao,
            'deco':deco, 'azo':azo, 'elo':elo, 'trk':trk, 'bgmask':bgmask}
     print 'solpnt_meta took',time()-t1,'s'
@@ -149,6 +166,101 @@ def solpnt_addmask(meta,trajdict):
     meta.update({'mask':mask, 'ra0':ra0, 'dec0':dec0, 'az0':az0, 'el0':el0})
     print 'solpnt_addmask took',time()-t1,'s'
 
+def attncal_from_solpnt_to_sql(out, do_plot=False):
+    ''' Examines data from a "new" SOLPNTCAL scan to make sure it includes
+        GAINCAL data, and if so, calculates the attenuation differences for 
+        the various FEMATTN states 1-8 relative to FEMATTN state 0, and optionally 
+        plots the results for states 1 and 2 (the most commonly used).
+        
+        After a successful analysis, writes the result as an ATTNCAL SQL record.
+    '''
+    from util import get_idbdir, fname2mjd, nearest_val_idx
+    import attncal as ac
+    import socket
+    import dbutil
+
+    if len(out['time']) < 500:
+        # This scan is too short--probably taken before the era of GAINCALs as part of SOLPNT,
+        # or other data problem.  Return an empty dictionary.
+        return None
+
+    if do_plot:
+        import matplotlib.pylab as plt
+        f, ax = plt.subplots(4,13)
+        f.set_size_inches((14,5))
+        ax[0,0].set_ylabel('Atn1X [dB]')
+        ax[1,0].set_ylabel('Atn1Y [dB]')
+        ax[2,0].set_ylabel('Atn2X [dB]')
+        ax[3,0].set_ylabel('Atn2Y [dB]')
+        for i in range(13):
+            ax[0,i].set_title('Ant '+str(i+1))
+            ax[3,i].set_xlabel('Freq [GHz]')
+            for j in range(2):
+                ax[j,i].set_ylim(1,3)
+                ax[j+2,i].set_ylim(3,5)
+
+    # Get time from data (at 400th index, which should be the start of the GAINCAL data, 
+    # and read 120 records of attn state from SQL database
+    t = Time(out['time'][395],format='jd')
+    cursor = dbutil.get_cursor()
+    d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=t, nrecs=120)
+    cursor.close()
+    # Find time indexes of the 62 dB attn state
+    # Uses only ant 1 assuming all are the same
+    dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
+    # Use system clock day number to identify bad SQL entries and eliminate them
+    good, = np.where(d15['Ante_Cont_SystemClockMJDay'][:,0] != 0)
+    #import pdb; pdb.set_trace()
+    # Indexes into SQL records where a transition occurred.
+    transitions, = np.where(dtot[good] - np.roll(dtot[good],1) != 0)
+    # Eliminate any zero-index transition (if it exists)
+    if transitions[0] == 0:
+        transitions = transitions[1:]
+    # These now have to be translated into indexes into the data, using the times
+    idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
+    #import pdb; pdb.set_trace()
+    vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
+    va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
+    vals = []
+    attn = []
+    for i in range(1,10):
+        try:
+            vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
+            attn.append(np.log10(vals[0]/vals[-1])*10.)
+        except IndexError:
+            if i > 6:
+                print 'Warning: GAINCAL for dB step',i,'missing. Nominal 2dB attenuation added.'
+                attn.append(attn[-1]+2.)  # The gaincal was short.  Just add 2 dB to previous.
+            else:
+                print 'Error: GAINCAL scan is present but mangled.'
+                raise
+        #vals = []
+        #attna = []
+        #for i in range(1,10):
+        #    vals.append(np.median(out['a'][:13,:2,:,np.arange(idx[i],idx[i+1])],3) - va)
+        #    attna.append(np.log10(vals[0]/vals[-1])*10.)
+        
+    if do_plot:
+        for i in range(13):
+            for j in range(2):
+                ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
+                #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
+                ax[j+2,i].plot(out['fghz'],attn[2][i,j],'.',markersize=3)
+                #ax[j+2,i].plot(out['fghz'],attna[2][i,j],'.',markersize=1)
+    outdict = {'time': Time(out['time'][0],format='jd'),'fghz': out['fghz'], 
+                        'rcvr_auto':va, # 'attna': np.array(attna[1:]), 
+                        'rcvr':vx, 'attn': np.array(attn[1:])}
+
+    attn = ac.read_attncal(t)   # Attempt to read attn from SQL
+    if attn[0]['time'].iso == outdict['time'].iso:
+        print 'Attenuation record already exists in SQL--not updated.'
+    else:
+        print 'Writing attenuations to SQL for',outdict['time'].iso
+        ch.fem_attn_val2sql([outdict])
+
+    return outdict
+
+
 def solpnt_read(meta):
     ''' Reads the data from the disk and removes the background.
 
@@ -160,22 +272,32 @@ def solpnt_read(meta):
            Also adds fghz to meta.
     '''
     warnings.filterwarnings("ignore", category=RuntimeWarning)
+    #import pdb; pdb.set_trace()
     t1 = time()
     trange = Time([meta['Timestamp'],meta['Timestamp']+nsec],format='lv')
     # Determine skycal from the solpntcal file itself
     filename = read_idb.get_trange_files(trange)
-    out = read_idb.readXdata(filename[0])
+    out = read_idb.readXdata(filename[0],desat=True)
     nt = len(out['time'])
+    # This is the number of accumulations for each frequency (should be the same for all
+    # antennas, polarizations, and times, but this does a median over all just to be
+    # sure there are no glitches.
+    mval = np.nanmedian(np.nanmedian(np.nanmedian(out['m'],3),0),0)
+    # Conversion factor to scale power to autocorrelation
+    # NB: The factor 102 was determined empirically and will likely change if the 
+    # equalizer coefficient (current 2) is changed. (2023-Nov-23)
+    p2afac = np.max(mval)/(102*mval)
     tsecsql = meta['tstamps']
-    # The miriad times are slightly off from exact times, so round to the ms
+    # The miriad times are slightly off from exact times, so round to the msec
     tsecdata = (Time(out['time']-2400000.5,format='mjd').lv + 0.001).astype('int64').astype('float')
     sqlidx, dataidx = common_val_idx(tsecsql, tsecdata)
     bg = np.zeros_like(out['p'][:nant,:,:,0])
     bgauto = np.zeros_like(out['p'][:nant,:,:,0])
     for ant in range(nant):
         bg[ant] = np.nanmedian(out['p'][ant,:,:,dataidx[np.where(meta['bgmask'][sqlidx,ant])]],0)
-        bgauto[ant] = np.nanmedian(np.real(out['a'][ant,:2,:,dataidx[np.where(meta['bgmask'][sqlidx,ant])]]),0)
-    skycal = {'timestamp':meta['Timestamp'], 'fghz':out['fghz'], 'rcvr_bgd':bg, 'rcvr_bgd_auto':bgauto}  # Just copies bg to auto-correlation background
+        bgauto[ant,0] = bg[ant,0]*p2afac
+        bgauto[ant,1] = bg[ant,1]*p2afac
+    skycal = {'timestamp':meta['Timestamp'], 'fghz':out['fghz'], 'rcvr_bgd':bg, 'rcvr_bgd_auto':bgauto}
     # Check if skycal record exists in SQL database, and write it if not
     xml, buf = ch.read_cal(13, trange[0])
     sqlmjd = Time(stateframe.extract(buf, xml['Timestamp']), format='lv').mjd  # Date of existing skycal record
@@ -185,14 +307,24 @@ def solpnt_read(meta):
         print 'Skycal record written to SQL.'
     else:
         print 'Skycal record already exists in SQL database--not updated.'
-    # Subtract background receiver level from data
-    sna, snp, snf = bg.shape
-    bgd  =  bg.repeat(nt).reshape((sna,snp,snf,nt))
-    out['p'][:13] -= bgd
+    # Analyze current gain state (this also writes attncal record to SQL if needed, 
+    # so return value is not used)
+    attn = attncal_from_solpnt_to_sql(out)
+    if attn is None:
+        print 'Warning: SOLPNTCAL has no appended GAINCAL'
+    cout = gc.apply_fem_level(out, skycal=skycal)
+    # Subtract background receiver level from data (already done in apply_fem_level...)
+    #sna, snp, snf = bg.shape
+    #bgd  =  bg.repeat(nt).reshape((sna,snp,snf,nt))
+    #out['p'][:13] -= bgd
+    #sna, snp, snf = bgauto.shape
+    #bgdauto  =  bgauto.repeat(nt).reshape((sna,snp,snf,nt))
+    #out['a'][:13,:2] -= bgdauto
     meta.update({'fghz':out['fghz']})
     print 'solpnt_read took',time()-t1,'s'
     return {'source':out['source'], 'fghz':out['fghz'], 'ut_mjd':out['time']-2400000.5, 
-            'tsys':out['p'], 'auto':np.real(out['a'][:,:2]), 'dataidx':dataidx, 'sqlidx':sqlidx}
+            'tsys':cout['p'], 'auto':np.real(cout['a'][:,:2]), 'dataidx':dataidx, 
+            'sqlidx':sqlidx, 'skycal':skycal, 'p2afac':p2afac}
 
 
 def solpnt_applymask(otp, meta):
@@ -211,12 +343,9 @@ def solpnt_applymask(otp, meta):
     sqlidx = otp['sqlidx']
     tsys0 = otp['tsys'][:nant,0,:,dataidx]               # Size nt, 13, 451
     tsys1 = otp['tsys'][:nant,1,:,dataidx]
-    auto0 = otp['auto'][:nant,0,:,dataidx]               # Size nt, 13, 451
-    auto1 = otp['auto'][:nant,1,:,dataidx]
     m = meta['mask'][sqlidx]   # Size nt, 13, 28
     npt = len(m[0,0,:])
     tsyspts = np.zeros([nf,npt,nant,npol],'float')    # The actual fluxes for each frequency, offset, and antenna
-    autopts = np.zeros([nf,npt,nant,npol],'float')    # The auto-corr fluxes for each frequency, offset, and antenna
     # Step through pointings, applying mask
     for ipnt in range(npt):
         for iant in range(nant):
@@ -224,15 +353,11 @@ def solpnt_applymask(otp, meta):
             if len(good) == 0:
                 # This pointing location had no good tracking, so set values to Nan
                 tsyspts[:,ipnt,iant,:] = np.nan
-                autopts[:,ipnt,iant,:] = np.nan
             else:
                 # Set values to median of good-tracking period
                 tsyspts[:,ipnt,iant,0] = np.median(tsys0[good,iant,:],0)
                 tsyspts[:,ipnt,iant,1] = np.median(tsys1[good,iant,:],0)
-                autopts[:,ipnt,iant,0] = np.median(auto0[good,iant,:],0)
-                autopts[:,ipnt,iant,1] = np.median(auto1[good,iant,:],0)
     otp.update({'tsyspts':tsyspts})
-    otp.update({'autopts':autopts})
     print 'solpnt_applymask took',time()-t1,'s'
 
 def gausfit(X,data, bounds=None):
@@ -263,7 +388,7 @@ def gausfit(X,data, bounds=None):
     #plt.plot(x,peval(x, plsq[0]), X, data, 'o')
     return popt,x,y
 
-def solpnt_gaussfit(otp, auto=False):
+def solpnt_gaussfit(otp):
     ''' Perform Gaussian fits to the SOLPNT data for each antenna, frequency, and 
         polarization, and return the parameters of the fit (and the flux measurement
         at each offset).
@@ -271,8 +396,6 @@ def solpnt_gaussfit(otp, auto=False):
         Inputs:
            otp         The dictionary containing background-subtracted data (returned from 
                          solpnt_read() after solpnt_applymask() has been run).
-           auto        Boolean switch.  If true, do fitting to autocorrelation data,
-                         otherwise (default) fit total power data.
         
         Outputs:
            params      The dictionary of fit parameters and flux measurements at each offset.
@@ -293,15 +416,11 @@ def solpnt_gaussfit(otp, auto=False):
     '''
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     t1 = time()
-    from disk_conv import disk_conv
     fghz, a, aout = disk_conv(otp['fghz'])
     aout *= 10000./(2*np.sqrt(np.log(2)))
 
     xpts = np.array([-100000, -50000, -20000, -10000, -5000, -2000, -1000, 0, 1000, 2000, 5000, 10000, 20000, 50000])
-    if auto:
-        tsyspts = otp['autopts']
-    else:
-        tsyspts = otp['tsyspts']
+    tsyspts = otp['tsyspts']
     nf, npnt, nant, npol = tsyspts.shape
     px = np.zeros([4,nf,nant],'float')  # Array of gaussian fits
     pcrossx = np.zeros([4,nf,nant],'float')  # Array of gaussian fits
@@ -389,13 +508,33 @@ def solpnt_xanal(tsolpnt):
         Outputs:
            solpnt       A dictionary containing all of the products of the SOLPNTCAL analysis.
     '''
+    from copy import deepcopy
     meta = solpnt_meta(tsolpnt)
     trajdict = solpnt_trajectory(tsolpnt)
     solpnt_addmask(meta, trajdict)
     otp = solpnt_read(meta)
     solpnt_applymask(otp, meta)
     params = solpnt_gaussfit(otp)
-    autoparams = solpnt_gaussfit(otp, auto=True)
+    mjd = Time(meta['Timestamp'].astype(int),format='lv').mjd
+    if mjd < Time('2024-05-22 21:10').mjd:
+        # Prior to this date, there was an error in the trajectories for
+        # azel antennas 1-8 (not 12), where azoff was really cross-eloff.
+        # This is a rough correction for the fit parameters for those antennas.
+        params['px'][1:2,:,:8] /= np.cos(meta['el0'])
+        params['py'][1:2,:,:8] /= np.cos(meta['el0'])
+        params['pcrossx'][1:2,:,:8] /= np.cos(meta['el0'])
+        params['pcrossy'][1:2,:,:8] /= np.cos(meta['el0'])
+    autoparams = deepcopy(params)
+    for ant in antidx:
+        # Create autoparams by scaling flux parameters from params
+        autoparams['px'][0,:,ant] *= otp['p2afac']
+        autoparams['px'][3,:,ant] *= otp['p2afac']
+        autoparams['pcrossx'][0,:,ant] *= otp['p2afac']
+        autoparams['pcrossx'][3,:,ant] *= otp['p2afac']
+        autoparams['py'][0,:,ant] *= otp['p2afac']
+        autoparams['py'][3,:,ant] *= otp['p2afac']
+        autoparams['pcrossy'][0,:,ant] *= otp['p2afac']
+        autoparams['pcrossy'][3,:,ant] *= otp['p2afac']
     solpnt = {'meta':meta, 'trajdict':trajdict, 'otp':otp, 
               'params':params, 'autoparams':autoparams}
     return solpnt
@@ -427,6 +566,7 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
     px = params['px']
     py = params['py']
     fghz = meta['fghz']
+    mjd = Time(solout['meta']['Timestamp'].astype(int),format='lv').mjd
     f, ax = plt.subplots(1,1)
     xoff = np.zeros(nant)
     yoff = np.zeros(nant)
@@ -448,7 +588,7 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
     raoff = cross_decoff/np.cos(meta['dec0'])
     for i in antidx:
         ax.plot((px[1,200:300,i]-py[1,200:300,i])*cp4,
-            -(px[1,200:300,i]+py[1,200:300,i])*cp4,'.')
+            -(px[1,200:300,i]+py[1,200:300,i])*cp4,'.',alpha=0.2)
     for i in antidx:
         ax.plot(cross_eloff[i],eloff[i],'k*')
         ax.plot([cross_eloff[i]-dx[i]*cp4,cross_eloff[i]+dx[i]*cp4],
@@ -478,7 +618,7 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
             ax[ant].set_title('Ant '+str(ant+1)+' [blue=RA, red=Dec]')
             xdecoff = (px[1,:,ant]-py[1,:,ant])*cp4
             raoff_ = -xdecoff/np.cos(meta['dec0']) # NB: RA has opposite sign
-            decoff_ = (px[1,:,ant]+py[1,:,ant])*cp4
+            decoff_ = -(px[1,:,ant]+py[1,:,ant])*cp4
             ax[ant].plot(fghz, raoff_,'.',color='skyblue')  
             ax[ant].plot(fghz, decoff_,'.',color='salmon')
             ax[ant].plot([fghz[0],fghz[-1]],[raoff[ant],raoff[ant]],'b')
@@ -487,7 +627,7 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
             ax[ant].set_title('Ant '+str(ant+1)+' [blue=Az, red=El]')
             xeloff = (px[1,:,ant]-py[1,:,ant])*cp4
             azoff_ = xeloff/np.cos(meta['el0'])
-            eloff_ = (px[1,:,ant]+py[1,:,ant])*cp4
+            eloff_ = -(px[1,:,ant]+py[1,:,ant])*cp4
             ax[ant].plot(fghz, azoff_,'.',color='skyblue')
             ax[ant].plot(fghz, eloff_,'.',color='salmon')
             ax[ant].plot([fghz[0],fghz[-1]],[azoff[ant],azoff[ant]],'b')
@@ -585,7 +725,6 @@ def solpnt_bsize(inparams, meta=None):
         meta = inparams['meta']
     else:
         params = inparams
-    from disk_conv import disk_conv
     fghz, a, aout = disk_conv(meta['fghz'])
     aout *= 10000./(2*np.sqrt(np.log(2)))
     px = params['px']
@@ -610,7 +749,6 @@ def params2calfac(s, params, fghz):
     ''' Helper routine for solpnt_calfac, to repeat all steps for both total power
         and autocorrelation.
     '''
-    from disk_conv import disk_conv
     fg, a, aout = disk_conv(fghz)
     aout *= 10000./(2*np.sqrt(np.log(2)))
     a *= 10000.
@@ -647,7 +785,7 @@ def params2calfac(s, params, fghz):
         offsun[1,:,ant] = (params['py'][3,:,ant] + params['pcrossy'][3,:,ant])/2  # arb. units
     return calfac, offsun
 
-def solpnt_calfac(inparams, meta=None, do_plot=False, prompt=True):
+def solpnt_calfac(inparams, do_plot=False, prompt=True):
     ''' Reads the RSTN/Penticton flux, fits to the observed frequencies, and applies
         them to the antenna solar response in input dictionaries x and y to return
         the calibration factors with which to MULTIPLY solar data to convert to solar
@@ -660,13 +798,10 @@ def solpnt_calfac(inparams, meta=None, do_plot=False, prompt=True):
         TODO: These need to be scaled for gain state
     '''
     import matplotlib.pylab as plt
-    if meta is None:
-        params = inparams['params']
-        autoparams = inparams['autoparams']
-        meta = inparams['meta']
-    else:
-        params = inparams
     import rstn
+    params = inparams['params']
+    autoparams = inparams['autoparams']
+    meta = inparams['meta']
 
     t = Time(meta['Timestamp'],format='lv')
     fghz = meta['fghz']
@@ -694,10 +829,12 @@ def solpnt_calfac(inparams, meta=None, do_plot=False, prompt=True):
         ax[13].set_xlabel('Frequency [GHz]')
 
     tpcalfac, tpoffsun = params2calfac(s, params, fghz)
-    accalfac, acoffsun = params2calfac(s, autoparams, fghz)
+    accalfac, acoffsun = params2calfac(s, autoparams, fghz)   # I could replace this by scaling from params
     if do_plot:
         for ant in antidx:
+            s1 = params['px'][0,:,ant]
             ax[ant].plot(fghz,s1*tpcalfac[0,:,ant],'.',color='skyblue',label='X-Feed')
+            s1 = params['py'][0,:,ant]
             ax[ant].plot(fghz,s1*tpcalfac[1,:,ant],'.',color='salmon',label='Y-Feed')
             #ax[ant].plot(fghz,s2*calfac[1,:,ant],'.',color='khaki',label='Y-cross-Feed')
             ax[ant].set_ylim(0,600)
@@ -737,6 +874,7 @@ def solpnt_check_offsets(solpnt,offsets,ant):
         yoff = solpnt['trajdict']['trjelo']
         y0 = solpnt['meta']['el0']
         xsign = 1
+    antfac = abs(np.float64(xoff[0])/yoff[0])
     px = solpnt['params']['px'][1,200:300,ant]
     py = solpnt['params']['py'][1,200:300,ant]
     f.suptitle(Time(solpnt['meta']['Timestamp'],format='lv').iso+' Ant '+str(ant+1))
@@ -749,11 +887,11 @@ def solpnt_check_offsets(solpnt,offsets,ant):
             ax[k].plot(xoff[i], yoff[i],'.',markersize=adx[i]*30/adxmax,color='C0',alpha=0.5)
         for i in range(14,28):
             ax[k].plot(xoff[i], yoff[i],'.',markersize=ady[i-14]*30/adymax,color='C0',alpha=0.5)
-        ax[k].axis('square')
-        ax[k].set_xlim(-5000,5000)
+        #ax[k].axis('square')
+        ax[k].set_xlim(-5000*antfac,5000*antfac)
         ax[k].set_ylim(-5000,5000)
         if k in [6, 7, 8]:
-            ax[k].set_xlabel('Az or -RA')
+            ax[k].set_xlabel('-Az or RA')
         if k in [0,3,6]:
             ax[k].set_ylabel('El or Dec')
         if ant in oldidx:
@@ -777,7 +915,19 @@ def sp_check_qual(solpnt):
     for i in range(nant):
         # Beamsize must be within 10 percent of nominal value
         val = np.median(solpnt['params']['px'][2,:400,i]/aout)
-        qual[0,i] = val < 0.9 and val > 0.7
+        qual[0,i] = val < 1.0 and val > 0.7
         val = np.median(solpnt['params']['py'][2,:400,i]/aout)
-        qual[1,i] = val < 0.9 and val > 0.7
+        qual[1,i] = val < 1.0 and val > 0.7
     return qual
+
+# Problem--the autocorr parameters are time-consuming to calculate and can be different than 
+# the total power parameters, leading to an incorrect calibration.  It turns out that I can 
+# predict the autocorr values from total power by
+
+# solout['autoparams']['px'][0,:,ant] = solout['params']['px'][0,:,ant]/104./(outc['m'][ant,0,:,0]/745472.)
+
+# where outc['m'] are the m values for the data.  
+
+# In other words, these two commands give essentially the same plot:
+#plot(solout['autoparams']['px'][0,:,2]+solout['autoparams']['px'][3,:,2],'.')
+#plot((solout['params']['px'][0,:,2]+solout['params']['px'][3,:,2])/104./(outc['m'][2,0,:,0]/745472.),'.')

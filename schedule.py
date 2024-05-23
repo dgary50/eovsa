@@ -369,6 +369,22 @@
 #   2023-Nov-09  DG
 #       Update $MK_TRAJ to do something special with Ant 12, which doesn't act like
 #       the other AzEl dishes.
+#   2023-Dec-07  DG
+#       I am having an issue with properly connecting to the ROACH boards, so I put
+#       in a loop to try 10 times.
+#   2024-Apr-02  DG
+#       Changes to attempt to make the code more resilient to ACC problems. Step 1:
+#       on failure to read delay centers from SQL, use the file in /tmp.
+#   2024-May-12  DG
+#       Changes to allow tracking the STOW position (meaning a tracktable is created and
+#       the position is phase tracked).  To invoke, use TRACKSTOW in the schedule, and
+#       create a corresponding TRACKSTOW.ctl to do what you want at that position.
+#   2024-May-13  DG
+#       Added $GRAB-VNA command to setup and grab traces from the Rhode&Schwarz ZNL VNA.
+#       Call as $GRAB-VNA SETUP to set up the VNA, then $GRAB-VNA HATTN 0 5 ant10 to set
+#       the given receiver state and actually grab the data.  Such data would be written to
+#       ./traces/<date>_<time>_h_0_5_ant10.csv.  The scripts that are run are in ./traces/scripts.
+#       The setup call takes at least 20 s.  Each trace grab will take about 3 s.
 #
 
 import os, signal
@@ -385,7 +401,7 @@ import subprocess
 import roach
 from eovsa_tracktable import *
 from eovsa_array import *
-from eovsa_lst import eovsa_ha
+from eovsa_lst import eovsa_ha, eovsa_lst
 from math import pi
 from readvla import *
 import chan_info_52 as ci
@@ -1023,9 +1039,14 @@ class App():
             if self.roaches[-1].msg == 'Success':
                 print roach_ip,'serving ants',self.roaches[-1].ants,'is reachable'
                 if self.roaches[-1].ants is None:
-                    print roach_ip,'ants is None, so retry the connection.'
+                    print roach_ip,'ants is None, so retry the connection 10 times.'
                     # Something weird happened, so retry the connection
-                    self.roaches[-1] = roachModule.Roach(roach_ip, boffile_name)
+                    for itry in range(10):
+                        self.roaches[-1].fpga.disconnect()
+                        self.roaches[-1] = roachModule.Roach(roach_ip)
+                        if not self.roaches[-1].ants is None:
+                            print 'Got good connection on try:', itry+1
+                            break
                     if self.roaches[-1].msg != 'Success':
                         print 'Reconnect failed.'
                     else:
@@ -2338,6 +2359,16 @@ class App():
             sh_dict['source_id'] = cmds[1]
             sh_dict['track_mode'] = 'RADEC '
             print 'Source is',cmds[1]
+        elif cmds[0].upper() == 'TRACKSTOW':
+            sh_dict['project'] = 'TRACKSTOW'
+            sh_dict['source_id'] = 'STOW'
+            sh_dict['track_mode'] = 'FIXED '
+            # Stow position is defined (for this purpose) as the current LST and Dec=34 deg
+            ra = eovsa_lst(Time.now())
+            dec = 34*np.pi/180.
+            geosat = aipy.amp.RadioFixedBody(ra,dec,name='STOW')
+            self.aa.cat.add_srcs([geosat,geosat])
+            sf_dict['geosat'] = geosat    # Use geosat_tab in $MK_TABLES
         elif cmds[0].upper() == 'GEOSAT' or cmds[0].upper() == 'DELAYCAL':
             sh_dict['project'] = 'GEOSAT'
             sh_dict['source_id'] = cmds[1].replace('_',' ')
@@ -2372,15 +2403,15 @@ class App():
         else:
             # Default project is just the first command on line (truncate to 32 chars)
             sh_dict['project'] = cmds[0][:32]
-            print 'Default project:',cmds[0][:32]
             if len(cmds) == 1:
                 # Case of only one string on command line
                 sh_dict['source_id'] = 'None'
             else:
                 # Default source ID is second string on command line (truncate to 12 chars)
                 sh_dict['source_id'] = cmds[1][:12]
-            print 'Default source:',sh_dict['source_id']
             sh_dict['track_mode'] = 'FIXED '        
+        print Time.now().iso[:22],'Project:',sh_dict['project']
+        print 'Source:',sh_dict['source_id']
         lines = f2.readlines()
         for ctlline in lines:
             # Check for hash mark (#) in line other than first character
@@ -2623,30 +2654,6 @@ class App():
                     # Do any tasks here that are required to start a new scan
                     sys.stdout.write('Started new scan\n')
 
-                    # This block commented out 2020-08-09 due to too-likely failure.  The setting of
-                    #   self.lorx is now done on sending an RX-SELECT LO command
-                    # # Check for Ant 14 low-frequency receiver status
-                    # self.lorx = False   # Default (normal) position is high frequency receiver
-                    # # Check Ant 14 Receiver Position Status
-                    # data, msg = stateframe.get_stateframe(self.accini)
-                    # FEMA = self.accini['sf']['FEMA']
-                    # if stateframe.extract(data,FEMA['Timestamp']) != 0:
-                        # # This is a valid record, so proceed
-                        # if stateframe.extract(data,FEMA['PowerStrip']['RFSwitchStatus']) == 0:
-                            # # The switch position is right for LoRX
-                            # RX_pos = stateframe.extract(data,FEMA['FRMServo']['RxSelect']['Position']) + stateframe.extract(data,FEMA['FRMServo']['RxSelect']['PositionError'])
-                            # if RX_pos < 150.:
-                                # # Consistent with LoRX being in position, or heading there, so set as True
-                                # self.lorx = True
-                                # print 'Ant 14 delays will be set for LO-Frequency Receiver'
-                            # else:
-                                # print 'Ant 14 outlet set for LO-Frequency Receiver, but RxSelect position is wrong.'
-                                # print 'Ant 14 delays will be set for HI-Frequency Receiver.'
-                        # else:
-                            # print 'Ant 14 delays will be set for HI-Frequency Receiver.'
-                    # else:
-                        # print 'LO-Frequency Receiver check failed due to bad (0) stateframe.'
-
                     # ************ This block commented out due to loss of SQL **************
                     xml, buf = cal_header.read_cal(4)
                     try:
@@ -2666,19 +2673,36 @@ class App():
                             f.write(fmt.format(i + 1, *dcenters[i]))
                         f.close()
                         time.sleep(0.1)  # Make sure file has time to be closed.
+                    except:
+                        print util.Time.now().iso,'SQL connection for delay centers failed.  Existing delay center used.'
+                        dcenters = None
+                    try:
                         f = open('/tmp/delay_centers.txt', 'r')
                         acc = FTP('acc.solar.pvt')
                         acc.login('admin', 'observer')
                         acc.cwd('parm')
                         # Send DCM table lines to ACC
                         print acc.storlines('STOR delay_centers.txt', f)
-                        f.close()
                         print 'Successfully wrote delay_centers.txt to ACC'
+                        f.close()
+                        if dcenters is None:
+                            # Something went wrong with reading the delay centers from SQL, so get them from the file.
+                            f = open('/tmp/delay_centers.txt', 'r')
+                            lines = f.readlines()
+                            dcenters = np.zeros((16, 2), 'float')
+                            for line in lines:
+                                if line[0] != '#':
+                                    ant, xdla, ydla = line.strip().split()
+                                    dcenters[int(ant) - 1] = np.array([float(xdla), float(ydla)])
+                            if self.lorx:
+                                # If the LO-frequency receiver is active, put delays in slot for Ant 15 into Ant 14
+                                dcenters[13] = dcenters[14]
                         
                         sh_dict['dlacen']  = dcenters[:,0]
                         sh_dict['dlaceny'] = dcenters[:,1]
                     except:
-                        print util.Time.now().iso,'SQL connection for delay centers failed.  Delay center not updated'
+                        print util.Time.now().iso,'Writing delay centers to ACC failed.  Delay center not updated.'
+
                     # ************* End of block ****************
                     # Replaced by:
                     # delaydict = cal_header.ACCdlatable2dict()
@@ -2869,21 +2893,28 @@ class App():
                 elif ctlline.split()[0].upper() == '$PA-TRACK':
                     # Track 27-m focus rotation mechanism to correct for parallactic angle 
                     # of given antenna (does nothing if antenna not correctly specified)
-                    #   Usage: $PA-TRACK ant4 <CROSSED>
+                    #   Usage: $PA-TRACK ant4 <CROSSED> | <offset-angle>
                     print 'Got '+ctlline.split()[0].upper()+' command.'
                     if self.PAthread is None or not self.PAthread.is_alive():
                         # Thread is not already running, so it is safe to proceed
+                        oangle = 0.0
                         antstr = ctlline.strip().split()[1].upper()
                         crossed = False
                         if len(ctlline.strip().split()) == 3:
                             if ctlline.strip().split()[2].upper() == 'CROSSED':
                                 crossed = True
+                            else:
+                                anglestr = ctlline.strip().split()[2]
+                                try:
+                                    oangle = float(anglestr)
+                                except:
+                                    print 'PA-TRACK offset angle',anglestr,'not convertable to float.'
                         print 'Given antenna is '+antstr
                         try:
                             # Spawn the stateframe.PA_adjust() routine to update PA once/minute
                             antn = pcapture2.ant_str2list(antstr)[0]
                             print 'Antenna index is',antn
-                            self.PAthread = threading.Thread(target=stateframe.PA_adjust,kwargs={'ant':antn,'crossed':crossed})
+                            self.PAthread = threading.Thread(target=stateframe.PA_adjust,kwargs={'ant':antn,'crossed':crossed,'offset_angle':oangle})
                             self.PAthread.daemon = True
                             self.PAthread.start()
                             print 'PAthread started.'
@@ -2897,6 +2928,28 @@ class App():
                     # abort may not be acted upon until up to 1 s later.
                     if self.PAthread and self.PAthread.is_alive():
                         stateframe.q.put_nowait('Abort')
+                #==== VNA_capture ====
+                elif ctlline.split()[0].upper() == '$GRAB-VNA':
+                    # Set receiver state and call grabvna.sh to grab VNA trace.
+                    # Example: call as $GRAB_VNA setup, then $GRAB_VNA HATTN 0 5 ant10
+                    if ctlline.split()[1].upper() == 'SETUP':
+                        subprocess.Popen(['/bin/bash','./traces/scripts/setup_vna.sh','&'])
+                        print 'Calling setup_vna.sh'
+                    else:
+                        axis, atn1, atn2, ant = ctlline.split()[1:]
+                        tstr = util.Time.now().iso[:19].replace('-','').replace(' ','_').replace(':','')
+                        try:
+                            # Send commands to update antenna trip information
+                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            s.connect((self.accini['host'],self.accini['scdport']))
+                            s.send(axis+' '+atn1+' '+atn2+' '+ant)
+                            time.sleep(0.01)
+                            s.close()
+                        except:
+                            pass
+                        vnafilename = './traces/'+tstr+'_'+axis[:1]+'_'+atn1+'_'+atn2+'_'+ant+'.cvs'
+                        print 'Calling grabvna.sh',vnafilename
+                        subprocess.Popen(['/bin/bash','./traces/scripts/grabvna.sh',vnafilename])
                 #==== TRIPS ====
                 elif ctlline.split()[0].upper() == '$TRIPS':
                     try:

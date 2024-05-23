@@ -19,6 +19,10 @@
 #      Added make_trajtables() routine.
 #   2023-Oct-22  DG
 #      Changed sign of El/Dec sweep to start at higher point and sweep lower.
+#   2024-May-22  DG
+#      Important change!  I dicovered that the azel 2 m antennas use cross-el
+#      rather than az units for offsets!  Removed divide by cos(alt) for dates
+#      after today.
 #
 import aipy, ephem, numpy
 import util
@@ -133,7 +137,12 @@ def make_geosattable(sat,aa,mjd1=None,mjd2=None,dt=1/24.):
     '''
     
     if sat is None:
-        return 'No GEOSAT defined!  Tracktable not generated.'    
+        print 'GEOSAT is None, so will track STOW position.'
+        sat.name = 'STOW'
+        sat.ra = 0.
+        sat.dec = 34.
+        sat = aipy.amp.RadioFixedBody(sat.ra,sat.dec,name=sat.name)
+        aa.cat.add_srcs([sat,sat])
 
     # if called without start and stop times, set start and stop times to now and 1 day from now
     if mjd1 is None:
@@ -222,9 +231,8 @@ def make_trajtables(srcname, aa, fname, mjd=None):
         return 'Source ',srcname,' not found in catalog!  Trajtables not generated.'
     
     if mjd is None:
-        aa.date = Time.now().mjd - 15019.5
-    else:
-        aa.date = mjd - 15019.5
+        mjd = Time.now().mjd
+    aa.date = mjd - 15019.5
     src = aa.cat[srcname]
     src.compute(aa)
     alt = src.alt
@@ -245,9 +253,15 @@ def make_trajtables(srcname, aa, fname, mjd=None):
     try:
         f = open('/tmp/'+fname+'.azel', 'w')
         for i in range(len(xoff)):
-            f.write(str(int( xoff[i]/cos(alt)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+            if mjd < Time('2024-05-22 21:20').mjd:
+                f.write(str(int( xoff[i]/cos(alt)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+            else:
+                f.write(str(int(xoff[i]))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
         for i in range(len(xoff)):
-            f.write(str(int(-xoff[i]/cos(alt)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+            if mjd < Time('2024-05-22 21:20').mjd:
+                f.write(str(int(-xoff[i]/cos(alt)))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
+            else:
+                f.write(str(int(-xoff[i]))+' '+str(int(-xoff[i]))+' '+str(toff[i])+'\n')
         f.close()
         f = open('/tmp/'+fname+'.radec', 'w')
         for i in range(len(xoff)):

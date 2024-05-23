@@ -145,6 +145,12 @@
 #  2023-11-13  DG
 #    Major change for newer data (after 2023-10-20) to use an entirely new solpnt
 #    scheme for the new feeds.
+#  2024-05-01  DG
+#    Change behavior of __main__ call, now analyzes latest SOLPNT when called without
+#    arguments, or exact time when a time is given on the command line.  Expected to be
+#    run on Pipeline.
+#  2024-05-04  DG
+#    Updates to calpnt_multi() to work over a day boundary and to deal with data gaps.
 #
 
 if __name__ == "__main__":
@@ -171,6 +177,10 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
            Source name, Time, HA, Dec, RA offset and Dec offset
     '''
     fdb = dump_tsys.rd_fdb(trange[0])
+    if int(trange[1].mjd) > int(trange[0].mjd):
+        fdb2 = dump_tsys.rd_fdb(trange[1])
+        for k,v in fdb2.items():
+            fdb[k] = np.concatenate((fdb[k],fdb2[k]))
     #calpnt2m = False   # Flag to indicate whether we are doing CALPNT2M analysis
     if calpnt2m:
         # Search for CALPNT2M
@@ -340,6 +350,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     #import pdb; pdb.set_trace()
     # Read pointing data (timerange t must be accurate)
     outo = read_idb.read_idb(filelist, navg=30)
+    print "Number of times in data",outo['time'].shape,"(Needs to be 16+)"
     # Perform feed rotation correction
     out = read_idb.unrot(outo)
     # Determine wanted baselines with ant 14 from ant_str
@@ -356,27 +367,36 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     if pltfac == 1.:
         # Case of 27m antenna pointing
         # Do appropriate sums over frequency, polarization and baseline
-        ##--This line replaces all of the lines marked with ##
-        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2,:,:48],1),1)),0)
-        ##if abschi >= 0 and abschi < np.pi/6:
-        ##    pntdata = np.sum(np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1)),0)  # Use only XX
-        ##elif abschi >= np.pi/6 and abschi < np.pi/3:
-        ##    pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
-        ##    pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],:,:,:48],2)),0)  # Use sum of XX and XY for ants <= 8
-        ##    pntdata = pntdata1 + np.sum(pntdata2[np.array([0,2])],0)
-        ##else:
-        ##    pntdata1 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx1,13],0,:,:48],1)),0)  # Use XX only for ants > 8
-        ##    pntdata2 = np.sum(np.abs(np.sum(out['x'][bl2ord[idx2,13],2,:,:48],1)),0)  # Use sum of XY for ants <= 8
-        ##    pntdata = pntdata1 + pntdata2
-        # Measurements are 90 s long, hence 3 consecutive 30 s points, so do final
-        # sum over these
-        pntdata.shape = (16,3)
-        stdev = np.std(pntdata,1)
-        pntdata = np.sum(pntdata,1)
+        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2],1),1)),0)
+        tarray = np.zeros(50)
+        pntarray = np.zeros(50)
+        k = 0
+        tarray[0] = out['time'][0]
+        pntarray[0] = pntdata[0]
+        # Fill in time gaps with nans
+        for i in range(1,len(out['time'])):
+            dt = out['time'][i] - tarray[k]
+            while dt > 32./86400:   # Should be 30, but add 2 s to give room for a little slop
+                # This is a time gap
+                k += 1
+                tarray[k] = tarray[k-1]+30./86400.   # Add 30 s to "current" time
+                pntarray[k] = np.nan                 # Insert NaN
+                dt = out['time'][i] - tarray[k]
+            k += 1
+            tarray[k] = out['time'][i]
+            pntarray[k] = pntdata[i]
+        pntarray = pntarray[:48]
+        pntarray.shape = (16,3)
+        stdev = np.nanstd(pntarray,1)
+        pntdata = np.nansum(pntarray,1)
         radat = pntdata[:8]
         decdat = pntdata[8:]
-        plsqr, xr, yr = solpnt.gausfit(rao, radat)
-        plsqd, xd, yd = solpnt.gausfit(deco, decdat)
+        #               peak flux      offset   beamwidth  background
+        low_bounds =  [      1.,        -0.2,     0.05,        0.]
+        high_bounds = [1.5*max(np.max(pntdata),1), 0.2,     0.15,        1.]
+        bounds = (low_bounds,high_bounds)
+        plsqr, xr, yr = solpnt.gausfit(rao, radat, bounds=bounds)
+        plsqd, xd, yd = solpnt.gausfit(deco, decdat, bounds=bounds)
         midtime = Time((out['time'][0] + out['time'][-1])/2.,format='jd')
         if (do_plot):
             if ax is None:
@@ -1306,19 +1326,25 @@ if __name__ == "__main__":
         Usage: python /common/python/current/calibration.py "2014-12-15 18:30"
         where the time string is optional.  If omitted, the current time is used.
         
-        The logic is to check whether there is a new SOLPNTCAL available, and
-        analyze it if so.  Compares times from solpnt.find_solpnt() with current
-        time and analyzes any that are between 5 and 10 minutes old.
+        Check whether there is a new SOLPNTCAL available, and
+        analyze it if so.
+        Behavior depends on date:
+          Before 2024-05-01: Compares times from solpnt.find_solpnt() with current or specified
+                             time and analyzes any that are between 5 and 10 minutes earlier.
+                             Normally this is run from the DPP.
+          After 2024-05-01: If time given on command line, analyze solpnt for that time,
+                             otherwise analyze the latest solpnt scan for the current date.
+                             Normally this is run from Pipeline
         
-        Normally this is run from the DPP, in which case the results are now
-        written to the SQL database.  The old method of writing to a file is
-        now to be discouraged, and probably will not work on pipeline anyway.
+        The results are written to the SQL database.
     '''
     arglist = str(sys.argv)
     t = Time.now()
+    tgiven = False
     if len(sys.argv) == 2:
         try:
             t = Time(sys.argv[1])
+            tgiven = True
         except:
             print 'Cannot interpret',sys.argv[1],'as a valid date/time string.'
             exit()
@@ -1328,26 +1354,32 @@ if __name__ == "__main__":
     # Find first SOLPNTCAL occurring after timestamp (time given by Time() object)
     if len(times) == 0:
         # No SOLPNTCAL scans (yet)
-        print t.iso[:19]+': No SOLPNTCAL scans for today'
+        print t.iso[:19]+': No SOLPNTCAL (yet) scans for today'
         exit()
     #elif type(times[0]) is np.ndarray:
     #    # Annoyingly necessary when only one time in tstamps
     #    times = times[0]
-    igt5 = np.where((timestamp - times) > 420)[0]
-    if (Time.now().mjd - t.mjd) < 1:
-        # This has a chance of being a "real-time" calibration, so make some further checks
-        if len(igt5) == 0:
-            # SOLPNTCAL scan in progress
-            print t.iso[:19]+': SOLPNTCAL scan still in progress'
-            exit()
-        if (timestamp - times[igt5[-1]]) > 720:
-            # Latest SOLPNTCAL scan is too old, so nothing to do
-            print t.iso[:19]+': Last SOLPNTCAL scan too old. Age:',int(timestamp - times[igt5[-1]])/60,'minutes'
-            exit()
-        # Looks like this is the right "age" and ready to be analyzed
-        # Wait 30 s to ensure scan is done.
-        time.sleep(30)
-    t = Time(times[igt5[-1]],format='lv')
+    if t.mjd > Time('2024-05-01').mjd:
+        # New behavior after 2024-05-01
+        if not tgiven: 
+            t = Time(times[-1],format='lv')  # Just analyze the latest scan for the selected day
+            
+    else:    
+        igt5 = np.where((timestamp - times) > 420)[0]
+        if (Time.now().mjd - t.mjd) < 1:
+            # This has a chance of being a "real-time" calibration, so make some further checks
+            if len(igt5) == 0:
+                # SOLPNTCAL scan in progress
+                print t.iso[:19]+': SOLPNTCAL scan still in progress'
+                exit()
+            if (timestamp - times[igt5[-1]]) > 720:
+                # Latest SOLPNTCAL scan is too old, so nothing to do
+                print t.iso[:19]+': Last SOLPNTCAL scan too old. Age:',int(timestamp - times[igt5[-1]])/60,'minutes'
+                exit()
+            # Looks like this is the right "age" and ready to be analyzed
+            # Wait 30 s to ensure scan is done.
+            time.sleep(30)
+        t = Time(times[igt5[-1]],format='lv')
  #   if socket.gethostname() == 'pipeline':
  #       x, y, qual = solpntanal(t,udb=True)
  #   elif socket.gethostname() == 'dpp':
@@ -1377,7 +1409,13 @@ if __name__ == "__main__":
         import solpnt_x as sx
         tsolpnt = t
         solout = sx.solpnt_xanal(tsolpnt)
-        offsets = sx.solpnt_offsets(solout,savefig=True)
+        offsets = sx.solpnt_offsets(solout,savefig=True)  # Creates the pointing plot
         tpcal_dict = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
+        qual = sx.sp_check_qual(solout)
+        print t.iso[:19],': Quality of TP Calibration'
+        print 'Ant  X-Feed  Y-Feed'
+        print '---  ------  ------'
+        for ant in range(13):
+            print '{:3d} '.format(ant+1), '  Good  ' if qual[0,ant] else '  *Bad  ', '  Good  ' if qual[1,ant] else '  *Bad  '
         print 'New-feed calibration written.'
     exit()  

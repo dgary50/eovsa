@@ -113,6 +113,9 @@
 #   2023-02-17  DG
 #      Added a new calibration type 13, SKYcal, and added skycal2xml() and skycal2sql() routines to write
 #      it to the abin table.
+#   2024-05-23  DG
+#      Added a purge [p] option to delete_cal(), due to recent glitch in code that resulted in a LOT of
+#      redundant records...use with caution!
 
 import struct, util
 import stateframe as sf
@@ -1530,7 +1533,8 @@ def copy_cal(type, tfrom=None, tto=None):
 def delete_cal(type, t=None, relax=False):
     ''' Locate the calibration record for the given time, verify that it is of the
         correct type, and request the user to chose ID to delete.  Also requires user
-        to confirm deletion. 
+        to confirm deletion. Added a purge [p] option, which deletes all but the most
+        recent record--use with caution!
         
         type:   Calibration type from cal_types()
         t:      The specified time in the form of a Time() object, which is the time of 
@@ -1565,12 +1569,24 @@ def delete_cal(type, t=None, relax=False):
             ctypestr = cal_types()[ctype][0]
             tiso = util.Time(int(data['Timestamp'][i]),format='lv').iso
             print data['Id'][i],tiso,ctypestr
-        ids = raw_input('Enter ID number(s) of record(s) to delete [xxxx yyyy zzzz]: ')
+        ids = raw_input('Enter ID number(s) of record(s) to delete [xxxx yyyy zzzz] or purge [p]: ')
+        if len(ids) == 0: return False
         try:
             idlist = [int(i) for i in ids.split(' ')]
         except:
-            print 'ID list not understood.'
-            return False
+            if ids.split()[0].upper() == 'P':
+                ids = sorted(data['Id'])
+                for id in ids[:-1]:
+                    cursor.execute('delete from abin where Id = '+str(id)+' and Timestamp = '+sqltime)
+                print 'Ready to delete IDs:', ids[:-1]
+                ans = raw_input('Are you sure you want to delete these records [y/n]?')
+                if ans.upper() == 'Y':
+                    cursor.commit()
+                    cursor.close()
+                    return True
+            else:
+                print 'ID list not understood.'
+                return False
         for id in idlist:
             k, = np.where(id in data['Id'])
             if len(k) == 1:

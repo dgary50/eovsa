@@ -34,6 +34,8 @@
 #    there was more than one GAINCALTEST on the specific date.  Now it
 #    prompts the user to enter a choice.  Not ideal, but this is a rare
 #    occurrence.
+#  2023-12-16  DG
+#    Added check and error handling for a short GAINCAL.
 #
 from util import Time
 import numpy as np
@@ -140,8 +142,16 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         vals = []
         attn = []
         for i in range(1,10):
-            vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
-            attn.append(np.log10(vals[0]/vals[-1])*10.)
+            try:
+                vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
+                attn.append(np.log10(vals[0]/vals[-1])*10.)
+            except IndexError:
+                if i > 6:
+                    print 'Warning: GAINCAL for dB step',i,'missing. Nominal 2dB attenuation added.'
+                    attn.append(attn[-1]+2.)  # The gaincal was short.  Just add 2 dB to previous.
+                else:
+                    print 'Error: GAINCAL scan is present but mangled.'
+                    raise
         #vals = []
         #attna = []
         #for i in range(1,10):

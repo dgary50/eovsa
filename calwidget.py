@@ -47,6 +47,8 @@
 #    Handle error-return from dbutil.a14_wscram().
 #  2021-08-09  DG
 #    Change use_date() to consider an observing day as timerange 8:40 UT - 8:40 UT + 1 day
+#  2024-04-28  DG
+#    Change use_date() to consider an observing day as timerange 7:12 UT - 7:12 UT + 1 day
 #
 
 import matplotlib
@@ -532,7 +534,7 @@ class App():
         fig.suptitle('')
         self.ab_fig_info[0].canvas.draw()
         
-        trange = Time([mjd+0.35,mjd+1.35],format='mjd')
+        trange = Time([mjd+0.3,mjd+1.3],format='mjd')
         self.scan_dict = findscans(trange)
         sd = self.scan_dict
 #        self.pc_scanbox.delete(0, Tk.END)

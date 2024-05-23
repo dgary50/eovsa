@@ -603,7 +603,7 @@ def azel_from_sqldict(sqldict, antlist=None):
             'dElevation':delv,'ActualElevation':el_act,'RequestedElevation':el_req,
             'ParallacticAngle':chi/dtor, 'TrackFlag':trackflag, 'TrackSrcFlag':tracksrcflag}
             
-def PA_adjust(ant=None, crossed=False):
+def PA_adjust(ant=None, crossed=False, offset_angle=0):
     ''' Spawned task to check the changing parallactic angle of given
         antenna and rotate the position angle of the focus rotation
         mechanism on Ant14 to counteract it.  Checks for Abort message
@@ -648,8 +648,8 @@ def PA_adjust(ant=None, crossed=False):
                 chi = 180. - chi
             elif chi < -90:
                 chi = 180. + chi
-            pa_to_send = -np.int(chi)   # Desired rotation angle is -chi
-            current_pa = np.int(extract(data,pakey)+0.5)
+            pa_to_send = -np.int(chi)+offset_angle   # Desired rotation angle is -chi
+            current_pa = np.int(extract(data,pakey)+0.5)+offset_angle
             if pa_to_send != current_pa:
                 # Current PA is different from new one, so rotate feed to new position.
                 adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)

@@ -132,6 +132,8 @@
 #    Added an nmax parameter to read_idb() and readXdata() to override previous limitation
 #    of reading only 600 times from a file.  With the new 20-ms files there can be 30000
 #    records in a 10-min file!
+#  2024-03-29  DG
+#    Change unrot() to agree with the one in pipeline_cal.py.
 #
 
 import aipy
@@ -1274,9 +1276,10 @@ def unrot(data, azeldict=None):
     # Ensure that nearest valid parallactic angle is used for times in the data
     good = np.where(azeldict['ActualAzimuth'] != 0)
     tidx = []  # List of arrays of indexes for each antenna
+    gd = []
     for i in range(14):
-        gd = good[0][np.where(good[1] == i)]
-        tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd].jd))
+        gd.append(good[0][np.where(good[1] == i)])
+        tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd[i]].jd))
 
     # Read X-Y Delay phase from SQL database and get common frequencies
     xml, buf = ch.read_cal(11, t=trange[0])
@@ -1315,16 +1318,21 @@ def unrot(data, azeldict=None):
                 k = bl2ord[i, j]
                 ti = tidx[i][n]
                 tj = tidx[j][n]
-#                if track[ti, i] and track[tj, j]:
-                dchi = chi[ti, i] - chi[tj, j]
-                cchi = np.cos(dchi)
-                schi = np.sin(dchi)
-                cdata['x'][k, 0, :, n] = data['x'][k, 0, :, n] * cchi + data['x'][k, 3, :, n] * schi
-                cdata['x'][k, 2, :, n] = data['x'][k, 2, :, n] * cchi + data['x'][k, 1, :, n] * schi
-                cdata['x'][k, 3, :, n] = data['x'][k, 3, :, n] * cchi - data['x'][k, 0, :, n] * schi
-                cdata['x'][k, 1, :, n] = data['x'][k, 1, :, n] * cchi - data['x'][k, 2, :, n] * schi
-#                else:
-#                    cdata['x'][k, :, :, n] = np.nan
+                if track[ti, i] and track[tj, j]:
+                    # If something goes wrong with chi difference calculation, just default to chi = 0
+                    try:
+                        dchi = chi[gd[i][ti], i] - chi[gd[j][tj], j]
+#                        dchi = -chi[gd[i][ti], i] + chi[gd[j][tj], j]  # Try opposite sign of rotation *****
+                    except:
+                        dchi = 0.0
+                    cchi = np.cos(dchi)
+                    schi = np.sin(dchi)
+                    cdata['x'][k, 0, :, n] = data['x'][k, 0, :, n] * cchi + data['x'][k, 3, :, n] * schi
+                    cdata['x'][k, 2, :, n] = data['x'][k, 2, :, n] * cchi + data['x'][k, 1, :, n] * schi
+                    cdata['x'][k, 3, :, n] = data['x'][k, 3, :, n] * cchi - data['x'][k, 0, :, n] * schi
+                    cdata['x'][k, 1, :, n] = data['x'][k, 1, :, n] * cchi - data['x'][k, 2, :, n] * schi
+                else:
+                    cdata['x'][k, :, :, n] = np.nan
 
     # Set flags for any missing frequencies (hopefully this also works when "missing" is np.array([]))
     # cdata['x'][missing] = np.ma.masked

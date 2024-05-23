@@ -315,6 +315,8 @@ def xdata_display(t,ax=None):
                 files.append(path+file)
             # data, uvw, fghz, times = gd.get_X_data(files)
             out = ri.read_idb(files)
+            print 'Files read at',Time.now()
+            print files
             #out = ri.flag_sk(out)  # Skip flagging for sk
             fghz = out['fghz']
             times = Time(out['time'],format='jd')
@@ -561,7 +563,7 @@ if __name__ == "__main__":
                 else:
                     plt.plot_date(uti,yran[1]*np.array([0.97,0.97]),ls='-',marker='None',color='#ffaaaa',lw=2,solid_capstyle='butt')
     datstr = t.iso[:10].replace('-','')
-    plt.savefig('/common/webplots/flaremon/FLM'+datstr+'.png',bbox_inches='tight')
+    #plt.savefig('/common/webplots/flaremon/FLM'+datstr+'.png',bbox_inches='tight')
     plt.close(f)
     print 'Plot written to /common/webplots/flaremon/FLM'+datstr+'.png'
     # Copy the most recent two files to fixed names so that the web page can find them.

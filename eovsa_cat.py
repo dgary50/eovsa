@@ -22,6 +22,13 @@
 #  2019-Apr-06  DG
 #    Apparently I had the wrong GPS elements text file.  It should
 #    have been https://celestrak.com/NORAD/elements/gps-ops.txt.  Now fixed.
+#  2024-Apr-25  DG
+#    Apparently celestrak.com is now celestrak.org.  The calling sequence for the
+#    files also changed, apparently (although the direct URL to text files also
+#    works in some cases).  Here are the URLs:
+#      GEO: https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle
+#      GPS: https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle
+#      O3B: https://celestrak.org/NORAD/elements/gp.php?GROUP=other-comm&FORMAT=tle
 
 import aipy, ephem, numpy
 from math import cos, sin
@@ -64,7 +71,7 @@ def load_geosats():
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
     try:
-        f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/geo.txt')
+        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle')
     except urllib2.URLError as err:
         print 'Error reading GEO satellite web file:', err
         return []
@@ -95,7 +102,7 @@ def load_gpssats():
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
     try:
-        f = urllib2.urlopen('https://celestrak.com/NORAD/elements/gps-ops.txt')
+        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle')
     except urllib2.URLError as err:
         print 'Error reading GPS satellite web file:', err
         return []
@@ -125,7 +132,7 @@ def load_o3bsats():
     '''
     # Retrieve TLE file for o3b satellites from Celestrak site.
     try:
-        f = urllib2.urlopen('http://www.celestrak.com/NORAD/elements/other-comm.txt')
+        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=other-comm&FORMAT=tle')
     except urllib2.URLError as err:
         print 'Error reading ob3 satellite web file:', err
         return []
