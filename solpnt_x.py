@@ -566,7 +566,7 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
     px = params['px']
     py = params['py']
     fghz = meta['fghz']
-    mjd = Time(solout['meta']['Timestamp'].astype(int),format='lv').mjd
+    mjd = Time(meta['Timestamp'].astype(int),format='lv').mjd
     f, ax = plt.subplots(1,1)
     xoff = np.zeros(nant)
     yoff = np.zeros(nant)
@@ -915,9 +915,9 @@ def sp_check_qual(solpnt):
     for i in range(nant):
         # Beamsize must be within 10 percent of nominal value
         val = np.median(solpnt['params']['px'][2,:400,i]/aout)
-        qual[0,i] = val < 1.0 and val > 0.7
+        qual[0,i] = val < 1.1 and val > 0.9
         val = np.median(solpnt['params']['py'][2,:400,i]/aout)
-        qual[1,i] = val < 1.0 and val > 0.7
+        qual[1,i] = val < 1.1 and val > 0.9
     return qual
 
 # Problem--the autocorr parameters are time-consuming to calculate and can be different than 

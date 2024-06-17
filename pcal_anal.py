@@ -27,6 +27,8 @@
 #    Temporarily commented out check for Windscram due to loss of SQL
 #  2023-Oct-29 DG
 #    Added back the Windscram check.
+#  2024-Jun-17 DG
+#    Belatedly added back the windscram check.
 #
 
 import numpy as np
@@ -191,7 +193,6 @@ def graph(f,navg=None,path=None):
     times, wscram, avgwind = db.a14_wscram(trange)
     nwind = len(wscram)
     nbad = np.sum(wscram)
-    nbad = 0    # Skip Windscram check
     if nbad != 0:
         warn = ' --> Windscram! ('+str(nbad)+' of '+str(nwind)+')'
         color = '#d62728'   # Plot points with "warning" Red color

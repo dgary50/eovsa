@@ -53,6 +53,11 @@
 #    remove the now-redundant GAINCALTEST scans...
 #  2024-04-30  DG
 #    Finally removed the now-redundant GAINCALTEST scans.
+#  2024-05-25  DG
+#    Adjust sunrise for dates between May 10 and July 31 by 10 min to account for
+#    shadowing by Black Mt.
+#  2024-05-30  DG
+#    Change end STOW line to REWIND.
 #
 
 import os
@@ -372,6 +377,8 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
     refcal1 = refcalsrcs[0][np.where(iday - np.array(refcaltrans[0]) >= 0.0)[0][-1]]
     refset = (te[refcal1]-nday*0.0027378 + 1.0) % 1
     sunrise = sun['taz_rise'][nday].mjd % 1
+    if iday > 130 and iday < 212:
+        sunrise += 600./86400.
     rc1end = min(refset,sunrise)
     rc1start = rc1end - refdur/1440.
     lines = []
@@ -533,14 +540,14 @@ def make_sched(sun=None, t=None, ax=None, verbose=False):
     lines.append('{:} {:} {:} {:}'.format(Time(imjd + rc2start + 4./1440.,format='mjd').iso[:19],'PHASECAL_LO',calnames[refcal2],'pcal_lo.fsq'))
     lines.append('{:} {:}'.format(Time(imjd + rc2start + 24./1440.,format='mjd').iso[:19],'HISELECT'))
     lines.append('{:} {:} {:} {:}'.format(Time(imjd + rc2start + 25./1440.,format='mjd').iso[:19],'PHASECAL',calnames[refcal2],'pcal_hi-all.fsq'))
-    lines.append('{:} {:}'.format(Time(imjd + rc2start + 85./1440.,format='mjd').iso[:19],'STOW'))
+    lines.append('{:} {:}'.format(Time(imjd + rc2start + 85./1440.,format='mjd').iso[:19],'REWIND'))
     if verbose:
         print Time(imjd + rc2start,format='mjd').iso[:19],'ACQUIRE',calnames[refcal2]
         print Time(imjd + rc2start + 1./1440.,format='mjd').iso[:19],'LOSELECT'
         print Time(imjd + rc2start + 4./1440.,format='mjd').iso[:19],'PHASECAL_LO',calnames[refcal2],'pcal_lo.fsq'
         print Time(imjd + rc2start + 24./1440.,format='mjd').iso[:19],'HISELECT'
         print Time(imjd + rc2start + 25./1440.,format='mjd').iso[:19],'PHASECAL',calnames[refcal2],'pcal_hi-all.fsq'
-        print Time(imjd + rc2start + 85./1440.,format='mjd').iso[:19],'STOW'
+        print Time(imjd + rc2start + 85./1440.,format='mjd').iso[:19],'REWIND'
     if ax:
         ax.plot([rc2start,rc2start+refdur/1440.],[imjd,imjd],color='C0',alpha=0.25)
     lines = chk_sched(lines)
