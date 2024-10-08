@@ -380,11 +380,15 @@
 #       the position is phase tracked).  To invoke, use TRACKSTOW in the schedule, and
 #       create a corresponding TRACKSTOW.ctl to do what you want at that position.
 #   2024-May-13  DG
-#       Added $GRAB-VNA command to setup and grab traces from the Rhode&Schwarz ZNL VNA.
-#       Call as $GRAB-VNA SETUP to set up the VNA, then $GRAB-VNA HATTN 0 5 ant10 to set
-#       the given receiver state and actually grab the data.  Such data would be written to
-#       ./traces/<date>_<time>_h_0_5_ant10.csv.  The scripts that are run are in ./traces/scripts.
-#       The setup call takes at least 20 s.  Each trace grab will take about 3 s.
+#       Added $GRAB-VNA command to setup and grab traces from the Rhode&Schwarz ZNL 
+#       VNA. Call as $GRAB-VNA SETUP to set up the VNA, then $GRAB-VNA HATTN 0 5 ant10
+#       to set the given receiver state and actually grab the data.  Such data would be
+#       written to ./traces/<date>_<time>_h_0_5_ant10.csv.  The scripts are in 
+#       ./traces/scripts. The setup call takes at least 20 s.  Each trace grab will 
+#       take about 3 s.
+#    2024-Aug-20  DG
+#       Eliminated a long-standing bug that crashed on error writing stateframe to SQL.
+#       It still exits, but with error message.
 #
 
 import os, signal
@@ -1995,7 +1999,7 @@ class App():
                 #sys.stdout.flush()
                 self.sql['cnxn'].commit()
             except Exception as e:
-                if len(e) > 1:
+                try:
                     if str(e[1]).find('COMMIT TRANSACTION request has no corresponding BEGIN TRANSACTION') != -1:
                         # This exception just means that the entry was already inserted
                         pass
@@ -2003,7 +2007,7 @@ class App():
                         # This exception could be a real error
                         print e
                         self.error = 'Err: Cannot write stateframe to SQL'
-                else: 
+                except: 
                     print e
                     # This exception could be a real error
                     self.error = 'Err: Cannot write stateframe to SQL'

@@ -180,7 +180,9 @@ def allday_udb(t=None, doplot=True, goes_plot=True, savfig=False, savfits=False,
         out = gc.apply_gain_corr(out)
     trange = Time(out['time'][[0,-1]], format = 'jd')
     fghz = out['fghz']
-    pdata = np.nansum(np.nansum(np.abs(out['x'][0:11,:]),1),0)  # Spectrogram to plot
+    bl2use = np.array([0,1,2,3,4,5,6,7,8,9,10])
+    bl2use = np.array([0,2,3,4,6,7,8,9,10])
+    pdata = np.nansum(np.nansum(np.abs(out['x'][bl2use,:]),1),0)  # Spectrogram to plot
     if savfits:
         print "***************** PDATA OUTPUT *********"
         print pdata.shape

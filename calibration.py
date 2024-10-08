@@ -151,6 +151,8 @@
 #    run on Pipeline.
 #  2024-05-04  DG
 #    Updates to calpnt_multi() to work over a day boundary and to deal with data gaps.
+#  2024-09-03  DG
+#    Update to NOT write a total power calibration if too many bad measurements.
 #
 
 if __name__ == "__main__":
@@ -1409,13 +1411,23 @@ if __name__ == "__main__":
         import solpnt_x as sx
         tsolpnt = t
         solout = sx.solpnt_xanal(tsolpnt)
-        offsets = sx.solpnt_offsets(solout,savefig=True)  # Creates the pointing plot
-        tpcal_dict = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
         qual = sx.sp_check_qual(solout)
+        offsets = sx.solpnt_offsets(solout,savefig=True)  # Creates the pointing plot
         print t.iso[:19],': Quality of TP Calibration'
         print 'Ant  X-Feed  Y-Feed'
         print '---  ------  ------'
-        for ant in range(13):
+        ngood = 0.
+        nant = 13
+        for ant in range(nant):
+            if qual[0,ant]:
+                ngood += 1
+            if qual[1,ant]:
+                ngood += 1
             print '{:3d} '.format(ant+1), '  Good  ' if qual[0,ant] else '  *Bad  ', '  Good  ' if qual[1,ant] else '  *Bad  '
-        print 'New-feed calibration written.'
+        percent_good = ngood*100./(2.*nant)
+        if percent_good > 50:
+            tpcal_dict = sx.solpnt_calfac(solout,do_plot=False,prompt=False)
+            print 'New-feed calibration written.'
+        else:
+            print 'Calibration file not written--too many bad values.'
     exit()  

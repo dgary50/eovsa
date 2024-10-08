@@ -14,6 +14,9 @@
 #     that was sometimes occurring, I changed xydelay_anal() to read the npzfiles and
 #     correct the offending scan, and then changed get_xy_corr() accordingly to take
 #     the already read-in data as input.
+#   2024-Sep-27  DG
+#     Slight update to eliminate Ant 14 from antlist, if it is there, since we only
+#     want to know the selection of 2-m antennas. 
 #
 import numpy as np
 from util import lobe, Time, ant_str2list
@@ -45,6 +48,8 @@ def get_xy_corr(out, ant_str='ant1-13',doplot=True):
     # Determine xi_rot
     xi2 = ph0[:,2] - ph0[:,0] + ph0[:,3] - ph0[:,1]  # This is 2 * xi, measured separately on each of 13 antennas
     antlist = ant_str2list(ant_str)
+    if 13 in antlist:
+        antlist = antlist[:-1]  # Eliminate ant 14 for the purpose of antlist indexing
     xi_rot = np.unwrap(np.angle(np.sum(np.exp(1j*xi2[antlist]),0)))/2.   # Very clever average does not suffer from wrapping issues
     # Form differential delay phase from channels, and average them
     # dph14 = XY - XX and YY - YX + pi
@@ -107,7 +112,7 @@ def xydelay_anal(npzfiles, ant_str='ant1-13', fix_tau_lo=None):
         elif fix_tau_lo == 'last':
             icorr=3
         else:
-            print 'Invalid value for fix_tau_lo.  Must be "first" or "last"'
+            print('Invalid value for fix_tau_lo.  Must be "first" or "last"')
             return
         xml, buf = ch.read_cal(4,t=Time(out[icorr]['time'][0],format='jd'))
         dlatbl = extract(buf,xml['Delaycen_ns'])
@@ -160,8 +165,8 @@ def xydelay_anal(npzfiles, ant_str='ant1-13', fix_tau_lo=None):
     xi_rot[idx_lo_not_hi] = lobe(dph_lo['xi_rot'][idx_lo_not_hi])   # For unique low-receiver frequencies, insert LO xi_rot
     ax[14].plot(fghz,xi_rot)
     dph_hi.update({'xi_rot':xi_rot, 'xyphase':xyphase, 'fghz':fghz})
-    print 'Referring to the output of this routine as "xyphase,"'
-    print 'run cal_header.xy_phasecal2sql(xyphase) to write the SQL record.' 
+    print('Referring to the output of this routine as "xyphase,"')
+    print('run cal_header.xy_phasecal2sql(xyphase) to write the SQL record.') 
     return dph_hi
 
 def apply_xy_corr(out,dph,dphnew=None):
@@ -260,7 +265,6 @@ def apply_unrot_new(filename):
     import copy
     from util import lobe, Time
     import matplotlib.pylab as plt
-    import numpy as np
     blah = np.load('/common/tmp/Feed_rotation/20171223001448_delay_phase.npz')
     dph = blah['dph']
     fghz = blah['fghz']
