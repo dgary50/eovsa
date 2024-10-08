@@ -1,0 +1,16 @@
+CREATE TABLE `flare_list` (
+  `Id` int(11) NOT NULL AUTO_INCREMENT,
+  `Timestamp` double NOT NULL,
+  `Version` float NOT NULL,
+  `Flare_ID` INT NOT NULL,
+  `Peak_Time` double NOT NULL,
+  `Start_Time` double NOT NULL,
+  `End_Time` double NOT NULL,
+  `Peak_Xcorr_Flux3` float NOT NULL,
+  `Peak_Xcorr_Flux5` float NOT NULL,
+  `Peak_Xcorr_Flux9` float NOT NULL,
+  `Peak_Xcorr_Flux15` float NOT NULL,
+  PRIMARY KEY (`Id`)
+);
+
+GRANT SELECT, INSERT, DELETE ON `flare_test`.`flare_list` TO 'Python3'@'localhost';
