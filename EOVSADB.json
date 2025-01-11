@@ -1,1 +1,1 @@
-{"EOVSADB":{"1900-01-01":"/nas3/IDB/", "2021-03-01":"/nas4/IDB", "2023-04-01":"/nas5/IDB", "2024-05-01":"/data1/eovsa/fits/IDB/"}, "comment_EOVSADB": "Locations of EOVSA IDB files after the date given in the keys."}
+{"EOVSADB":{"1900-01-01":"/nas3/IDB/", "2021-03-01":"/nas4/IDB", "2023-04-01":"/nas5/IDB", "2024-09-01":"/data1/eovsa/fits/IDB/"}, "comment_EOVSADB": "Locations of EOVSA IDB files after the date given in the keys."}

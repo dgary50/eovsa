@@ -389,6 +389,8 @@
 #    2024-Aug-20  DG
 #       Eliminated a long-standing bug that crashed on error writing stateframe to SQL.
 #       It still exits, but with error message.
+#    2024-Dec-11  DG
+#       Added SUNSK command, which does solar observing but turns on SK flagging.
 #
 
 import os, signal
@@ -2326,6 +2328,11 @@ class App():
             sh_dict['project'] = 'NormalObserving'
             sh_dict['source_id'] = 'Sun'
             sh_dict['track_mode'] = 'PLANET'
+        elif cmds[0].upper() == 'SUNSK': 
+            sh_dict['project'] = 'SUNSK'
+            sh_dict['source_id'] = 'Sun'
+            sh_dict['track_mode'] = 'PLANET'
+            sh_dict['sk_mode'] =  1  # Turn on SK mode with default limits
         elif cmds[0].upper() == 'SOLPNTCAL':
             sh_dict['project'] = 'SOLPNTCAL'
             sh_dict['source_id'] = 'Sun'

@@ -35,6 +35,9 @@
 #     discovered that putting an Az offset into a 2-m azel antenna is really
 #     a cross-El offset, so I have been calculating it all wrong.  I have
 #     to update my trajectories (and the code here) to account for this.
+#   2025-Jan-11  DG
+#     Some slight changes to anticipate adding more antennas to the array.
+#     More changes are needed when this actually happens.
 #
 import dbutil
 import stateframe
@@ -71,7 +74,9 @@ def solpnt_meta(tsolpnt):
     '''
     t1 = time()
     cursor = dbutil.get_cursor()
-    solpntdict = dbutil.get_dbrecs(cursor,dimension=15,timestamp=tsolpnt,nrecs=nsec)
+    ver = dbutil.find_table_version(cursor, int(tsolpnt.lv))
+    tbldim = 15
+    solpntdict = dbutil.get_dbrecs(cursor,dimension=tbldim,timestamp=tsolpnt,nrecs=nsec)
     antlist = np.array([0,1,2,3,4,5,6,7,8,9,10,11,12])
     bgmask = solpntdict['Ante_Fron_FEM_VPol_Atte_First']==31
     ra = (solpntdict['Ante_Cont_RAVirtualAxis'][:,antlist]*np.pi/10000./180.).astype('float')
@@ -203,6 +208,11 @@ def attncal_from_solpnt_to_sql(out, do_plot=False):
     # and read 120 records of attn state from SQL database
     t = Time(out['time'][395],format='jd')
     cursor = dbutil.get_cursor()
+#    ver = dbutil.find_table_version(cursor, t.lv)
+#    if int(ver) > 66:
+#        # Antenna info is actually in dimension 16 table starting in version 67
+#        d15 = dbutil.get_dbrecs(cursor, dimension=16, timestamp=t, nrecs=120)
+#    else:
     d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=t, nrecs=120)
     cursor.close()
     # Find time indexes of the 62 dB attn state

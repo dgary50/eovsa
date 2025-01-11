@@ -15,7 +15,8 @@ def find_traj(trange):
     import dbutil as db
     cursor = db.get_cursor()
     t1, t2 = trange.lv.astype(int)
-    query = "select Timestamp,Sche_Task from fV66_vD1 where Timestamp between "+str(t1)+" and "+str(t2)
+    ver = db.find_table_version(cursor, t1)
+    query = "select Timestamp,Sche_Task from fV"+ver+"_vD1 where Timestamp between "+str(t1)+" and "+str(t2)
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
         for i,task in enumerate(data['Sche_Task']):

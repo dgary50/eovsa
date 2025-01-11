@@ -22,11 +22,25 @@
 #    and delete all tables associated with it.  This is a dangerous command,
 #    so it requests confirmation from the user via the keyboard.  Also fixed
 #    bug in sfdef() that occurred when the passed-in dictionary is a scan header.
+#  2025-Jan-03  DG
+#    Start working on interim code to test the new SQL database to handle 16
+#    working antennas.  Two new antennas are being added to the array, one
+#    replacing the old Ant B, so we had to add one more column to the DIM 15
+#    tables.  It is basically a new definition for the DIM 16 table, involving
+#    the Ante_ columns and the DCM_ columns.  For this interim test, existing
+#    code will be copied and modified to write to the eOVSA07 database tables,
+#    with a new stateframe.xml definition.  For the test, I will read the
+#    current version 66 log file, modify the data on the fly to add one more
+#    antenna in the binary buffer (just copy ant 1 data to ant 16), and then
+#    send it to the eOVSA07 database using the new stateframe definition.
+#    The only modifications are to load_deftable() and log2sql(), based on
+#    new input parameter test7=True.
 #
 
 import stateframe, struct, numpy, pyodbc, datetime
 import read_xml2 as rxml
 import sys, os, time, glob
+import dbutil as db
 
 #=============== get_start_byte ===============
 def get_start_byte(c):
@@ -160,7 +174,7 @@ def walk_keys(c,inkey,indim=1,pre='',nbytes=0):
     return mylist
     
 #=============== sfdef ===============
-def sfdef(sf=None):
+def sfdef(sf=None, test7=None):
     ''' Main routine to generate a dictionary list representing the
         stateframedef table (outlist) for either a stateframe or a 
         scan_header dictionary, and a dictionary list of rearrangements 
@@ -222,7 +236,11 @@ def sfdef(sf=None):
     try:
         # This is a major breaking of the scheme, but the Parser string in the Antenna
         # array requires special handling:
-        for ant in range(15):
+        if test7:
+            nant = 16
+        else:
+            nant = 15
+        for ant in range(nant):
             # For each antenna, add an entry to the stateframe representing the Command string size
             # located 4 bytes before the Command string
             t,loc = sf['Antenna'][ant]['Parser']['Command']                     # Get Command string location
@@ -449,7 +467,7 @@ def old_version_test(sflog=None,sfxml=None,outbinfile=None,outtabfile=None):
     return            
 
 #=============== load_deftable ===============
-def load_deftable(xml_file=None,sdict=None,version=None):
+def load_deftable(xml_file=None,sdict=None,version=None, test7=None):
     ''' Loads the named xml_file (or equivalent descriptive dictionary) 
         into the stateframe or scan header definition table, depending on 
         the type of xml file or dictionary provided.  Returns True if success, 
@@ -471,12 +489,16 @@ def load_deftable(xml_file=None,sdict=None,version=None):
         if sfname or shname:
             sdict, version = rxml.xml_ptrs(xml_file)
     if sdict and version:
-        brange, outlist = sfdef(sdict)
+        brange, outlist = sfdef(sdict, test7)
         startbyte(outlist)
         tbl = outlist2table(outlist,version)
+        if test7:
+            dbname = 'eOVSA07'
+        else:
+            dbname = 'eOVSA06'
         # Everything worked so far, so connect to database
         cnxn = pyodbc.connect("DRIVER={FreeTDS};SERVER=192.168.24.106,1433; \
-                             DATABASE=eOVSA06;UID=aaa;PWD=I@bsbn2w;")
+                             DATABASE="+dbname+";UID=aaa;PWD=I@bsbn2w;")
         cursor = cnxn.cursor()
         if 'Schedule' in sdict:
             # Case of a stateframe
@@ -505,20 +527,28 @@ def load_deftable(xml_file=None,sdict=None,version=None):
         print 'Error: Bad sdict=',sdict,'or version=',version
         return False
     
-def drop_deftable(version):
+def drop_deftable(version, test7=None):
     ''' Drops ALL traces of a given version of a stateframe definition.
         Use with CAUTION!!!
         
         Requests confirmation from the keyboard.
     '''
     import dbutil as db
-    cursor = db.get_cursor()
+    if test7:
+        dbname = 'eOVSA07'
+    else:
+        dbname = 'eOVSA06'
+    # Everything worked so far, so connect to database
+    cnxn = pyodbc.connect("DRIVER={FreeTDS};SERVER=192.168.24.106,1433; \
+                         DATABASE="+dbname+";UID=aaa;PWD=I@bsbn2w;")
+    cursor = cnxn.cursor()
+
     # Get all table and view names from this version
-    query = 'select * from information_schema.tables where table_name like "fV'+str(int(version))+'%"'
+    query = "select * from information_schema.tables where table_name like 'fV"+str(version)+"%'"
     result, msg = db.do_query(cursor, query)
     if msg == 'Success':
         names = result['TABLE_NAME']
-        print 'You are about to permanently delete the following tables:'
+        print 'You are about to permanently delete the following tables from database:',dbname
         for name in names:
             print '    ',name
         ans = raw_input('Are you sure? [y/n]: ').upper()
@@ -572,7 +602,7 @@ def reload_deftables(tbldir='/data/eovsa/stateframe_logs'):
             load_deftable(xml_file[0])
     
 #=============== log2sql ===============
-def log2sql(log_file=None):
+def log2sql(log_file=None, test7=None):
     ''' Transfers the named stateframe log file to the SQL database.  This transfer can
         take a long time, so this should allow interruption of the transfer, and then
         a subsequent call on the same log file should find the place where it left off to
@@ -607,8 +637,12 @@ def log2sql(log_file=None):
     # At this point, the log file exists and the name is of the right format
     # Connect to the database and see if there are any data already for this date, and if so
     # determine the time range.
+    if test7:
+        dbname = 'eOVSA07'
+    else:
+        dbname = 'eOVSA06'
     with pyodbc.connect("DRIVER={FreeTDS};SERVER=192.168.24.106,1433; \
-                             DATABASE=eOVSA06;UID=aaa;PWD=I@bsbn2w;") as cnxn:
+                             DATABASE="+dbname+";UID=aaa;PWD=I@bsbn2w;") as cnxn:
         cursor = cnxn.cursor()
         tblname = 'fV'+str(sfver)+'_vD1'
         cursor.execute("select top 1 Timestamp from "+tblname+" where Timestamp between "+str(sftimestamp)+" and "+str(sftimestamp+86400-2)+" order by Timestamp desc")
@@ -645,9 +679,18 @@ def log2sql(log_file=None):
         xml_file = os.path.dirname(log_file)+'/'+'stateframe_v'+str(sfver)+'.00.xml'
         if not os.path.isfile(xml_file):
             print 'Error: Stateframe xml file',xml_file,'not found.'
-            return False        
+            return False
         sf, version = rxml.xml_ptrs(xml_file)
         brange, outlist = sfdef(sf)
+        if test7:
+            # Do the same steps for the test XML version, adding "1" to the variable names
+            xml_file1 = os.path.dirname(log_file)+'/'+'stateframe_v'+str(sfver+1)+'.00.xml'
+            if not os.path.isfile(xml_file1):
+                print 'Error: Stateframe xml file',xml_file1,'not found.'
+                return False
+            sf1, version1 = rxml.xml_ptrs(xml_file1)
+            brange1, outlist1 = sfdef(sf1)
+        
         lineno = 0
         with open(log_file,'rb') as f:
             bufin = f.read(recsize)
@@ -655,7 +698,21 @@ def log2sql(log_file=None):
                 lineno += 1
                 if struct.unpack_from('d', bufin, 0)[0] >= sftimestamp:
                     # This is new data, so write to database
-                    bufout = transmogrify(bufin, brange)
+                    if test7:
+                        # Modify bufin to add another DCM and another Antenna, using Ant 1 to
+                        # fill in the data
+                        bufin1 = bufin[:5190]       # Copy first 5190 bytes
+                        bufin1 += bufin[4680:4714]  # Insert DCM info for Ant 1
+                        bufin1 += bufin[5190:]      # Copy remaining bytes
+                        bufin1 += bufin[5402:5978]  # Insert Ant 1 controller info
+                        # Replace version and recsize with new values
+                        ver_recsize = struct.pack('di',sfver+1, len(bufin1))
+                        bufin1 = bufin1[:8] + ver_recsize +  bufin1[8+len(ver_recsize):]
+                    if test7:
+                        bufout = transmogrify(bufin1, brange1)
+                    else:
+                        bufout = transmogrify(bufin, brange)
+                    #import pdb; pdb.set_trace()
                     try:
                         cursor.execute('insert into fBin (Bin) values (?)',pyodbc.Binary(bufout))
                         print 'Record '+str(lineno)+' successfully written\r',

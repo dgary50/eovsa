@@ -46,6 +46,9 @@
 #   2022-Mar-05  DG
 #      Cleaned up some weird code that was trying to avoid importing the numpy
 #      namespace, since it is imported anyway.
+#   2025-Jan-11  DG
+#      Made a few changes to deal with new SQL version 67, where the dimension 16
+#      table has the antenna information and the dimension 15 table is gone.
      
 import stateframedef
 import util
@@ -125,9 +128,14 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
     if type(nrecs) != int:
         print 'NRecs must be int type.'
         return {}
-    nvals = dimension*nrecs
     # Generate table name
+    outdim = dimension
+    if version > 66 and dimension == 15:
+        # In version 67, the old dimension 15 things are in table of dimension 16
+        dimension = 16
+        outdim = 15
     table = 'fV'+str(version)+'_vD'+str(dimension)
+    nvals = dimension*nrecs
     # Generate query
     query = 'select top '+str(nvals)+' * from '+table+' where timestamp >= '+str(ts)
     try:
@@ -153,6 +161,10 @@ def get_dbrecs(cursor=None,version=None,dimension=None,timestamp=None,nrecs=None
         outdict = dict(zip(names,data))
     except:
         outdict = {}
+    if outdim != dimension:
+        # Truncate each item in outdict to length outdim
+        for k,v in outdict.items():
+            outdict[k] = v[:,:outdim]
     return outdict
     
 def do_query(cursor,query):
@@ -187,7 +199,13 @@ def a14_wscram(trange):
     tstart,tend = [str(i) for i in trange.lv]
     cursor = get_cursor()
     ver = find_table_version(cursor,trange[0].lv)
-    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD15 where (I15 = 13) and Timestamp between '+tstart+' and '+tend
+    if int(ver) > 66:
+        tdim = 16
+        idx = 'I16'
+    else:
+        tdim = 15
+        idx = 'I15'
+    query = 'select Timestamp,Ante_Fron_Wind_State from fV'+ver+'_vD'+str(tdim)+' where ('+idx+' = 13) and Timestamp between '+tstart+' and '+tend
     data, msg = do_query(cursor, query)
     if msg == 'Success':
         try:
@@ -228,19 +246,24 @@ def get_motor_currents(trange):
         given time range (returns times, azimuth motor current, and elevation motor current)
     '''
     tstart,tend = [str(i) for i in trange.lv]
+    nant = 15
     cursor = get_cursor()
     ver = find_table_version(cursor,trange[0].lv)
-    query = 'select Timestamp,Ante_Cont_AzimuthMotorCurrent,Ante_Cont_ElevationMotorCurrent from fV'+ver+'_vD15 where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
+    if int(ver) > 66:
+        tdim = 16
+    else:
+        tdim = 15
+    query = 'select Timestamp,Ante_Cont_AzimuthMotorCurrent,Ante_Cont_ElevationMotorCurrent from fV'+ver+'_vD'+str(tdim)+' where Timestamp > '+tstart+' and Timestamp < '+tend+'order by Timestamp'
     data, msg = do_query(cursor, query)
     cursor.close()
     if msg == 'Success':
-        times = Time(data['Timestamp'].astype('int'),format='lv')[::15]
+        times = Time(data['Timestamp'].astype('int'),format='lv')[::tdim]
         az = data['Ante_Cont_AzimuthMotorCurrent']
         el = data['Ante_Cont_ElevationMotorCurren']
-        nt = len(az)/15
-        az.shape = (nt,15)
-        el.shape = (nt,15)
-        return times,az,el
+        nt = len(az)/tdim
+        az.shape = (nt,tdim)
+        el.shape = (nt,tdim)
+        return times,az[:,:nant],el[:,:nant]
     else:
         print msg
         return None,None,None
@@ -294,14 +317,21 @@ def loadsfdata(fld,trange,ant,interval=None):
     cursor = get_cursor()
     query='select Timestamp'
     tr=Time(trange).lv.astype(int)
+    ver = find_table_version(cursor,tr[0])
     
     for f in fld:
         query+=','+f
-    if interval == None:
-        query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+    if int(ver) < 67:
+        if interval == None:
+            query+=' from fV'+ver+'_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+        else:
+            query+=' from fV'+ver+'_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
     else:
-        query+=' from fV66_vD15 where (I15 % 15) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
-    
+        if interval == None:
+            query+=' from fV'+ver+'_vD16 where (I16 % 16) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+        else:
+            query+=' from fV'+ver+'_vD16 where (I16 % 16) = '+str(ant-1)+' and Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
+
     data,msg=do_query(cursor,query)
     return data,msg
 
@@ -376,13 +406,14 @@ def loadsfdata_anta(fld,trange,interval=None):
     cursor = get_cursor()
     query='select Timestamp'
     tr=Time(trange).lv.astype(int)
+    ver = find_table_version(cursor,tr[0])
     
     for f in fld:
         query+=','+f
     if interval==None:
-        query+=' from fV66_vD1 where Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
+        query+=' from fV'+ver+'_vD1 where Timestamp between '+str(tr[0])+' and '+str(tr[1])+' order by Timestamp'
     else:
-        query+=' from fV66_vD1 where Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
+        query+=' from fV'+ver+'_vD1 where Timestamp between '+str(tr[0])+' and '+str(tr[1])+' and (cast(Timestamp as bigint) % '+str(interval)+') = 0 order by Timestamp'
         
     data,msg=do_query(cursor,query)
     

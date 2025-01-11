@@ -57,6 +57,10 @@
 #  2022-Mar-07  DG
 #    Changed due to loss of SQL.  Blocks changes are preceded by
 #            # ************ This block commented out due to loss of SQL **************
+#  2024-Nov-02  DG
+#    Added ant_str argument to adc_monitor, to privide a list of antennas to send FEM
+#    attenuation updates to.  This is useful when testing an antenna, to avoid having
+#    its gain changed during testing by omitting it from the ant_str.
 #
 import roach as r
 import struct
@@ -66,7 +70,7 @@ import threading
 import adc_cal2 as adc2
 import dbutil as db
 from time import sleep,time
-from util import Time
+from util import Time, ant_str2list
 from copy import copy
 import sys
 import stateframe as stf
@@ -204,7 +208,7 @@ class AGC_Thread (threading.Thread):
         
         return outdata, levels, agc
 
-def adc_monitor(nloop=None, verbose=False):
+def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
     ''' Performs an ADC measurement on all ROACH boards nloop times.
         
         Inputs:
@@ -213,6 +217,8 @@ def adc_monitor(nloop=None, verbose=False):
                        current time such that it stops at 03:00 UT, and will exit
                        if the current time is between 03:00 - 11:00 UT.  If you
                        really want it to run during this gap, provide a value for nloop.
+            ant_str  Standard string specifying for which antennas to update their FEM
+                       attenuation.
             verbose  If True, quite a lot of information will be printed
                        to the terminal
                        
@@ -272,6 +278,7 @@ def adc_monitor(nloop=None, verbose=False):
 
     savlevs = np.zeros((7,4),int)
     newlevs = np.zeros((7,4),int)
+    ants = ant_str2list(ant_str)    # Convert ant_str to 0-based list of antenna indexes
 
     while Time.now().mjd < mjdstop:
         t0 = time()
@@ -352,7 +359,7 @@ def adc_monitor(nloop=None, verbose=False):
                     # savlevs from previous time if available
                     newlevs = np.maximum(needs,copy(savlevs))
                 savlevs = copy(newlevs)
-                for i in range(13):
+                for i in ants:
                     if agc[i] == 0:
                         # AGC is not active over the entire 30 s period, so adjust FEMATTN level toward target
                         nroach = i/2
@@ -579,10 +586,14 @@ def another_pid(mypid):
     return False
 
 if __name__ == "__main__":
-    import os
+    import os, sys
     mypid = str(os.getpid())
     dup_pid = another_pid(mypid)
     if dup_pid:
         print "Another instance of adc_plot.py is already running at PID:", dup_pid
     else:
-        adc_monitor()
+        if len(sys.argv) == 2:
+            ant_str = sys.argv[1]
+        else:
+            ant_str = 'Ant1-13'
+        adc_monitor(ant_str=ant_str)

@@ -259,10 +259,16 @@ class App():
         ''' Apply the tflags.  All this is, is a call to refcal_anal for the selected scan
         '''
         self.status.config(text = 'Status: New time flags applied.')
+        # Save currently selected antenna and band information
+        band = self.band_selected
+        ant = self.ant_selected
         out = self.pc_dictlist[self.scan_selected]
         out = refcal_anal(out)
         self.pc_dictlist[self.scan_selected] = out
         self.scan_select()
+        # Reset selected band and antenna, which can be reset by scan_select()
+        self.band_selected = band
+        self.ant_selected = ant
         
     def do_SQL(self):
         #print 'Selected Save to SQL button.'
@@ -478,6 +484,8 @@ class App():
                             tflags[ant,band:,1,k] = 0
                         else:
                             tflags[ant,band,1,k] = 0
+#                print 'K k nl   aa   ab   hb  a b'
+#                print key, k, nlines, allants, allbands, higherbands, ant, band
                 self.pc_dictlist[self.scan_selected]['tflags'] = tflags
                 
     def use_date(self, event):
@@ -646,6 +654,7 @@ class App():
         sel = map(int, w.curselection())
         if len(sel) == 3:
             # Third line selected--deselecting...
+            self.status.config(text = 'Status: 3 lines selected, lines'+str(sel[0]-2)+' '+str(sel[1]-2)+' '+str(sel[2]-2)+' deselecting.')
             for s in sel:
                 if s != self.scan_selected+2 and s!= self.scan2_selected+2:
                     self.pc_scanbox.selection_clear(s)
@@ -674,13 +683,16 @@ class App():
                 # Somehow original line is not a REFCAL!  Clear both and start over.
                 self.pc_scanbox.selection_clear(curscan+2)
                 self.pc_scanbox.selection_clear(k+2)             
+                self.status.config(text = 'Status: 2 lines selected, lines '+str(curscan)+' '+str(k)+' 1st not refcal!')
             elif line1[-1] != 'R':
                 print line1,'is not an already analyzed REFCAL scan.'
                 self.pc_scanbox.selection_clear(k+2)
+                self.status.config(text = 'Status: 2 lines selected, lines '+str(curscan)+' '+str(k)+' 2nd not refcal!')
                 return
             else:
                 # Success!  Now do something useful...
                 self.scan2_selected = k
+                self.status.config(text = 'Status: 2 lines selected, lines '+str(curscan)+' '+str(k)+' Success!')
                 self.extselect_button.configure(state=Tk.DISABLED)
                 self.refcalset_btn.configure(text='Set as Extended Refcal')
         elif len(sel) == 1:
@@ -690,6 +702,7 @@ class App():
             line = w.get(sel[0])
             k = sel[0]-2
             self.scan_selected = k
+            self.status.config(text = 'Status: 1 line selected, line '+str(k))
             self.scan2_selected = None
             self.band_selected = None
             #self.pc_resultbox.delete(0, Tk.END)
@@ -909,7 +922,7 @@ class App():
         self.ref_selected = i
         # Reset selection cleared by above insertion
         self.pc_scanbox.selection_set(i+2)
-        if j: 
+        if not j is None: 
             self.ref2_selected = j
             self.pc_scanbox.selection_set(j+2)
             # Combine these two scans into a single calibration

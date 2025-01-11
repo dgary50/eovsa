@@ -84,6 +84,10 @@
 #   2022-Mar-07  DG
 #      Oops--"temporary" change in 2018 (4 years ago!) was never reversed.  
 #      I have taken it out now, since SQL is not working...
+#   2024-Dec-09  DG
+#      Fix bug in PA_sweep() to avoid a crash when the stateframe is not
+#      successfully read.
+
 
 import struct, sys
 import socket
@@ -180,7 +184,9 @@ def get_median_wind(wthr):
     '''
     import dbutil as db
     cursor = db.get_cursor()
-    query = 'select top 120 Timestamp,Sche_Data_Weat_Wind from fV66_vD1 order by Timestamp desc'
+    ver = db.find_table_version(cursor,  int(Time.now().lv))
+    
+    query = 'select top 120 Timestamp,Sche_Data_Weat_Wind from fV'+ver+'_vD1 order by Timestamp desc'
     data, msg = db.do_query(cursor,query)
     if msg == 'Success':
         try:
@@ -705,28 +711,29 @@ def PA_sweep(PA=80,rate=3):
     msg = ''
     for i in range(24):
         data, sfmsg = get_stateframe(accini)
-        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
-            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
-            msg = 'Abort'
-            break
-        if extract(data,timekey) != 0:
-            current_pa = np.round(extract(data,pakey)+0.5)
-        #print 'Current and target PAs:', current_pa, pa_to_send,
-        if pa_to_send != current_pa:
-            try:
-                msg = q.get_nowait()
-                if msg == 'Abort':
-                    # Got abort message, so exit.
-                    break
-            except:
-                pass
-            # Current PA is different from new one, so sleep 5 minutes
-            #print 'Not equal, so sleeping 5 s'
-            time.sleep(5)
-        else:
-            # We are on the desired PA, so proceed
-            #print 'Target PA reached...'
-            break
+        if sfmsg == 'No Error':
+            if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+                # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+                msg = 'Abort'
+                break
+            if extract(data,timekey) != 0:
+                current_pa = np.round(extract(data,pakey)+0.5)
+            #print 'Current and target PAs:', current_pa, pa_to_send,
+            if pa_to_send != current_pa:
+                try:
+                    msg = q.get_nowait()
+                    if msg == 'Abort':
+                        # Got abort message, so exit.
+                        break
+                except:
+                    pass
+                # Current PA is different from new one, so sleep 5 minutes
+                #print 'Not equal, so sleeping 5 s'
+                time.sleep(5)
+            else:
+                # We are on the desired PA, so proceed
+                #print 'Target PA reached...'
+                break
     # When we get here, either we are on the desired PA, or the 2 min is up, or
     # an Abort message was received.
     while 1:
@@ -735,9 +742,10 @@ def PA_sweep(PA=80,rate=3):
             break
         # Read stateframe from ACC
         data, sfmsg = get_stateframe(accini)
-        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
-            # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
-            break
+        if sfmsg == 'No Error':
+            if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 13 == 0:
+                # Stateframe has a valid Timestamp, and Antenna 14 is not in the subarray, so exit
+                break
         #print 'Sending command','frm-set-pa '+str(pa_to_send)+' ant14'
         adc_cal2.send_cmds(['frm-set-pa '+str(pa_to_send)+' ant14'],acc)
         # Sleep for number of seconds given by rate (but checking for Abort message every second), 
