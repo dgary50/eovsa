@@ -1417,7 +1417,7 @@ if __name__ == "__main__":
         print 'Ant  X-Feed  Y-Feed'
         print '---  ------  ------'
         ngood = 0.
-        nant = 13
+        nant = 7  # 2025-04-28  Only 7 antennas working
         for ant in range(nant):
             if qual[0,ant]:
                 ngood += 1

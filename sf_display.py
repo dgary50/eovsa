@@ -113,6 +113,10 @@
 #       color it green if less than 15 min from the current time.
 #   2024-Apr-30  DG
 #       Temporary change to skip plotting Ant 10 temperature due to an interface board bug.
+#   2025-Apr-30  DG
+#       Quick change to reorder Antenna Tracking section to put replacement antennas
+#       9, 10, 11, 13 into the AzEl section and in numerical order.  Adding the new
+#       antennas will be significantly more work--maybe next week.
 #
 
 from Tkinter import *
@@ -1149,12 +1153,12 @@ class App():
         if charge12 == 0.0 or charge13 == 0.0:
             self.L3.itemconfig(END,bg=self.colors['error'])
 
-        antn = [' 1 ',' 2 ',' 3 ',' 4 ',' 5 ',' 6 ',' 7 ',' 8 ',' 9 ','10 ','11 ','12 ','13 ',' A ',' B ']
-        altantindex = np.array([0,1,2,3,4,5,6,7,11,8,9,10,12,13])
+        antn = [' 1 ',' 2 ',' 3 ',' 4 ',' 5 ',' 6 ',' 7 ',' 8 ',' 9 ','10 ','11 ','12 ','13 ',' A ']
+        altantindex = np.array([0,1,2,3,4,5,6,7,8,9,10,11,12,13])
         # Expected STOW coordinates for the different types of antenna.  If/when Ant 12 is changed to
         # the old mount, its values must be changed.
-        azstow = np.array([180,180,180,180,180,180,180,180,0,0,0,180,0,0,0])
-        elstow = np.array([88,88,88,88,88,88,88,88,37,37,37,88,37,29,29])
+        azstow = np.array([180,180,180,180,180,180,180,180,180,180,180,180,180,0])
+        elstow = np.array([88,88,88,88,88,88,88,88,88,88,88,88,88,29])
 
         azel = stf.azel_from_stateframe(sf,data)
         antindex = self.antlist - 1
@@ -1271,7 +1275,7 @@ class App():
                     # (indicates cRIO not reporting)
                     if ra.get() == 0.0 and dec.get() == 0.0:
                         self.L3.itemconfig(END,bg=self.colors['error'])
-                if i == 11:
+                if i == 12:
                     self.L3.insert(END,head2)
                     self.L3.itemconfig(END,bg=self.colors['colhead'])
 

@@ -87,7 +87,10 @@
 #   2024-Dec-09  DG
 #      Fix bug in PA_sweep() to avoid a crash when the stateframe is not
 #      successfully read.
-
+#   2025-Apr-23  DG
+#      Changes to reflect removal of equatorially mounted antennas and replacement
+#      with AzEl ones for ants 9-13.  This was just a simple change in 
+#      azel_from_stateframe().
 
 import struct, sys
 import socket
@@ -457,7 +460,7 @@ def azel_from_stateframe(sf, data, antlist=None):
             az_req.append(extract(data,c['AzimuthPosition'])/10000.)
             el_req.append(extract(data,c['ElevationPosition'])/10000.)
 
-        if rm == 1 or ant == 11:    # New S. Pole telescope works differently
+        if rm == 1 or ant in [8,9,10,11,12]:    # New telescopes work differently
             # Position mode
             daz.append(az1 - az_corr)
             az_act.append(az_req[i] + daz[i])
@@ -470,7 +473,7 @@ def azel_from_stateframe(sf, data, antlist=None):
             delv.append(el1 - el_req[i])
             el_act.append(el1)
 
-        if ant in [8,9,10,12,13,14]:
+        if ant == 13:
             # Case of equatorial mount antennas, convert HA, Dec to El, Az
             eqel, eqaz = hadec2altaz(az_act[i]*dtor,el_act[i]*dtor)
             chi.append(par_angle(eqel, eqaz))

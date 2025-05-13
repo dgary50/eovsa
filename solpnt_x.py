@@ -38,6 +38,11 @@
 #   2025-Jan-11  DG
 #     Some slight changes to anticipate adding more antennas to the array.
 #     More changes are needed when this actually happens.
+#   2025-Apr-28  DG
+#     The four replacement dishes are installed for ants 9, 10, 11, 13.  These
+#     will behave like Ant 12 as far as trajectories are concerned (offsets
+#     have to be in RA/Dec when in equatorial mode).  Modifications have been
+#     made to account for this (oldidx is now empty, ant12idx is now 8-12).
 #
 import dbutil
 import stateframe
@@ -58,9 +63,9 @@ import warnings
 nsec = 420  # Number of seconds required for completion of a SOLPNTCAL
 nant = 13
 antidx = np.arange(nant)                    # List of all 13 antennas
-oldidx = np.array([8, 9, 10, 12])           # Indexes of the equatorial antennas
+oldidx = np.array([])                       # Indexes of the equatorial antennas (none!)
 newidx = np.array([0, 1, 2, 3, 4, 5, 6, 7]) # Indexes of the azel antennas
-ant12idx = np.array([11])                   # Ant 12 is a special case
+ant12idx = np.array([8, 9, 10, 11, 12])     # Ant 12 case now applies to ants 9-13!
 
 def solpnt_meta(tsolpnt):
     ''' Reads the SOLPNT metadata for 7-minutes past the given time, which is the
@@ -162,7 +167,7 @@ def solpnt_addmask(meta,trajdict):
             m3 = np.logical_and(abs(meta['rao'][i,antidx]  - trajdict['trjrao12'][j])<100.,
                                 abs(meta['deco'][i,antidx] - trajdict['trjdeco12'][j])<100.)
             # True if above is true AND antenna is tracking
-            mask[i,oldidx,j] = np.logical_and(m1[oldidx],meta['trk'][i,oldidx])
+            #mask[i,oldidx,j] = np.logical_and(m1[oldidx],meta['trk'][i,oldidx])
             mask[i,newidx,j] = np.logical_and(m2[newidx],meta['trk'][i,newidx])
             mask[i,ant12idx,j] = np.logical_and(m3[ant12idx],meta['trk'][i,ant12idx])
     ra0 = np.median(meta['ra'])

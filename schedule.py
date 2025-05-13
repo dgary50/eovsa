@@ -391,6 +391,9 @@
 #       It still exits, but with error message.
 #    2024-Dec-11  DG
 #       Added SUNSK command, which does solar observing but turns on SK flagging.
+#    2025-Jan-16  DG
+#       Removed SUNSK command in favor of more general $SCAN-START SK<n> where <n>
+#       is 1 or 2 (omitting SK defaults to 0).
 #
 
 import os, signal
@@ -2328,11 +2331,11 @@ class App():
             sh_dict['project'] = 'NormalObserving'
             sh_dict['source_id'] = 'Sun'
             sh_dict['track_mode'] = 'PLANET'
-        elif cmds[0].upper() == 'SUNSK': 
-            sh_dict['project'] = 'SUNSK'
-            sh_dict['source_id'] = 'Sun'
-            sh_dict['track_mode'] = 'PLANET'
-            sh_dict['sk_mode'] =  1  # Turn on SK mode with default limits
+        # elif cmds[0].upper() == 'SUNSK': 
+            # sh_dict['project'] = 'SUNSK'
+            # sh_dict['source_id'] = 'Sun'
+            # sh_dict['track_mode'] = 'PLANET'
+            # sh_dict['sk_mode'] =  1  # Turn on SK mode with default limits
         elif cmds[0].upper() == 'SOLPNTCAL':
             sh_dict['project'] = 'SOLPNTCAL'
             sh_dict['source_id'] = 'Sun'
@@ -2850,10 +2853,13 @@ class App():
                     except:
                         print Time.now().iso+' Error writing scan header to log file'
 
-                    
+                    sknum = 0    # Default to spectral kurtosis mode 0 (no flagging)                    
                     if nodata == 'NODATA':
+                        # Case of going through motions to set up a scan, but no recording data
                         pass
                     else:
+                        # Normal case, but check if $SCAN-START SK<n> is sent, which will
+                        # set SK mode (potentially to non-zero if <n> is 1 or 2)
                         if nodata[:2] == 'SK':
                             try:
                                 sknum = int(nodata[2:3])
@@ -2861,9 +2867,9 @@ class App():
                                 sknum = 0
                             if sknum < 0 or sknum > 2:
                                 sknum = 0
-                            sh_dict['sk_mode'] = sknum 
-                            scan_header(sh_dict,self.sh_datfile)
                         # Set scan state to on
+                        sh_dict['sk_mode'] = sknum 
+                        scan_header(sh_dict,self.sh_datfile)
                         sf_dict['scan_state'] = 1
                 #==== SCAN-RESTART ====
                 elif ctlline.split()[0].upper() == '$SCAN-RESTART':

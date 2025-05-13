@@ -61,6 +61,8 @@
 #    Added ant_str argument to adc_monitor, to privide a list of antennas to send FEM
 #    attenuation updates to.  This is useful when testing an antenna, to avoid having
 #    its gain changed during testing by omitting it from the ant_str.
+#  2025-Feb-24  DG
+#    Actually send FEMATTN commands only if ScanState is ON.  Does nothing if not ON.
 #
 import roach as r
 import struct
@@ -327,21 +329,27 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
 
         # ************ This block commented out due to loss of SQL **************
         ## Only do this if we are in a "Normal Observing" scan (as read from latest SQL header)
-        #cursor = db.get_cursor()
-        #ver = db.find_table_version(cursor, Time.now().lv, scan_header=True)
-        #query = 'select top 1 * from hV'+ver+'_vD1 order by Timestamp desc'
-        #result, msg = db.do_query(cursor, query)
-        #cursor.close()
-        #if msg == 'Success':
-        #    projid = result['Project'][0].strip('\0')
+        cursor = db.get_cursor()
+        ver = db.find_table_version(cursor, Time.now().lv, scan_header=True)
+        query = 'select top 1 * from hV'+ver+'_vD1 order by Timestamp desc'
+        result, msg = db.do_query(cursor, query)
+        ver2 = db.find_table_version(cursor, Time.now().lv)
+        query = 'select top 1 * from fV'+ver2+'_vD1 order by Timestamp desc'
+        result2, msg2 = db.do_query(cursor, query)
+        cursor.close()
+        if msg == 'Success':
+            projid = result['Project'][0].strip('\0')
+            scanstate = 0   # Signifies whether FEMATTN commands are sent (1 = ON required)
+            if msg2 == 'Success':
+                scanstate = result2['Sche_Data_ScanState']   # See if scanstate is ON
         # Replaced by:
         # Read scan_header.dat file at /nas4/Tables/scanheader
-        f = open('/common/Tables/scanheader/scan_header.dat')
-        buf = f.read()
-        f.close()
-        msg = 'Success'
-        if msg == 'Success':
-            projid = buf[20:52].strip('\0')
+        #f = open('/common/Tables/scanheader/scan_header.dat')
+        #buf = f.read()
+        #f.close()
+        #msg = 'Success'
+        #if msg == 'Success':
+        #    projid = buf[20:52].strip('\0')
     
             if projid == 'NormalObserving' or projid == 'FLARETEST':
                 # Get new FEMATTN level, ensuring that it is not less than 0
@@ -370,8 +378,10 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
                             t = Time.now().iso
                             sys.stdout.write(t[11:19]+' '+femcmd+'\n')
 
-                            adc2.send_cmds([femcmd], acc)
-                            sleep(1)   # Leave a 1-s pause between sending of these commands
+                            if scanstate == 1:
+                                # Send commands only if scanstate is 1 (ON)
+                                adc2.send_cmds([femcmd], acc)
+                                sleep(1)   # Leave a 1-s pause between sending of these commands
         
         outdict = {'time':t, 'fseqfile':fseqfile, 'projid':projid, 'levels':levs, 'needs':needs, 'stdev':stdall}
         fh2 = open(f2name,'ab')   # Open file for appending

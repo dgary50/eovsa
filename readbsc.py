@@ -41,6 +41,8 @@
 # 2021-Jul-21  OG
 #   Added statement to Skip commented out lines in filename in procedure 
 #   starobs2dxeldel
+# 2025-May-08  DG
+#   Changed duration of do_stars() scans to 2 min/star.
 # Must be run from Dropbox/PythonCode/Current directory
 
 from numpy import array, zeros, ones, arange, where, argsort, sort, pi, median, argmin
@@ -247,7 +249,7 @@ def startracktable(t, names, srcs, ids, npts=25, mount='azel'):
     # And write to outfile
     o.write('Num   Name        RA(J2000)   Dec(J2000)    RA(Date)     Dec(Date)    Az(deg)      El(deg)    Mag    Time   \n')
     o.write('==== ========== ============ ============ ============ ============ ============ =========== ===== ===========\n')
-    dha_minutes = 4   # Length of time to stay on each star
+    dha_minutes = 2   # Length of time to stay on each star
     firstline = True
     # Entire duration is npts pointings, or npts*dha_minutes
     while ha_minutes < dha_minutes*npts:
