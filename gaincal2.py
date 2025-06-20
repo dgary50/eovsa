@@ -6,7 +6,7 @@
 #    Added get_fseqfile() and fseqfile2bandlist() to help with conversion
 #    of slots to bands.  Also ensure that all arrays returned by get_gain_state() 
 #    are in canonical order [nant, npol, nf/nband, nt].
-#  2017-05-21  DG
+#  2017-05-22  DG
 #    Some changes to apply_gain_corr() to make it more general.
 #  2017-06-12  DG
 #    Important change to apply_gain_corr() so that it does not drop unmeasured
@@ -65,6 +65,13 @@
 #    Changes needed because of changes to SQL tables (16 ants and DCMs).  This
 #    version simply truncates the output to the usual 15 channels, but when the
 #    new dishes are online this will have to a changed again.
+#  2025-05-22 DG
+#    Further changes to handle the real 16 antennas.  Note that there is
+#    parallel code in gaincal2.py and pipeline_cal.py, but the arrays they work
+#    with are entirely different.  Here the arrays are, e.g. out['x'] which are
+#    only cross-correlations (120 baselines), while in pipeline_cal.py the arrays
+#    are all correlations (136 channels including auto-correlations).  This caused
+#    some confusion initially, but hopefully I have it straight now.
 #
 import dbutil as db
 import read_idb as ri
@@ -164,13 +171,16 @@ def get_fem_level(trange, dt=None):
         tdim = 16   # Antenna info is in dimension 16 table starting with version 67
     else:
         tdim = 15
+    if trange[0] < Time('2025-05-22'):
+        nant = 15
+    else:
+        nant = 16
     # Get front end attenuator states
     query = 'select Timestamp,Ante_Fron_FEM_Clockms,' \
             +'Ante_Fron_FEM_HPol_Regi_Level,Ante_Fron_FEM_VPol_Regi_Level from fV' \
             +ver+'_vD'+str(tdim)+' where Timestamp >= '+tstart+' and Timestamp <= '+tend+' order by Timestamp'
     data, msg = db.do_query(cursor, query)
     if msg == 'Success':
-        nant = 15
         if dt:
             # If we want other than full cadence, get new array shapes and times
             n = len(data['Timestamp'])  # Original number of times
@@ -273,7 +283,8 @@ def get_fem_level(trange, dt=None):
     cursor.close()
     # tdim is the number of dimensions in SQL tables, while nant is the number of antennas. These are both
     # 15 prior to V67 SQL tables, but tdim=16 (while nant remains 15) in V67, at least until we get 16 ants...
-    # The statement below returns only the first nant attenuations.
+    # The statement below returns only the first nant attenuations.  Now we have 16 ants, but nant is set
+    # accordingly so it will work in either case.
     return {'times':times,'hlev':hlev[:nant],'vlev':vlev[:nant],'dcmattn':dcmattn,'dcmoff':dcm_off}
     
 def get_gain_state(trange, dt=None, relax=False):
@@ -311,13 +322,17 @@ def get_gain_state(trange, dt=None, relax=False):
         tdim = 16   # Antenna info is in dimension 16 table starting with version 67
     else:
         tdim = 15
+    if trange[0] < Time('2025-05-22'):
+        nant = 15
+    else:
+        nant = 16
 
     # Get front end attenuator states
     # Attempt to solve the problem if there are no data 
     if relax:
         # Special case of reference gain, where we want the first nt records after tstart, in case there
         # are no data at time tstart
-        nt = int(float(tend) - float(tstart) - 1)*15
+        nt = int(float(tend) - float(tstart) - 1)*tdim
         query = 'select top '+str(nt)+' Timestamp,Ante_Fron_FEM_HPol_Atte_First,Ante_Fron_FEM_HPol_Atte_Second,' \
             +'Ante_Fron_FEM_VPol_Atte_First,Ante_Fron_FEM_VPol_Atte_Second,Ante_Fron_FEM_Clockms from fV' \
             +ver+'_VD'+str(tdim)+' where Timestamp >= '+tstart+' order by Timestamp'
@@ -378,7 +393,6 @@ def get_gain_state(trange, dt=None, relax=False):
         print 'Error reading FEM attenuations:',msg
         return {}
     # Get back end attenuator states
-    nant = 15  # Number of antennas in calibration
     xml, buf = ch.read_cal(2, t=trange[0])
     dcmattn = stf.extract(buf,xml['Attenuation'])
     nbands = dcmattn.shape[0]
@@ -438,7 +452,8 @@ def get_gain_state(trange, dt=None, relax=False):
     cursor.close()
     # tdim is the number of dimensions in SQL tables, while nant is the number of antennas. These are both
     # 15 prior to V67 SQL tables, but tdim=16 (while nant remains 15) in V67, at least until we get 16 ants...
-    # The statement below returns only the first nant attenuations.
+    # The statement below returns only the first nant attenuations.  Now we have 16 ants, but nant is set
+    # accordingly so it will work in either case.
     return {'times':times,'h1':h1[:nant],'v1':v1[:nant],'h2':h2[:nant],'v2':v2[:nant],'dcmattn':dcmattn,'dcmoff':dcm_off}
 
 def apply_fem_level(data, skycal={}, gctime=None):
@@ -461,9 +476,14 @@ def apply_fem_level(data, skycal={}, gctime=None):
     import attncal as ac
     import copy
 
-    nant = 15
     # Get timerange from data
     trange = Time([data['time'][0],data['time'][-1]],format='jd')
+    if trange[0] < Time('2025-05-22'):
+        nsolant = 13
+        nant = 15
+    else:
+        nsolant = 15
+        nant = 16
     if gctime is None:
         gctime = trange[0]
     # Get time cadence
@@ -488,23 +508,24 @@ def apply_fem_level(data, skycal={}, gctime=None):
                 ch.fem_attn_val2sql([attn])   # Go ahead and write it to SQL
     except:
         attn = ac.get_attncal(gctime)[0]   # Attn measured by GAINCALTEST (returns a list, but use first, generally only, one)
-    antgain = np.zeros((15,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
+    antgain = np.zeros((nant,2,nf,nt),np.float32)   # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
     idx1, idx2 = common_val_idx(data['fghz'],attn['fghz'],precision=4)
     # Currently, GAINCALTEST measures 8 levels of attenuation (16 dB).  I assumed this would be enough,
     # but the flare of 2017-09-10 actually went to 10 levels (20 dB), so we have no choice but to extend
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
     # extends to the maximum 16 levels.
-    a = np.zeros((16, 13, 2, nf), float)  # Extend attenuation to 14 levels
-    a[1:9, :, :, idx1] = attn['attn'][:, :13, :, idx2]  # Use GAINCALTEST results in levels 1-9 (bottom level is 0dB)
+    a = np.zeros((16, nsolant, 2, nf), float)  # Extend attenuation to 14 levels
+    a[1:9, :, :, idx1] = attn['attn'][:, :nsolant, :, idx2]  # Use GAINCALTEST results in levels 1-9 (bottom level is 0dB)
     for i in range(8, 15):
         # Extend to levels 9-15 by adding 2 dB to each previous level
         a[i + 1] = a[i] + 2.
-    a[15] = 62.  # Level 15 means 62 dB have been inserted.
+    #a[15] = 62.  # Level 15 means 62 dB have been inserted.
+    a[15] = 0.  # Do not try to correct for full attenuation--it just makes huge noise...
     if dt:
         # For this case, src_lev is an array of dictionaries where keys are levels and
         # values are the proportion of that level for the given integration
-        for i in range(13):
+        for i in range(nsolant):
             for k,j in enumerate(idx1):
                 for m in range(nt):
                     for lev, prop in src_lev['hlev'][i,m].items():
@@ -513,13 +534,14 @@ def apply_fem_level(data, skycal={}, gctime=None):
                         antgain[i,1,j,m] += prop*a[lev,i,1,idx2[k]]
     else:
         # For this case, src_lev is just an array of levels
-        for i in range(13):
+        for i in range(nsolant):
             for k,j in enumerate(idx1):
                 antgain[i,0,j] = a[src_lev['hlev'][i],i,0,idx2[k]]
                 antgain[i,1,j] = a[src_lev['vlev'][i],i,1,idx2[k]]
     blgain = np.zeros((120,4,nf,nt),float)     # Baseline-based gains vs. frequency
-    for i in range(14):
-         for j in range(i+1,15):
+    # Loop over cross-correlations (no auto-correlations)
+    for i in range(nant-1):
+         for j in range(i+1,nant):
              blgain[ri.bl2ord[i,j],0] = 10**((antgain[i,0] + antgain[j,0])/20.)
              blgain[ri.bl2ord[i,j],1] = 10**((antgain[i,1] + antgain[j,1])/20.)
              blgain[ri.bl2ord[i,j],2] = 10**((antgain[i,0] + antgain[j,1])/20.)
@@ -537,16 +559,16 @@ def apply_fem_level(data, skycal={}, gctime=None):
         sna, snp, snf = skycal['rcvr_bgd'].shape
         bgd = skycal['rcvr_bgd'].repeat(nt).reshape((sna,snp,snf,nt))
         bgd_auto = skycal['rcvr_bgd_auto'].repeat(nt).reshape((sna,snp,snf,nt))
-        cdata['p'][:13] -= bgd[:,:,:,idx]
-        cdata['a'][:13,:2] -= bgd_auto[:,:,:,idx]
+        cdata['p'][:nsolant] -= bgd[:,:,:,idx]
+        cdata['a'][:nsolant,:2] -= bgd_auto[:,:,:,idx]
     # Correct the power,
     cdata['p'][:nant] *= antgainf[:,:,:,idx]
     # Correct the autocorrelation
     cdata['a'][:nant,:2] *= antgainf[:,:,:,idx]
     # If a skycal dictionary exists, add back the receiver noise
     #if skycal:
-    #    cdata['p'][:13] += bgd[:,:,:,idx]
-    #    cdata['a'][:13,:2] += bgd_auto[:,:,:,idx]
+    #    cdata['p'][:nsolant] += bgd[:,:,:,idx]
+    #    cdata['a'][:nsolant,:2] += bgd_auto[:,:,:,idx]
     cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
     cdata['a'][:nant,2] *= cross_fac[:,:,idx]
     cdata['a'][:nant,3] *= cross_fac[:,:,idx]
@@ -576,7 +598,6 @@ def apply_gain_corr(data, tref=None):
     '''
     from util import fname2mjd, common_val_idx, nearest_val_idx
     import copy
-    nant = 15
     if tref is None:
         # No reference time specified, so get nearest PHASECAL scan (should guarantee femauto-off state)
         mjd = int(Time(data['time'][0],format='jd').mjd)
@@ -601,7 +622,10 @@ def apply_gain_corr(data, tref=None):
             # Get the gain state at the reference time (actually median over 1 minute)
             trefrange = Time([tref.iso,Time(tref.lv+61,format='lv').iso])
             ref_gs =  get_gain_state(trefrange, relax=True)  # refcal gain state for 60 s after ref time
-
+    if tref < Time('2025-05-22'):
+        nant = 15
+    else:
+        nant = 16
     # Get median of refcal gain state (which should be constant anyway)
     ref_gs['h1'] = np.median(ref_gs['h1'],1)
     ref_gs['h2'] = np.median(ref_gs['h2'],1)
@@ -621,8 +645,8 @@ def apply_gain_corr(data, tref=None):
         # Reference gain state is incompatible with this one, so set to src gain state (no correction will be applied)
         ref_gs = src_gs
         print 'GAINCAL2 Warning: Data and reference gain states are not compatible. No correction applied!'
-    antgain = np.zeros((15,2,nbands,nt),np.float32)   # Antenna-based gains vs. band
-    for i in range(15):
+    antgain = np.zeros((nant,2,nbands,nt),np.float32)   # Antenna-based gains vs. band
+    for i in range(nant):
         for j in range(nbands):
             antgain[i,0,j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + src_gs['dcmattn'][i,0,j] - ref_gs['dcmattn'][i,0,j]
             antgain[i,1,j] = src_gs['v1'][i] + src_gs['v2'][i] - ref_gs['v1'][i] - ref_gs['v2'][i] + src_gs['dcmattn'][i,1,j] - ref_gs['dcmattn'][i,1,j]
@@ -651,7 +675,7 @@ def apply_gain_corr(data, tref=None):
     cdata['p'][:nant] *= antgainf[:,:,:,idx]
     # Correct the autocorrelation
     cdata['a'][:nant,:2] *= antgainf[:,:,:,idx]
-    cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])
+    cross_fac = np.sqrt(antgainf[:,0]*antgainf[:,1])  # Gains from one ant, two poln
     cdata['a'][:nant,2] *= cross_fac[:,:,idx]
     cdata['a'][:nant,3] *= cross_fac[:,:,idx]
     # Correct the power-squared -- this should preserve SK
@@ -672,7 +696,7 @@ def get_gain_corr(trange, tref=None, fghz=None):
         state is referred to the nearest earlier REFCAL.
         
         Returns a dictionary containing:
-          antgain    Array of size (15, 2, nbands, nt) = (nant, npol, nbands, nt)
+          antgain    Array of size (nant, npol, nbands, nt)
           times      A Time() object corresponding to the times in 
                        antgain
     '''
@@ -688,6 +712,10 @@ def get_gain_corr(trange, tref=None, fghz=None):
     ref_gs['h2'] = np.median(ref_gs['h2'],1)
     ref_gs['v1'] = np.median(ref_gs['v1'],1)
     ref_gs['v2'] = np.median(ref_gs['v2'],1)
+    if trange[0] > Time('2025-05-22'):
+        nant = 16
+    else:
+        nant = 15
 
     # Get the gain state of the requested timerange
     src_gs = get_gain_state(trange)   # solar gain state for timerange of file
@@ -707,17 +735,21 @@ def eq_anal(out):
     '''
     import chan_util_52 as cu
     blah = cu.freq2bdname(out['fghz'])
+    if out['time'][0] < Time('2025-05-22').jd:
+        nsolant = 13
+    else:
+        nsolant = 15
     nfpb = []
     for i in range(1,53):
         nfpb.append(len(where(blah == i)[0]))
     nfb = (array(nfpb)[blah-1]/8.)
     nf = len(out['fghz'])
-    ratio = np.zeros((3,13,2,nf))
+    ratio = np.zeros((3,nsolant,2,nf))
     idx = np.array([30,40])
-    for k in range(13):
+    for k in range(nsolant):
         for j in range(2):
             ratio[0,k,j,:] = np.mean(out['p'][k,j,:,    idx]/np.abs(out['a'][k,j,:,    idx]),0)*8**2*nfb
             ratio[1,k,j,:] = np.mean(out['p'][k,j,:,115+idx]/np.abs(out['a'][k,j,:,115+idx]),0)*4**2*nfb
             ratio[2,k,j,:] = np.mean(out['p'][k,j,:,230+idx]/np.abs(out['a'][k,j,:,230+idx]),0)*2**2*nfb
     foo = abs(ratio - 400).argmin(axis=0)
-    
+    # This routine appears to be unfinished, and is certainly not used...

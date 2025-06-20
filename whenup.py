@@ -609,6 +609,6 @@ def remove_cal(lines):
     for i,line in enumerate(keeplines):
         if not i in rmidx:
             outlines.append(line)
-    outlines[-1] = outlines[-1][:19]+' STOW'
+    outlines[-1] = outlines[-1][:19]+' REWIND'
     return outlines
     

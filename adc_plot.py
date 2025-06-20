@@ -63,13 +63,16 @@
 #    its gain changed during testing by omitting it from the ant_str.
 #  2025-Feb-24  DG
 #    Actually send FEMATTN commands only if ScanState is ON.  Does nothing if not ON.
+#  2025-May-17  DG
+#    Import send_cmds() from calibration.py instead of defunct adc_cal2.py.  Also
+#    update the code to work with 16 antennas.
 #
 import roach as r
 import struct
 import numpy as np
 import matplotlib.pyplot as plt
 import threading
-import adc_cal2 as adc2
+from calibration import send_cmds
 import dbutil as db
 from time import sleep,time
 from util import Time, ant_str2list
@@ -210,7 +213,7 @@ class AGC_Thread (threading.Thread):
         
         return outdata, levels, agc
 
-def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
+def adc_monitor(nloop=None, ant_str= 'Ant1-15', verbose=False):
     ''' Performs an ADC measurement on all ROACH boards nloop times.
         
         Inputs:
@@ -266,7 +269,7 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
     acc = {'host': accini['host'], 'scdport':accini['scdport']}
     
     #set up the threads
-    for t in range(1,8):            
+    for t in range(1,9):            
         threads.append(AGC_Thread(t))
         threads[-1].verbose = verbose
         threads[-1].accini = accini
@@ -278,8 +281,8 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
     # Give threads some time to work
     sleep(45)
 
-    savlevs = np.zeros((7,4),int)
-    newlevs = np.zeros((7,4),int)
+    savlevs = np.zeros((8,4),int)
+    newlevs = np.zeros((8,4),int)
     ants = ant_str2list(ant_str)    # Convert ant_str to 0-based list of antenna indexes
 
     while Time.now().mjd < mjdstop:
@@ -309,11 +312,11 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
             fseqfile = 'Unknown'
 
         # Loop over threads and get sd (4,50) for each
-        stdall = np.zeros((7,4,50),float)
-        needs = np.zeros((7,4), float)
-        agc = np.zeros((7,2), int)
-        levs = np.zeros((7,4), int)
-        for i in range(7):
+        stdall = np.zeros((8,4,50),float)
+        needs = np.zeros((8,4), float)
+        agc = np.zeros((8,2), int)
+        levs = np.zeros((8,4), int)
+        for i in range(8):
             stdev = threads[i].sd
             levs[i] = threads[i].levels
             agc[i] = threads[i].agc
@@ -321,7 +324,7 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
             for chan in range(4):
                 # Use highest half of points to calculate FEM level needed to achieve target
                 needs[i,chan] = np.log10(np.median(np.sort(stdev[chan])[24:]/34.))*5.
-        agc.shape = (14,)
+        agc.shape = (16,)
         # Save stdevs for this time
 #        fh = open(fname,'ab')
 #        fh.write(stdall)
@@ -354,7 +357,7 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
             if projid == 'NormalObserving' or projid == 'FLARETEST':
                 # Get new FEMATTN level, ensuring that it is not less than 0
                 needs = np.round(needs).astype(int)
-                for i in range(7):
+                for i in range(8):
                     if levs[i,0] == -1:
                         # This ROACH has all failed attempts to read from stateframe, 
                         # so use previous levels and skip any update
@@ -380,7 +383,7 @@ def adc_monitor(nloop=None, ant_str= 'Ant1-13', verbose=False):
 
                             if scanstate == 1:
                                 # Send commands only if scanstate is 1 (ON)
-                                adc2.send_cmds([femcmd], acc)
+                                send_cmds([femcmd], acc)
                                 sleep(1)   # Leave a 1-s pause between sending of these commands
         
         outdict = {'time':t, 'fseqfile':fseqfile, 'projid':projid, 'levels':levs, 'needs':needs, 'stdev':stdall}
@@ -408,10 +411,10 @@ def adc_plot(fname,tplot=None):
 
     #set up plot
     plt.ion()
-    figure, ax = plt.subplots(4,7,figsize=(15, 8))
+    figure, ax = plt.subplots(4,8,figsize=(17, 8))
     plt.suptitle("ADC Standard Deviations", fontsize=20)
     polstr = [' X',' Y',' X',' Y']
-    for i in range(7):
+    for i in range(8):
         for chan in range(4):
             ax[chan,i].text(25,75,'Ant '+str(i*2 + chan/2 + 1)+polstr[chan],horizontalalignment='center')
             ax[chan,i].text(25,65,'FEMATTN -',horizontalalignment='center',fontsize=9)
@@ -441,13 +444,13 @@ def adc_plot(fname,tplot=None):
     strike = 0
 
     while(1):
-        for i in range(7):
+        for i in range(8):
             for chan in range(4):
                 ax[chan,i].plot(stdev[i,chan],'.')
                 ax[chan,i].texts[1].set_text('FEMATTN {} {:+3.1f}'.format(levs[i,chan],needs[i,chan]))
                 # Pop oldest line (lines[1]) from the plot (note lines[0] is the "target" line, which we want to keep)
                 if len(ax[chan,i].lines) > 4: ax[chan,i].lines[1].remove()
-        ax[0,6].set_title(t[11:19])
+        ax[0,7].set_title(t[11:19])
         ax[0,3].set_title(fseqfile)
         ax[0,0].set_title(projid)    
 
@@ -535,22 +538,22 @@ def adc2master_table(fname=None, time=None, navg=10, attnval=None):
     fh.close()
     data = np.array(stdev)
      
-    data.shape = (navg,28,50)
+    data.shape = (navg,32,50)
     data[np.where(data < 0.00001)] = np.nan
     attn14 = np.log10(((np.nanmedian(data,0)/32.)**2))*10.
-    new_table = np.zeros((52,30),int)
+    new_table = np.zeros((52,32),int)
     for i in range(50):
         if i < 2:
             j = i
         else:
             j = i+2
-        new_table[j,:28] = np.clip((np.round(attn14[:,i]+attnval)/2.).astype(int)*2,0,30)
+        new_table[j] = np.clip((np.round(attn14[:,i]+attnval)/2.).astype(int)*2,0,30)
     newtbl = []
-    newtbl.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15')
-    newtbl.append('#      X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y')
-    newtbl.append('#     ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- -----')
+    newtbl.append('#      Ant1  Ant2  Ant3  Ant4  Ant5  Ant6  Ant7  Ant8  Ant9 Ant10 Ant11 Ant12 Ant13 Ant14 Ant15 Ant16')
+    newtbl.append('#      X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y  X  Y')
+    newtbl.append('#     ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- -----')
     for i in range(52):
-        newtbl.append('{:2} : {:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}'.format(i+1,*new_table[i]))
+        newtbl.append('{:2} : {:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}{:3}'.format(i+1,*new_table[i]))
     for line in newtbl:
         print line
 
@@ -605,5 +608,5 @@ if __name__ == "__main__":
         if len(sys.argv) == 2:
             ant_str = sys.argv[1]
         else:
-            ant_str = 'Ant1-13'
+            ant_str = 'Ant1-15'   # Specifies which antennas to update FEM attn
         adc_monitor(ant_str=ant_str)

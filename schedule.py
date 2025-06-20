@@ -394,6 +394,11 @@
 #    2025-Jan-16  DG
 #       Removed SUNSK command in favor of more general $SCAN-START SK<n> where <n>
 #       is 1 or 2 (omitting SK defaults to 0).
+#    2025-May-19 DG
+#       Changes to work with 16 antennas.  Note that /tmp/delay_centers.txt will now
+#       have 17 antenna lines, with the fake Ant 17 being the Ant A low-frequency
+#       receiver delay.  On reading into the scan header, the line 16 delays are
+#       replaced by line 17 delays if the low-frequency receiver is selected.
 #
 
 import os, signal
@@ -530,8 +535,11 @@ def init_scanheader_dict(version=37.0):
     try:
         xml, buf = cal_header.read_cal(4)
         dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
-        dcen  = dcenters[:,0]
-        dceny = dcenters[:,1]
+        # The SQL delays now include a fake Ant 17 (delays for Ant A low-frequency
+        # receiver).  This initialization ignores that, but the swap occurs later
+        # during $SCAN-START if the low-frequency receiver is in place.
+        dcen  = dcenters[:16,0]
+        dceny = dcenters[:16,1]
     except:
         print t.iso,'SQL connection for delay centers failed.'
         dcen = [0]*16
@@ -924,7 +932,7 @@ class App():
         t = util.Time.now()
         self.label.configure(text=t.iso)
         
-        # Set default Ant 14 receiver position to the High-Frequency setting, i.e. lorx = False
+        # Set default Ant 16 receiver position to the High-Frequency setting, i.e. lorx = False
         self.lorx = False
 
         # Setup Project Tab
@@ -1690,7 +1698,7 @@ class App():
         # calc RA,dec of safe pos (to avoid triggering when within 0.5 deg of safe pos)
         safe_coords = (lst-safe_pos[0]*pi/180.,safe_pos[1]*pi/180.)
         
-        for antnum in [14]:
+        for antnum in [16]:
             # augment trigger_timer and skip this antenna if it's less than trigger_cadence since last trigger
             try:
                 trigger_timer[antnum] = trigger_timer[antnum] + 1
@@ -1864,7 +1872,7 @@ class App():
         self.w = stateframe.weather()
         sf_dict.update(self.w)
         # If weather information is "stale" (older than 5 minutes), set wscram-limit to 0 to force
-        # Ant 14 to be kept stowed.
+        # Ant 16 to be kept stowed.
         try:
             tdifw = t - Time(self.w['mtSampTime'].replace('/','-'))
             if tdifw.value > 300./86400.:
@@ -1875,7 +1883,7 @@ class App():
                     try:
                         # Send commands to update antenna trip information
                         s.connect((self.accini['host'],self.accini['scdport']))
-                        s.send('WSCRAM-LIMIT 0 ANT14')
+                        s.send('WSCRAM-LIMIT 0 ANT16')
                         time.sleep(0.01)
                         s.close()
                     except:
@@ -1886,9 +1894,9 @@ class App():
                     # Open socket to ACC
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     try:
-                        # Send command to update windscram limit for Ant 14
+                        # Send command to update windscram limit for Ant 16
                         s.connect((self.accini['host'],self.accini['scdport']))
-                        s.send('WSCRAM-LIMIT '+str(self.wlimit)+' ANT14')
+                        s.send('WSCRAM-LIMIT '+str(self.wlimit)+' ANT16')
                         time.sleep(0.01)
                         s.close()
                     except:
@@ -2163,14 +2171,6 @@ class App():
         adc_clk = self.brd_clk_freq*4./1000.
         dlaoff = int(16500.*adc_clk/1.2)
 
-        # This swap is now done at $SCAN-START (and written to ACC)
-        #dcenidx = numpy.arange(16)
-        #if self.lorx:
-        #    # If the low-frequency receiver is in place (i.e. an RX-SELECT LO ANT14 command
-        #    # was sent), replace the Ant 14 delay centers with those in the Ant 15 slot.
-        #    dcenidx[13:15] = [14,13]
-        #dlax = numpy.round((sh_dict['dlacen'][dcenidx] - sf_dict['delay'])*adc_clk + dlaoff)
-        #dlay = dlax + (sh_dict['dlaceny'] - sh_dict['dlacen'])[dcenidx]
         dlax = numpy.round((sh_dict['dlacen'] - sf_dict['delay'])*adc_clk + dlaoff)
         dlay = dlax + (sh_dict['dlaceny'] - sh_dict['dlacen'])
         
@@ -2350,8 +2350,14 @@ class App():
             sh_dict['track_mode'] = 'PLANET'
         elif cmds[0].upper() == 'FEATTNTEST':
             sh_dict['project'] = 'FEATTNTEST'
-            sh_dict['source_id'] = 'Sun'
-            sh_dict['track_mode'] = 'PLANET'
+            sh_dict['source_id'] = 'SKY'
+            sh_dict['track_mode'] = 'FIXED'
+            # SKY position is defined (for this purpose) as the current LST + 4.5 h and Dec=5 deg
+            ra = eovsa_lst(Time(Time.now().mjd + 4.5/24.,format='mjd')) 
+            dec = 5*np.pi/180.
+            geosat = aipy.amp.RadioFixedBody(ra,dec,name='SKY')
+            self.aa.cat.add_srcs([geosat,geosat])
+            sf_dict['geosat'] = geosat    # Use geosat_tab in $MK_TABLES
         elif cmds[0].upper() == 'PHASECAL':
             sh_dict['project'] = 'PHASECAL'
             sh_dict['source_id'] = cmds[1]
@@ -2605,13 +2611,13 @@ class App():
                         f.close()
                 #==== FEM-INIT ====
                 elif ctlline.split()[0].upper() == '$FEM-INIT':
-                    ant_str = 'ant1-13'
+                    ant_str = 'ant1-15'
                     t = threading.Thread(target=adc_cal2.set_fem_attn, kwargs={'ant_str':ant_str})
                     t.daemon = True
                     t.start()
                 #==== PLUSDELAY ====
                 elif ctlline.split()[0].upper() == '$PLUSDELAY':
-                    # Really specific command that adds given delay argument (in nsec) to the Ant 14 LO-FRQ RCVR
+                    # Really specific command that adds given delay argument (in nsec) to the Ant 16 LO-FRQ RCVR
                     # delays (both X and Y) in the current delay center table.  This writes the changed record as
                     # a new record in the SQL database.  It can be deleted later using cal_header.delete_cal().
                     try:
@@ -2625,9 +2631,9 @@ class App():
                         lines = f.readlines()
                         f.close()
                         time.sleep(0.1)
-                        # Add the given delay to both X and Y delays in line 18 (Ant 15 line, which is really Ant 14 LO_FRQ RCVR)
-                        vals = array(map(float,lines[18].strip().split())) + [0,dla,dla]
-                        lines[18] = '  {:2d}    {:9.3f}    {:9.3f}\n'.format(int(vals[0]),vals[1],vals[2])
+                        # Add the given delay to both X and Y delays in line 20 (Fake Ant 17 line, which is really Ant 16 LO_FRQ RCVR)
+                        vals = array(map(float,lines[20].strip().split())) + [0,dla,dla]
+                        lines[20] = '  {:2d}    {:9.3f}    {:9.3f}\n'.format(int(vals[0]),vals[1],vals[2])
                         # Write the table back to the disk
                         f = open('/tmp/delay_centers.txt','w')
                         for line in lines:
@@ -2674,8 +2680,8 @@ class App():
                         xml, buf = cal_header.read_cal(4)
                         dcenters = stateframe.extract(buf,xml['Delaycen_ns'])
                         if self.lorx:
-                            # If the LO-frequency receiver is active, put delays in slot for Ant 15 into Ant 14
-                            dcenters[13] = dcenters[14]
+                            # If the LO-frequency receiver is active, put delays in slot for fake Ant 17 into Ant 16
+                            dcenters[15] = dcenters[16]
                         timestr = Time(int(stateframe.extract(buf, xml['Timestamp'])), format='lv').iso
                         f = open('/tmp/delay_centers.txt', 'w')
                         f.write('# Antenna delay centers, in nsec, relative to Ant 1\n')
@@ -2683,7 +2689,7 @@ class App():
                         f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
                         f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
                         fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
-                        for i in range(16):
+                        for i in range(17):
                             f.write(fmt.format(i + 1, *dcenters[i]))
                         f.close()
                         time.sleep(0.1)  # Make sure file has time to be closed.
@@ -2703,17 +2709,18 @@ class App():
                             # Something went wrong with reading the delay centers from SQL, so get them from the file.
                             f = open('/tmp/delay_centers.txt', 'r')
                             lines = f.readlines()
-                            dcenters = np.zeros((16, 2), 'float')
+                            dcenters = np.zeros((17, 2), 'float')
                             for line in lines:
                                 if line[0] != '#':
                                     ant, xdla, ydla = line.strip().split()
                                     dcenters[int(ant) - 1] = np.array([float(xdla), float(ydla)])
                             if self.lorx:
-                                # If the LO-frequency receiver is active, put delays in slot for Ant 15 into Ant 14
-                                dcenters[13] = dcenters[14]
+                                # If the LO-frequency receiver is active, put delays in slot for fake Ant 17 into Ant 16
+                                dcenters[15] = dcenters[16]
                         
-                        sh_dict['dlacen']  = dcenters[:,0]
-                        sh_dict['dlaceny'] = dcenters[:,1]
+                        # Write delays for 16 antennas into sh_dict.
+                        sh_dict['dlacen']  = dcenters[:16,0]
+                        sh_dict['dlaceny'] = dcenters[:16,1]
                     except:
                         print util.Time.now().iso,'Writing delay centers to ACC failed.  Delay center not updated.'
 
@@ -3083,22 +3090,22 @@ class App():
                         
                     try:
                         for i in range(4):
-                            cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT14'
+                            cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT16'
                             self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_a[i]['vd'])+' ANT14'
+                            cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_a[i]['vd'])+' ANT16'
                             self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_a[i]['vg1'])+' ANT14'
+                            cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_a[i]['vg1'])+' ANT16'
                             self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_a[i]['vg2'])+' ANT14'
+                            cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_a[i]['vg2'])+' ANT16'
                             self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT15'
-                            self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_b[i]['vd'])+' ANT15'
-                            self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_b[i]['vg1'])+' ANT15'
-                            self.sendctlline(cmdstr)
-                            cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_b[i]['vg2'])+' ANT15'
-                            self.sendctlline(cmdstr)
+                            #cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT15'
+                            #self.sendctlline(cmdstr)
+                            #cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_b[i]['vd'])+' ANT15'
+                            #self.sendctlline(cmdstr)
+                            #cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_b[i]['vg1'])+' ANT15'
+                            #self.sendctlline(cmdstr)
+                            #cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_b[i]['vg2'])+' ANT15'
+                            #self.sendctlline(cmdstr)
                     except:
                         print 'Error sending LNA_settings to ACC'
 
@@ -3194,9 +3201,9 @@ class App():
                         self.sequence2dcmtable(fsequence[:-1])
                 elif cmds[0].upper() == 'RX-SELECT':
                     if cmds[1].upper() == 'LO':
-                        self.lorx = True # Next $SCAN-START will use low-frequency receiver delays for Ant14
+                        self.lorx = True # Next $SCAN-START will use low-frequency receiver delays for Ant16
                     else:
-                        self.lorx = False # Next $SCAN-START will use high-frequency receiver delays for Ant14
+                        self.lorx = False # Next $SCAN-START will use high-frequency receiver delays for Ant16
 
     def update_status(self):
         # Read the current schedule from the list window and write to output file

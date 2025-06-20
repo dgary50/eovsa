@@ -5,6 +5,10 @@
 #   2017-Mar-05  DG
 #      Made maximum delay 32000, to reflect new maximum in the now-working
 #      300 MHz correlator.
+#   2025-May-25  DG
+#      Fixed a subtle bug that did not cause a problem with 15 antennas,
+#      but caused the schedule part of the stateframe to be mangled
+#      when there are 16 antennas.
 #
 import struct
 import numpy as np
@@ -21,6 +25,7 @@ def gen_schedule_sf(sf_dict,mk_xml=False):
        This routine does something sensible even if the supplied
        dictionary sf_dict is empty (i.e. is {}).
     '''
+    #import pdb; pdb.set_trace()
     dtor = np.pi/180.
     xmlfile = '/tmp/schedule_stateframe.xml'
     if mk_xml:
@@ -153,7 +158,8 @@ def gen_schedule_sf(sf_dict,mk_xml=False):
     fmt += 'I'
     buf += struct.pack('I',16)
     item = sf_dict.get('ParallacticAngle',np.zeros(15))*dtor  # Convert degrees to radians
-    item = np.append(item,0.0)  # Add antenna 16, whose parallactic angle is zero by definition
+    if len(item) == 15:
+        item = np.append(item,0.0)  # Add antenna 16, whose parallactic angle is zero by definition
     fmt += '16d'
     for i in item:
         buf += struct.pack('d',i)

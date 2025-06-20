@@ -114,6 +114,8 @@
 #    Important change! udb_corr() no longer fails if a TP calibration for a given day
 #    is not available.  Instead, it uses the nearest earlier calibration and writes
 #    a warning to the screen.
+#  2025-05-22
+#    Changed to work with 16 antennas
 #
 
 import dbutil as db
@@ -169,6 +171,12 @@ def apply_fem_level(data, gctime=None, skycal={}):
 
     # Get timerange from data
     trange = Time([data['time'][0], data['time'][-1]], format='jd')
+    if trange[0] < Time('2025-05-22'):
+        nsolant = 13
+        nant = 15
+    else:
+        nsolant = 15
+        nant = 16
     if gctime is None:
         gctime = trange[0]
     # Get time cadence
@@ -184,15 +192,15 @@ def apply_fem_level(data, gctime=None, skycal={}):
     nt = len(src_lev['times'])
     attn = ac.read_attncal(gctime)[0]  # Reads attn from SQL database (returns a list, but use first, generally only, one)
     # attn = ac.get_attncal(gctime)[0]   # Analyzes GAINCALTEST (returns a list, but use first, generally only, one)
-    antgain = np.zeros((15, 2, nf, nt), np.float32)  # Antenna-based gains [dB] vs. frequency
+    antgain = np.zeros((nant, 2, nf, nt), np.float32)  # Antenna-based gains [dB] vs. frequency
     # Find common frequencies of attn with data
     idx1, idx2 = common_val_idx(data['fghz'], attn['fghz'], precision=4)
     # Currently, GAINCALTEST measures 8 levels of attenuation (16 dB).  I assumed this would be enough,
     # but the flare of 2017-09-10 actually went to 10 levels (20 dB), so we have no choice but to extend
     # to higher levels using only the nominal, 2 dB steps above the 8th level.  This part of the code
     # extends to the maximum 16 levels.
-    a = np.zeros((16, 13, 2, nf), float)  # Extend attenuation to 14 levels
-    a[1:9, :, :, idx1] = attn['attn'][:, :13, :, idx2]  # Use GAINCALTEST results in levels 1-9 (bottom level is 0dB)
+    a = np.zeros((16, nant, 2, nf), float)  # Extend attenuation to 14 levels
+    a[1:9, :, :, idx1] = attn['attn'][:, :nant, :, idx2]  # Use GAINCALTEST results in levels 1-9 (bottom level is 0dB)
     for i in range(8, 15):
         # Extend to levels 9-15 by adding 2 dB to each previous level
         a[i + 1] = a[i] + 2.
@@ -201,7 +209,7 @@ def apply_fem_level(data, gctime=None, skycal={}):
     if dt:
         # For this case, src_lev is an array of dictionaries where keys are levels and
         # values are the proportion of that level for the given integration
-        for i in range(13):
+        for i in range(nsolant):
             for k,j in enumerate(idx1):
                 for m in range(nt):
                     for lev, prop in src_lev['hlev'][i,m].items():
@@ -210,15 +218,16 @@ def apply_fem_level(data, gctime=None, skycal={}):
                         antgain[i,1,j,m] += prop*a[lev,i,1,idx2[k]]
     else:
         # For this case, src_lev is just an array of levels
-        for i in range(13):
+        for i in range(nsolant):
             for k, j in enumerate(idx1):
                 antgain[i, 0, j] = a[src_lev['hlev'][i], i, 0, idx2[k]]
                 antgain[i, 1, j] = a[src_lev['vlev'][i], i, 1, idx2[k]]
     nblant = 136
     blgain = np.zeros((nf, nblant, 4, nt), float)  # Baseline-based gains vs. frequency
 
-    for i in range(14):
-        for j in range(i, 14):
+    # This determines gains for all correlations, both cross- and auto-correlations
+    for i in range(nant):
+        for j in range(i, nant):
             k = bl2ord[i, j]
             blgain[:, k, 0] = 10 ** ((antgain[i, 0] + antgain[j, 0]) / 20.)
             blgain[:, k, 1] = 10 ** ((antgain[i, 1] + antgain[j, 1]) / 20.)
@@ -238,7 +247,7 @@ def apply_fem_level(data, gctime=None, skycal={}):
         # Reorder axes
         bgd = np.swapaxes(bgd,0,2)
 #        bslice = bgd[:,:,:,idx]
-        for i in range(13):
+        for i in range(nsolant):
             cdata['x'][:, bl2ord[i,i], 0] = np.clip(cdata['x'][:, bl2ord[i,i], 0] - bgd[:,0,i],0,None) #bslice[:,0,i],0,None)
             cdata['x'][:, bl2ord[i,i], 1] = np.clip(cdata['x'][:, bl2ord[i,i], 1] - bgd[:,1,i],0,None)#bslice[:,1,i],0,None)
     # Correct the auto- and cross-correlation data
@@ -256,14 +265,14 @@ def apply_fem_level(data, gctime=None, skycal={}):
         bgd = np.swapaxes(bgd,0,2)
         #bslice = bgd[:,:,:,idx]
         #bgnd = np.rollaxis(bslice,3)
-        cdata['px'][:, :13, 0] = np.clip(cdata['px'][:, :13, 0] - bgd[:,0],0,None)#bslice[:,0],0,None)
-        cdata['py'][:, :13, 0] = np.clip(cdata['py'][:, :13, 0] - bgd[:,1],0,None)#bslice[:,1],0,None)
+        cdata['px'][:, :nsolant, 0] = np.clip(cdata['px'][:, :nsolant, 0] - bgd[:,0],0,None)#bslice[:,0],0,None)
+        cdata['py'][:, :nsolant, 0] = np.clip(cdata['py'][:, :nsolant, 0] - bgd[:,1],0,None)#bslice[:,1],0,None)
     # Correct the power
-    cdata['px'][:, :15, 0] *= antgainf[:, :, 0, idx]
-    cdata['py'][:, :15, 0] *= antgainf[:, :, 1, idx]
+    cdata['px'][:, :nant, 0] *= antgainf[:, :, 0, idx]
+    cdata['py'][:, :nant, 0] *= antgainf[:, :, 1, idx]
     # Correct the power-squared
-    cdata['px'][:, :15, 1] *= antgainf[:, :, 0, idx] ** 2
-    cdata['py'][:, :15, 1] *= antgainf[:, :, 1, idx] ** 2
+    cdata['px'][:, :nant, 1] *= antgainf[:, :, 0, idx] ** 2
+    cdata['py'][:, :nant, 1] *= antgainf[:, :, 1, idx] ** 2
     # Reshape px and py arrays back to original
     cdata['px'].shape = (nf * 16 * 3, nt)
     cdata['py'].shape = (nf * 16 * 3, nt)
@@ -310,14 +319,18 @@ def apply_attn_corr(data, tref=None):
 
     # Get timerange from data
     trange = Time([data['time'][0], data['time'][-1]], format='jd')
+    if trange[0] < Time('2025-05-22'):
+        nant = 15
+    else:
+        nant = 16
     # Get time cadence
     dt = np.int(np.round(np.nanmedian(data['time'][1:] - data['time'][:-1]) * 86400))
     if dt == 1: dt = None
     # Get the gain state of the requested timerange
     src_gs = get_gain_state(trange, dt)  # solar gain state for timerange of file
     nt = len(src_gs['times'])
-    antgain = np.zeros((15, 2, 34, nt), np.float32)  # Antenna-based gains vs. band
-    for i in range(15):
+    antgain = np.zeros((nant, 2, 34, nt), np.float32)  # Antenna-based gains vs. band
+    for i in range(nant):
         for j in range(34):
             antgain[i, 0, j] = src_gs['h1'][i] + src_gs['h2'][i] - ref_gs['h1'][i] - ref_gs['h2'][i] + \
                                src_gs['dcmattn'][i, 0, j] - ref_gs['dcmattn'][i, 0, j]
@@ -331,8 +344,8 @@ def apply_attn_corr(data, tref=None):
     blist = (fghz * 2 - 1).astype(int) - 1  # Band list corresponding to frequencies in data
     nblant = 136
     blgain = np.zeros((nf, nblant, 4, nt), float)  # Baseline-based gains vs. frequency
-    for i in range(14):
-        for j in range(i, 14):
+    for i in range(nant):
+        for j in range(i, nant):
             k = bl2ord[i, j]
             blgain[:, k, 0] = 10 ** ((antgain[i, 0, blist] + antgain[j, 0, blist]) / 20.)
             blgain[:, k, 1] = 10 ** ((antgain[i, 1, blist] + antgain[j, 1, blist]) / 20.)
@@ -350,11 +363,11 @@ def apply_attn_corr(data, tref=None):
     cdata['px'].shape = (nf, 16, 3, nt)
     cdata['py'].shape = (nf, 16, 3, nt)
     # Correct the power
-    cdata['px'][:, :15, 0] *= antgainf[:, :, 0, idx]
-    cdata['py'][:, :15, 0] *= antgainf[:, :, 1, idx]
+    cdata['px'][:, :nant, 0] *= antgainf[:, :, 0, idx]
+    cdata['py'][:, :nant, 0] *= antgainf[:, :, 1, idx]
     # Correct the power-squared
-    cdata['px'][:, :15, 1] *= antgainf[:, :, 0, idx] ** 2
-    cdata['py'][:, :15, 1] *= antgainf[:, :, 1, idx] ** 2
+    cdata['px'][:, :nant, 1] *= antgainf[:, :, 0, idx] ** 2
+    cdata['py'][:, :nant, 1] *= antgainf[:, :, 1, idx] ** 2
     # Reshape px and py arrays back to original
     cdata['px'].shape = (nf * 16 * 3, nt)
     cdata['py'].shape = (nf * 16 * 3, nt)
@@ -444,7 +457,10 @@ def apply_calfac(data, calfac):
     bloff = np.zeros((nf, nblant, 4), float)  # Offsun values (will be zero except for auto-correlations)
     fac = calfac['accalfac'][:, :, idx2]  # Extract only common frequencies
     acoffsun = calfac['acoffsun'][:, :, idx2]  # Extract only common frequencies
-    nsolant = 13  # Number of solar antennas
+    if data['time'][0] < Time('2025-05-22').jd:
+        nsolant = 13  # Number of solar antennas
+    else:
+        nsolant = 15
     for i in range(nsolant):
         for j in range(i, nsolant):
             blfac[idx1, bl2ord[i, j], 0] = np.sqrt(fac[i, 0] * fac[j, 0])
@@ -506,8 +522,14 @@ def unrot(data, azeldict=None):
         azeldict = get_sql_info(trange)
     chi = azeldict['ParallacticAngle'] * np.pi / 180.  # (nt, nant)
     # Correct parallactic angle for equatorial mounts, relative to Ant14
-    chi[:, [8, 9, 10, 12, 13]] = 0  # Currently 0, but can be measured and updated
-
+    if trange[0] < Time('2025-05-22'):
+        chi[:, [8, 9, 10, 12, 13, 14]] = 0  # Currently 0, but can be measured and updated
+        nsolant = 13
+        nant = 15
+    else:
+        chi[:,15] = 0   #Only Ant A is equatorial after 2025-05-22
+        nsolant = 15
+        nant = 16
     # Which antennas are tracking
     track = np.logical_and(azeldict['TrackFlag'], azeldict['TrackSrcFlag'])  # True if tracking and no intentional offsets
 
@@ -515,7 +537,7 @@ def unrot(data, azeldict=None):
     good = np.where(azeldict['ActualAzimuth'] != 0)
     tidx = []  # List of arrays of indexes for each antenna
     gd = []
-    for i in range(14):
+    for i in range(nsolant+1):
         gd.append(good[0][np.where(good[1] == i)])
         tidx.append(nearest_val_idx(data['time'], azeldict['Time'][gd[i]].jd))
 
@@ -534,10 +556,10 @@ def unrot(data, azeldict=None):
     nf, nbl, npol, nt = data['x'].shape
     nf = len(fidx1)
     # Correct data for X-Y delay phase
-    for i in range(13):
-        for j in range(i + 1, 14):
+    for i in range(nsolant):
+        for j in range(i + 1, nsolant+1):
             k = bl2ord[i, j]
-            if j == 13:                  # xi_rot was applied for all antennas, but this
+            if j == nsolant:                  # xi_rot was applied for all antennas, but this
                 xi = xi_rot[fidx2]       # is wrong.  Now it is only done for ant14.
             else:
                 xi = 0.0                 # xi_rot for other antennas is just zero.
@@ -552,8 +574,8 @@ def unrot(data, azeldict=None):
 #    import pdb; pdb.set_trace()
     cdata = copy.deepcopy(data)
     for n in range(nt):
-        for i in range(13):
-            for j in range(i + 1, 14):
+        for i in range(nsolant):
+            for j in range(i + 1, nsolant+1):
                 k = bl2ord[i, j]
                 ti = tidx[i][n]
                 tj = tidx[j][n]
@@ -762,19 +784,22 @@ def allday_process(path=None):
     for file in files:
         out = ri.read_idb([file])
         nant,npol,nf,nt = out['p'].shape
-        nant = 13
+        if out['time'][0] < Time(2025-05-22):
+            nsolant = 13
+        else:
+            nsolant = 15
         # Use only data from tracking antennas
         azeldict = get_sql_info(Time(out['time'],format='jd')[[0,-1]])
         idx = nearest_val_idx(out['time'],azeldict['Time'].jd)
         tracking = azeldict['TrackFlag'].T
         # Flag any data where the antennas are not tracking
-        for i in range(nant):
+        for i in range(nsolant):
             out['p'][i,:,:,~tracking[i,idx]] = np.nan
         # Determine best 8 antennas
-        med = np.nanmean(np.nanmedian(out['p'][:nant],3),1)   # size nant,nf
+        med = np.nanmean(np.nanmedian(out['p'][:nsolant],3),1)   # size nant,nf
         medspec = np.nanmedian(med,0)                      # size nf
         p = np.polyfit(out['fghz'], medspec, 2)
-        spec = np.polyval(p, out['fghz']).repeat(nant).reshape(nf,nant)   # size nf, nant
+        spec = np.polyval(p, out['fghz']).repeat(nsolant).reshape(nf,nsolant)   # size nf, nant
         stdev = np.std(med - np.transpose(spec),1)   # size nant
         idx = stdev.argsort()[:8]     # List of 8 best-fitting antennas
         # Use list of antennas to get final median total power dynamic spectrum
@@ -791,7 +816,3 @@ def allday_process(path=None):
         med = np.abs(np.nansum(np.nansum(out['x'][baseidx],0),0))
         # Write the baseline amplitude spectrum to a FITS file
         tp_writefits(out, med.astype(np.float32), filestem='XP_',outpath='./')
-        
-        
-        
-        

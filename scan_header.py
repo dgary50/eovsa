@@ -32,6 +32,8 @@
 #   2022-Mar-14  DG
 #     Changes to use the new Chan_Info object defined in chan_info_52 to 
 #     implement a fast FLARE mode.
+#   2025-May-22  DG
+#     Slight change to some metadata for new azel antennas (14 and 15)
 #
 import struct,sys
 from sun_pos import *
@@ -183,8 +185,8 @@ def scan_header(sh_dict,datfile='/common/Tables/scanheader/scan_header.dat'):
 
     # Pbfwhm (16-element FP array) [arcsec]
     # Primary beam FWHM at 1 GHz
-    # Default is nominal primary beam for 13 2.1m dishes, 2 27m dishes, and 0.0 (bare-feed)
-    item = sh_dict.get('pbfwhm',[1.22*30*180*3600./210./pi]*13 + [1.22*30*180*3600./2700./pi]*2 + [0.0])
+    # Default is nominal primary beam for 15 2.1m dishes, 1 27m dish
+    item = sh_dict.get('pbfwhm',[1.22*30*180*3600./210./pi]*15 + [1.22*30*180*3600./2700./pi])
     fmt += 'I'
     buf = struct.pack('I',16)
     fmt += '16f'
@@ -199,8 +201,8 @@ def scan_header(sh_dict,datfile='/common/Tables/scanheader/scan_header.dat'):
     # Mount (16-element signed integer array)
     # Type of antenna mounts
     # -1 = rf, 0 = bare-feed, 1 = 2m-azel, 2 = 27m-eq, 3 = 2m-eq
-    # Default is list of 13 2m-azel, 2 27m-eq, and 1 bare-feed
-    item = sh_dict.get('mount',[1]*13 + [2]*2 + [0])
+    # Default is list of 15 2m-azel, 1 27m-eq
+    item = sh_dict.get('mount',[1]*15 + [2])
     fmt += 'I16i'
     buf = struct.pack('I',16)
     for i in range(16):

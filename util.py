@@ -67,6 +67,9 @@
 #  2022-Jun-23  DG
 #    Added suppression of spurious ERFA warnings involving absence of leap
 #    seconds for some (mainly future) dates.
+#  2025-May-22  DG
+#    Simple change to fix_time_drift() to work for change of Ant A from index 14
+#    to 16.
 # *
 
 import StringUtil as su
@@ -1303,14 +1306,21 @@ def fix_time_drift(out):
         with stdev < 0.7) to correct the phase on ALL frequencies and polarizations. 
         Other baselines than those with Ant 14 are returned unmodified.
         (Although they COULD be corrected -- TODO)
+
+        I doubt this routine is still used, but still--updated for Ant A being
+        moved from Ant 14 to Ant 16
     '''
     import numpy as np
-    nant, npol, nband, nt = out['x'][bl2ord[13, :13]].shape  # Consider baselines with Ant14 only
+    if out['time'][0] < Time('2025-05-22').jd:
+        nsolant = 13
+    else:
+        nsolant = 15
+    nant, npol, nband, nt = out['x'][bl2ord[nsolant, :nsolant]].shape  # Consider baselines with Ant14 only
     for iant in range(nant):
         for ipol in range(2):  # Use only polarizations XX and YY for slope determination
             slopes = []
             for iband in range(nband):
-                phz = np.angle(out['x'][bl2ord[13, iant], ipol, iband])
+                phz = np.angle(out['x'][bl2ord[nsolant, iant], ipol, iband])
                 # if out['flags'][iant,ipol,iband] == 0:
                 p = lin_phase_fit(out['time'], phz)
                 if p[2] < 0.7:
@@ -1321,7 +1331,7 @@ def fix_time_drift(out):
             for ipol in range(npol):  # Apply the corrections to all polarization products
                 for iband in range(nband):
                     pfit = dpdt * out['fghz'][iband] * (out['time'] - out['time'][nt / 2])
-                    out['x'][bl2ord[13, iant], ipol, iband] *= np.cos(pfit) - 1j * np.sin(pfit)
+                    out['x'][bl2ord[nsolant, iant], ipol, iband] *= np.cos(pfit) - 1j * np.sin(pfit)
     return out
 
 

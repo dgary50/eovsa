@@ -39,6 +39,10 @@
 #   2020-05-08  DG
 #     Added routines override() and compare_tbl() to make it easy to compare
 #     and update DCM Master Tables.
+#   2025-05-22  DG
+#     These routines appear to be superseded by an alternative method of
+#     calibrating the DCMs using adc_plot.py routines. This code has NOT
+#     been updated to work with 16 antennas
 #
 
 import pcapture2 as p

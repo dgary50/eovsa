@@ -84,6 +84,9 @@
 #      Change font size in legend in prt_dla().
 #   2023-Nov-07  DG
 #      Added a chans argument in prt_dla() to allow restriction of channels for fitting.
+#   2025-May-21  DG
+#      Slight update to work with 16 antennas.  To analyze old PRT files, set refant=14
+#      in prt_dla().
 
 import numpy as np
 import pdb
@@ -540,7 +543,7 @@ def rd_jspec(filename):
         out = {'p':outp,'p2':outp2,'a':outauto,'x':outcross,'phdr':outphdr,'delays':outdla, 'time': t}
     return out
 
-def prt_dla(out, ref, refant=14, doplot=False, band=2, chans=[1000,4000], pol=0):
+def prt_dla(out, ref, refant=16, doplot=False, band=2, chans=[1000,4000], pol=0):
     ''' Print (and optionally plot) the delay differences between a PRT file from one correlator state
         (the reference PRT file) and those in another correlator state after the correlator has been rebooted,
         relative to the reference antenna specified in refant.  If ref is None, the phase differences are just
@@ -556,7 +559,7 @@ def prt_dla(out, ref, refant=14, doplot=False, band=2, chans=[1000,4000], pol=0)
             ref    The structure returned from the rd_jspec() routine (in pcapture2.py), corresponding to the
                      reference correlator state.  If ref is None, the phase differences are relative to the
                      refant only.
-            refant The ordinal number of the reference antenna (not 0-based).  Default is Ant 14.
+            refant The ordinal number of the reference antenna (not 0-based).  Default is Ant 16.
             doplot An optional keyword.  If True, a plot is created to visually compare the results
             band   Integer 0-4 to select one of the observation bands (33-37).  
             chans  The channel range to use for the fitting
@@ -577,7 +580,7 @@ def prt_dla(out, ref, refant=14, doplot=False, band=2, chans=[1000,4000], pol=0)
         f.suptitle('Geosat Phase Diff for '+out['time'].iso[:19]+' UT (Ref Time: '+ref['time'].iso[:19]+' UT)',fontsize=16)
         ax.shape = (16,)
     dladiff = out['delays'][:,:,band*10+5]-ref['delays'][:,:,band*10+5]  # Difference in delay settings
-    for i in range(14):
+    for i in range(16):
         ddiff = dladiff[i,0] - dladiff[refant-1,0]  # Difference in delay settings relative to refant
         xax = np.arange(chans[0],chans[1])*0.2/2048. * 2*np.pi * 1.25
         if i == refant-1:
@@ -635,7 +638,7 @@ def bl_list(nant=16):
             k+=1
     return bl2ord
     
-def summary_plot(out,ant_str='ant1-13',ptype='phase'):
+def summary_plot(out,ant_str='ant1-15',ptype='phase'):
     ''' Makes a summary amplitude or phase plot for all antennas from 0:nant
         in out dictionary.
     '''

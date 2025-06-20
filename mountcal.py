@@ -274,7 +274,9 @@ def mountcal(filename=None,param_string=None,star=True):
     # Azimuth -- get index for sort by ascending order
     print 'start of plot'
     paz = np.array(paz)
+    pel = np.array(pel)
     ind = paz.argsort()
+    ind_el = pel.argsort()
     azpo = np.array(azpo)
     elpo = np.array(elpo)
     print 'setting drange'
@@ -285,11 +287,14 @@ def mountcal(filename=None,param_string=None,star=True):
         plt.axis([30,330,-1.5,1.5])
     else:
         plt.axis([30,330,-0.25,0.25])
-    plt.xlabel('Azimuth [deg]')
+    #plt.xlabel('Azimuth [deg]')
+    plt.xlabel('Elevation [deg]')
     plt.ylabel('Azimuth Offset [deg]')
     plt.title('Azimuth Offsets and Fit')
-    plt.plot(paz[ind],np.array(azpo)[ind],'o')
-    plt.plot(paz[ind],np.array(azfit)[ind])
+    #plt.plot(paz[ind],np.array(azpo)[ind],'o')
+    #plt.plot(paz[ind],np.array(azfit)[ind])
+    plt.plot(pel[ind_el],np.array(azpo)[ind_el],'o')
+    plt.plot(pel[ind_el],np.array(azfit)[ind_el])
 
     plt.subplot(222)
     if drange > 0.25:

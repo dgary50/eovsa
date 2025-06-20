@@ -10,6 +10,8 @@
 #     Added $LNA-INIT command, for convenience
 #   2015-Dec-01  DG
 #     Changed default width of text entry box.
+#   2025-May-22  DG
+#     Slight change to $LNA-INIT since Ant A is Ant 16 now.
 #
 
 import os, time
@@ -80,22 +82,22 @@ class App():
                         
                 try:
                     for i in range(4):
-                        cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT14'
+                        cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT16'
                         self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_a[i]['vd'])+' ANT14'
+                        cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_a[i]['vd'])+' ANT16'
                         self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_a[i]['vg1'])+' ANT14'
+                        cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_a[i]['vg1'])+' ANT16'
                         self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_a[i]['vg2'])+' ANT14'
+                        cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_a[i]['vg2'])+' ANT16'
                         self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT15'
-                        self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_b[i]['vd'])+' ANT15'
-                        self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_b[i]['vg1'])+' ANT15'
-                        self.execute_ctlline(cmdstr)
-                        cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_b[i]['vg2'])+' ANT15'
-                        self.execute_ctlline(cmdstr)
+                        #cmdstr = 'LNA-ENABLE '+lnas[i]+' on ANT15'
+                        #self.execute_ctlline(cmdstr)
+                        #cmdstr = 'LNA-DRAIN '+lnas[i]+' '+str(lnas_b[i]['vd'])+' ANT15'
+                        #self.execute_ctlline(cmdstr)
+                        #cmdstr = 'LNA-GATE1 '+lnas[i]+' '+str(lnas_b[i]['vg1'])+' ANT15'
+                        #self.execute_ctlline(cmdstr)
+                        #cmdstr = 'LNA-GATE2 '+lnas[i]+' '+str(lnas_b[i]['vg2'])+' ANT15'
+                        #self.execute_ctlline(cmdstr)
                 except:
                     print 'Error sending LNA_settings to ACC'        
         

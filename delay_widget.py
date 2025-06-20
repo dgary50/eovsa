@@ -33,6 +33,10 @@
 #   2023-Oct-07  DG
 #      Add refant checkbox and ability to change the reference antenna.  This is
 #      for the display only.  The delay center reference remains with Ant 1.
+#   2025-May-20  DG
+#      Significant changes to work with 16 antennas, with Ant A as Ant 16.  Note
+#      that this code is only for updating current delays, so does not have
+#      to work for past data.
 
 from Tkinter import *
 from tkFileDialog import askopenfile
@@ -72,18 +76,18 @@ class App():
         fmain.pack()
         line1 = Frame(fmain)
         line1.pack()
-        Label(line1, text='Ant 14 Y-X Delay', font="Helvetica 14").pack(side=LEFT,expand=1)
-        self.dla14var = StringVar()
-        self.dla14 = Entry(line1, textvariable=self.dla14var, font="Helvetica 14", width=5)
-        self.dla14var.set('0.0')
-        self.dla14.bind("<Return>", self.fetch)
-        self.dla14.pack(side=LEFT)
-        dla14updown = Frame(line1)
-        dla14updown.pack(side=LEFT)
-        self.dla14upbtn = Button(dla14updown, text=u'\u25B2', command=self.up14dla, borderwidth=0, pady=0)
-        self.dla14upbtn.pack(padx=1,pady=0)
-        self.dla14dnbtn = Button(dla14updown, text=u'\u25BC', command=self.down14dla, borderwidth=0, pady=0)
-        self.dla14dnbtn.pack(padx=1,pady=0)
+        Label(line1, text='Ant A Y-X Delay', font="Helvetica 14").pack(side=LEFT,expand=1)
+        self.dlaAvar = StringVar()
+        self.dlaA = Entry(line1, textvariable=self.dlaAvar, font="Helvetica 14", width=5)
+        self.dlaAvar.set('0.0')
+        self.dlaA.bind("<Return>", self.fetch)
+        self.dlaA.pack(side=LEFT)
+        dlaAupdown = Frame(line1)
+        dlaAupdown.pack(side=LEFT)
+        self.dlaAupbtn = Button(dlaAupdown, text=u'\u25B2', command=self.upAdla, borderwidth=0, pady=0)
+        self.dlaAupbtn.pack(padx=1,pady=0)
+        self.dlaAdnbtn = Button(dlaAupdown, text=u'\u25BC', command=self.downAdla, borderwidth=0, pady=0)
+        self.dlaAdnbtn.pack(padx=1,pady=0)
 
         line2 = Frame(fmain)
         line2.pack()
@@ -109,7 +113,7 @@ class App():
         leftdla = Frame(fleft)
         leftdla.pack()
         Label(leftdla, text='X Delay', font="Helvetica 14").pack(side=LEFT)
-        self.delays = np.zeros(13,np.float)
+        self.delays = np.zeros(15,np.float)
         self.dlavar = StringVar()
         self.dla = Entry(leftdla, textvariable=self.dlavar, font="Helvetica 14", width=5)
         self.dlavar.set(str(self.delays[0]))
@@ -126,7 +130,7 @@ class App():
         leftxydla = Frame(fleft)
         leftxydla.pack()
         Label(leftxydla, text='Y-X Delay', font="Helvetica 14").pack(side=LEFT)
-        self.xydelays = np.zeros(13,np.float)
+        self.xydelays = np.zeros(15,np.float)
         self.xydlavar = StringVar()
         self.xydla = Entry(leftxydla, textvariable=self.xydlavar, font="Helvetica 14", width=5)
         self.xydlavar.set(str(self.xydelays[0]))
@@ -146,7 +150,7 @@ class App():
         self.chkbox = Checkbutton(leftckbox, text="Mark Ant as Missing", variable=var, command=self.cb)
         self.chkbox.var = var
         self.chkbox.pack(side=LEFT)
-        self.missing = np.zeros(13,dtype=int) # None of the antennas are missing
+        self.missing = np.zeros(15,dtype=int) # None of the antennas are missing
 
         refvar = IntVar()
         leftckbox = Frame(fleft)
@@ -154,7 +158,7 @@ class App():
         self.refchkbox = Checkbutton(leftckbox, text="Mark Ant as Refant", variable=refvar, command=self.refcb)
         self.refchkbox.refvar = refvar
         self.refchkbox.pack(side=LEFT)
-        self.refant = np.array([1]+[0]*12)  # Ant 1 is the default refant
+        self.refant = np.array([1]+[0]*14)  # Ant 1 is the default refant
         self.refchkbox.select()
 
         fright = Frame(line2)
@@ -189,17 +193,17 @@ class App():
         self.fghz = np.array([3.4, 3.5, 3.6, 4.4, 4.6, 4.8])
         self.pol = np.array([0,2,3,1])
         nf = len(self.fghz)
-        taux = np.random.randn(13)
-        tauy = taux + np.random.randn(13)*0.1
-        taux14 = 0.3
-        tauy14 = -1.1
-        df = np.random.randn(13,4,nf)*0.1
-        self.ph = np.zeros((13,4,nf),float)
+        taux = np.random.randn(15)
+        tauy = taux + np.random.randn(15)*0.1
+        tauxA = 0.3
+        tauyA = -1.1
+        df = np.random.randn(15,4,nf)*0.1
+        self.ph = np.zeros((15,4,nf),float)
         for k,fghz in enumerate(self.fghz):
-            self.ph[:,0,k] = 2*np.pi*fghz*(taux14 - taux) + df[:,0,k] # XX
-            self.ph[:,1,k] = 2*np.pi*fghz*(tauy14 - tauy) + df[:,1,k] # YY
-            self.ph[:,2,k] = 2*np.pi*fghz*(tauy14 - taux) + df[:,2,k] # XY
-            self.ph[:,3,k] = 2*np.pi*fghz*(taux14 - tauy) + df[:,3,k] # YX
+            self.ph[:,0,k] = 2*np.pi*fghz*(tauxA - taux) + df[:,0,k] # XX
+            self.ph[:,1,k] = 2*np.pi*fghz*(tauyA - tauy) + df[:,1,k] # YY
+            self.ph[:,2,k] = 2*np.pi*fghz*(tauyA - taux) + df[:,2,k] # XY
+            self.ph[:,3,k] = 2*np.pi*fghz*(tauxA - tauy) + df[:,3,k] # YX
         self.doplot(ant=1)
 
     def cb(self):
@@ -212,16 +216,16 @@ class App():
         # Handle the refant checkbox widget
         ant_str = self.ant.get()  # Current antenna showing
         ant = int(ant_str)
-        print 'Ant',ant,'selected.', self.chkbox.var.get(), 'is the state.'
-        self.refant = np.zeros(13,np.int)
+        #print 'Ant',ant,'selected.', self.chkbox.var.get(), 'is the state.'
+        self.refant = np.zeros(15,np.int)
         self.refant[ant-1] = 1  # List indicating reference antenna (if 1)
-        print 'Refant selection going in is',self.refant
+        #print 'Refant selection going in is',self.refant
         refant, = np.where(self.refant == 1)
         if len(refant) == 0:
             # If no refant selected, set refant to ant 1
-            self.refant = np.array([1]+[0]*12)  # Ant 1 is the default refant
+            self.refant = np.array([1]+[0]*14)  # Ant 1 is the default refant
             if ant == 1: self.refchkbox.select()
-        print 'Refant selection going out is',self.refant
+        #print 'Refant selection going out is',self.refant
 
     def fetch(self, e):
         ant_str = self.ant.get()
@@ -243,21 +247,22 @@ class App():
         # Do not change delays for a missing antenna
         bad, = np.where(self.missing == 1)
         delays[bad] = 0.0
-        self.label1.configure(text='Ant    1,    2,    3,    4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14')
-        fmt = '{:5.1f},'*14
+        self.label1.configure(text='Ant    1,    2,    3,    4,    5,    6,    7,    8,    9,   10,   11,   12,   13,   14,   15,   16')
+        fmt = '{:5.1f},'*16
         delays_str = fmt.format(*delays)
         self.label2.configure(text='   '+delays_str[:-1])
-        xydelays = np.append(self.xydelays,-float(self.dla14.get()))
+        xydelays = np.append(self.xydelays,-float(self.dlaA.get()))
         xydelays_str = fmt.format(*xydelays)
         self.label3.configure(text='   '+xydelays_str[:-1])
 
     def up(self):
         ant_str = self.ant.get()
         ant = int(ant_str)
-        if ant < 13:
+        nsolant = 15
+        if ant < nsolant:
             ant += 1
         else:
-            ant = 13
+            ant = nsolant
         self.antvar.set(str(ant))
         # Show current missing status
         if self.missing[ant-1]:
@@ -299,22 +304,22 @@ class App():
         self.xydlavar.set(str(dla))
         self.doplot(ant)
 
-    def up14dla(self):
+    def upAdla(self):
         ant_str = self.ant.get()
         ant = int(ant_str)
-        dla_str = self.dla14.get()
+        dla_str = self.dlaA.get()
         dla = float(dla_str)
         dla += 0.1
-        self.dla14var.set(str(dla))
+        self.dlaAvar.set(str(dla))
         self.doplot(ant)
 
-    def down14dla(self):
+    def downAdla(self):
         ant_str = self.ant.get()
         ant = int(ant_str)
-        dla_str = self.dla14.get()
+        dla_str = self.dlaA.get()
         dla = float(dla_str)
         dla -= 0.1
-        self.dla14var.set(str(dla))
+        self.dlaAvar.set(str(dla))
         self.doplot(ant)
 
     def updla(self):
@@ -364,20 +369,20 @@ class App():
         # Also need delay settings for ant 1
         dla1 = self.delays[0]
         ydla1 = self.xydelays[0]
-        ydla14 = np.float(self.dla14.get())
+        ydlaA = np.float(self.dlaA.get())
         for i,ax in enumerate(self.ax[:4]):
             if self.pol[i] == 0:
                 # XX => use only the ant X delay 
                 tau = dla
                 tau1 = dla1
             elif self.pol[i] == 1:
-                # YY => use the ant (X delay + Y-X delay) + Ant 14 Y-X delay
-                tau = dla + ydla + ydla14
-                tau1 = dla1 + ydla1 + ydla14
+                # YY => use the ant (X delay + Y-X delay) + Ant A Y-X delay
+                tau = dla + ydla + ydlaA
+                tau1 = dla1 + ydla1 + ydlaA
             elif self.pol[i] == 2:
-                # XY => use the ant X delay + Ant 14 Y-X delay
-                tau = dla + ydla14
-                tau1 = dla1 + ydla14
+                # XY => use the ant X delay + Ant A Y-X delay
+                tau = dla + ydlaA
+                tau1 = dla1 + ydlaA
             else:
                 #YX => use the ant (X delay + Y-X delay)
                 tau = dla + ydla
@@ -409,6 +414,7 @@ class App():
             ax.legend(fontsize=9,loc='lower right')
         self.ax[4].cla()
         self.ax[4].plot(self.fghz,lobe(pyy - pxx),'.')
+        self.ax[4].plot(self.fghz,lobe(pyx - pxy),'.')
         self.ax[4].set_title('YY - XX Phase')
         #self.ax[4].plot(self.fghz,lobe(pxy - pyx),'.')
         self.ax[4].set_ylim(-4,4)
@@ -425,10 +431,11 @@ class App():
         self.root.wm_title('Delay Widget '+f.name)
         k = data.keys()
         out = data[k[0]].item()
-        self.ph = np.angle(np.sum(out['x'][ri.bl2ord[0:13,13]],3))
         self.fghz = out['fghz']
         # Set time for delays as end time of data (for lack of a better choice)
         self.time = Time(out['time'][-1],format='jd')
+        nsolant = 15
+        self.ph = np.angle(np.sum(out['x'][ri.bl2ord[0:nsolant,nsolant]],3))
         self.data_source = 'Data'
         self.doplot()
                 
@@ -440,11 +447,11 @@ class App():
             else:
                 question = "Save delays to SQL and ACC?"
             import cal_header as ch
-            # Calculate delays relative to Ant 1 and tack Ant1-14 delay at end
+            # Calculate delays relative to Ant 1 and tack Ant1-A delay at end
             delays = self.delays[0] - self.delays
             delays = np.append(delays,self.delays[0])
-            # Have to change the sign of Ant 14 Y-X delay, hence the minus sign
-            xydelays = np.append(self.xydelays,-float(self.dla14.get()))
+            # Have to change the sign of Ant A Y-X delay, hence the minus sign
+            xydelays = np.append(self.xydelays,-float(self.dlaA.get()))
             # Do not change delays for a missing antenna
             bad, = np.where(self.missing == 1)
             delays[bad] = 0.0
@@ -459,8 +466,8 @@ class App():
 
 
     def SaveLoRX(self):
-        # Send saved Ant 14 delays as Ant 15 to the SQL database and the ACC (if the data source is not 'Simulation')
-        # Note, ONLY Ant 14 delay is changed, and it is ascribed to Ant 15.  No other delay changes are made.
+        # Send saved Ant A delays as Ant 15 to the SQL database and the ACC (if the data source is not 'Simulation')
+        # Note, ONLY Ant A delay is changed, and it is ascribed to Ant 15.  No other delay changes are made.
         if self.data_source == 'Data':
             if (Time.now().mjd - self.time.mjd) > 1.0:
                 question = "Warning: Data more than a day old. Are you sure you want to save delays to SQL and ACC?"
@@ -470,18 +477,18 @@ class App():
             
             delays = self.delays[0] - self.delays
             delays = np.append(delays,self.delays[0])
-            # Have to change the sign of Ant 14 Y-X delay, hence the minus sign
-            xydelays = np.append(self.xydelays,-float(self.dla14.get()))
+            # Have to change the sign of Ant A Y-X delay, hence the minus sign
+            xydelays = np.append(self.xydelays,-float(self.dlaA.get()))
             # Do not change delays for a missing antenna
             bad, = np.where(self.missing == 1)
             delays[bad] = 0.0
-            # Check that the delays to all antennas except Ant 14 are zero, or give warning if not
-            for i in range(13):
+            # Check that the delays to all antennas except Ant A are zero, or give warning if not
+            for i in range(15):
                 if delays[i] != 0.0:
-                    question = "Some Ant1-13 delays are not 0, but will NOT be updated.  Save anyway?"
+                    question = "Some Ant1-15 delays are not 0, but will NOT be updated.  Save anyway?"
                     break
                 if xydelays[i] != 0.0:
-                    question = "Some Ant1-13 delays are not 0, but will NOT be updated.  Save anyway?"
+                    question = "Some Ant1-15 delays are not 0, but will NOT be updated.  Save anyway?"
                     break
             
             if askyesno("Write Delays",question):

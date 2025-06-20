@@ -43,12 +43,17 @@
 #     will behave like Ant 12 as far as trajectories are concerned (offsets
 #     have to be in RA/Dec when in equatorial mode).  Modifications have been
 #     made to account for this (oldidx is now empty, ant12idx is now 8-12).
+#   2025-May-23
+#     Updated to work for past antenna configurations and the new 16-ant
+#     configuration.
+#   2025-Jun-16  DG
+#     Added a parameter send=False to offsets2ants(), to suppress sending the
+#     commands to the antennas, although they are still written to the terminal screen.
 #
 import dbutil
 import stateframe
 import cal_header as ch
 from disk_conv import disk_conv
-import urllib2
 from util import Time, common_val_idx, ant_str2list
 from eovsa_array import eovsa_array
 from eovsa_tracktable import make_trajtables
@@ -59,14 +64,37 @@ import numpy as np
 from time import time
 import warnings
 
-# This block reads the SQL metadata for the time of interest
 nsec = 420  # Number of seconds required for completion of a SOLPNTCAL
-nant = 13
-antidx = np.arange(nant)                    # List of all 13 antennas
-oldidx = np.array([])                       # Indexes of the equatorial antennas (none!)
-newidx = np.array([0, 1, 2, 3, 4, 5, 6, 7]) # Indexes of the azel antennas
-ant12idx = np.array([8, 9, 10, 11, 12])     # Ant 12 case now applies to ants 9-13!
 
+# This block reads the SQL metadata for the time of interest
+def solpnt_setup(t=None):
+    ''' Sets up key variables so that changes to the antenna configuration
+        can be accounted for according to the date of the changes.  This
+        is called only once, by solpnt_meta(), and the results are added
+        to the meta dictionary.
+    '''
+    if t < Time('2025-04-28'):
+        # Original case of 4 old antennas, 8 new antennas, and 1 "special" ant 12
+        nant = 13
+        oldidx = np.array([8, 9, 10, 12])           # Indexes of the equatorial antennas
+        newidx = np.array([0, 1, 2, 3, 4, 5, 6, 7]) # Indexes of the azel antennas
+        ant12idx = np.array([11])                   # Ant 12
+    elif t < Time('2025-05-22'):
+        # Short-term interim configuration where the old antennas were replaced with
+        # new ones of the "ant 12" variety, but still only 13 antennas
+        nant = 13
+        oldidx = np.array([])                       # Indexes of the equatorial antennas (none!)
+        newidx = np.array([0, 1, 2, 3, 4, 5, 6, 7]) # Indexes of the azel antennas
+        ant12idx = np.array([8, 9, 10, 11, 12])     # Ant 12 case now applies to ants 9-13!
+    else:
+        # Final configuration where the old antennas were replaced with
+        # new ones of the "ant 12" variety and two more of the "ant 12 variety were added.
+        nant = 15
+        oldidx = np.array([])                       # Indexes of the equatorial antennas (none!)
+        newidx = np.array([0, 1, 2, 3, 4, 5, 6, 7]) # Indexes of the azel antennas
+        ant12idx = np.array([8, 9, 10, 11, 12, 13, 14])     # Ant 12 case now applies to ants 9-15!
+    return {'nant':nant, 'oldidx':oldidx, 'newidx':newidx, 'ant12idx':ant12idx}
+    
 def solpnt_meta(tsolpnt):
     ''' Reads the SOLPNT metadata for 7-minutes past the given time, which is the
         start time of the SOLPNTCAL scan.
@@ -76,13 +104,21 @@ def solpnt_meta(tsolpnt):
         
         Returns:
            meta       A dictionary encapsulating the metadata.
+           
+        Modified to include "setup" in meta dictionary, so that key items can be
+        date-dependent.
     '''
     t1 = time()
     cursor = dbutil.get_cursor()
     ver = dbutil.find_table_version(cursor, int(tsolpnt.lv))
-    tbldim = 15
+    if tsolpnt < Time('2025-05-22'):
+        tbldim = 15
+    else:
+        tbldim = 16
     solpntdict = dbutil.get_dbrecs(cursor,dimension=tbldim,timestamp=tsolpnt,nrecs=nsec)
-    antlist = np.array([0,1,2,3,4,5,6,7,8,9,10,11,12])
+    times = solpntdict['Timestamp'][:,0].astype('int64').astype('float')
+    setup = solpnt_setup(tsolpnt)
+    antlist = np.arange(setup['nant'])
     bgmask = solpntdict['Ante_Fron_FEM_VPol_Atte_First']==31
     ra = (solpntdict['Ante_Cont_RAVirtualAxis'][:,antlist]*np.pi/10000./180.).astype('float')
     dec = (solpntdict['Ante_Cont_DecVirtualAxis'][:,antlist]*np.pi/10000./180.).astype('float')
@@ -90,11 +126,10 @@ def solpnt_meta(tsolpnt):
     deco = (solpntdict['Ante_Cont_DecOffset'][:,antlist]).astype('float')
     azo = (solpntdict['Ante_Cont_AzOffset'][:,antlist]).astype('float')
     elo = (solpntdict['Ante_Cont_ElOffset'][:,antlist]).astype('float')
-    times = solpntdict['Timestamp'][:,0].astype('int64').astype('float')
     outdict = stateframe.azel_from_sqldict(solpntdict)
     trk = outdict['TrackFlag'][:,antlist]
     meta = {'Timestamp':times[0],'tstamps':times,'antlist':antlist,'ra':ra,'dec':dec,'rao':rao,
-           'deco':deco, 'azo':azo, 'elo':elo, 'trk':trk, 'bgmask':bgmask}
+           'deco':deco, 'azo':azo, 'elo':elo, 'trk':trk, 'bgmask':bgmask, 'setup':setup}
     print 'solpnt_meta took',time()-t1,'s'
     return meta
 
@@ -154,7 +189,14 @@ def solpnt_addmask(meta,trajdict):
     '''
     t1 = time()
     npts = len(trajdict['trjrao'])
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)              
+    oldidx = meta['setup']['oldidx']      
+    newidx = meta['setup']['newidx']      
+    ant12idx = meta['setup']['ant12idx']  
+
     mask = np.zeros((nsec,nant,npts),dtype='bool')
+    
     for i in range(nsec):
         # Loop over each RAO,DECO position and calculate "good data" mask for each
         # desired position
@@ -194,21 +236,6 @@ def attncal_from_solpnt_to_sql(out, do_plot=False):
         # or other data problem.  Return an empty dictionary.
         return None
 
-    if do_plot:
-        import matplotlib.pylab as plt
-        f, ax = plt.subplots(4,13)
-        f.set_size_inches((14,5))
-        ax[0,0].set_ylabel('Atn1X [dB]')
-        ax[1,0].set_ylabel('Atn1Y [dB]')
-        ax[2,0].set_ylabel('Atn2X [dB]')
-        ax[3,0].set_ylabel('Atn2Y [dB]')
-        for i in range(13):
-            ax[0,i].set_title('Ant '+str(i+1))
-            ax[3,i].set_xlabel('Freq [GHz]')
-            for j in range(2):
-                ax[j,i].set_ylim(1,3)
-                ax[j+2,i].set_ylim(3,5)
-
     # Get time from data (at 400th index, which should be the start of the GAINCAL data, 
     # and read 120 records of attn state from SQL database
     t = Time(out['time'][395],format='jd')
@@ -218,8 +245,30 @@ def attncal_from_solpnt_to_sql(out, do_plot=False):
 #        # Antenna info is actually in dimension 16 table starting in version 67
 #        d15 = dbutil.get_dbrecs(cursor, dimension=16, timestamp=t, nrecs=120)
 #    else:
-    d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=t, nrecs=120)
+    if t < Time('2025-05-22'):
+        tbldim = 15
+        nsolant = 13
+    else:
+        tbldim = 16
+        nsolant = 15
+    if do_plot:
+        import matplotlib.pylab as plt
+        f, ax = plt.subplots(4,nsolant)
+        f.set_size_inches((nsolant+1,5))
+        ax[0,0].set_ylabel('Atn1X [dB]')
+        ax[1,0].set_ylabel('Atn1Y [dB]')
+        ax[2,0].set_ylabel('Atn2X [dB]')
+        ax[3,0].set_ylabel('Atn2Y [dB]')
+        for i in range(nsolant):
+            ax[0,i].set_title('Ant '+str(i+1))
+            ax[3,i].set_xlabel('Freq [GHz]')
+            for j in range(2):
+                ax[j,i].set_ylim(1,3)
+                ax[j+2,i].set_ylim(3,5)
+
+    d15 = dbutil.get_dbrecs(cursor, dimension=tbldim, timestamp=t, nrecs=120)
     cursor.close()
+    #import pdb; pdb.set_trace()
     # Find time indexes of the 62 dB attn state
     # Uses only ant 1 assuming all are the same
     dtot = (d15['Ante_Fron_FEM_HPol_Atte_Second'] + d15['Ante_Fron_FEM_HPol_Atte_First'])[:,0]
@@ -234,13 +283,13 @@ def attncal_from_solpnt_to_sql(out, do_plot=False):
     # These now have to be translated into indexes into the data, using the times
     idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
     #import pdb; pdb.set_trace()
-    vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
-    va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
+    vx = np.nanmedian(out['p'][:nsolant,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
+    va = np.mean(out['a'][:nsolant,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
     vals = []
     attn = []
     for i in range(1,10):
         try:
-            vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
+            vals.append(np.nanmedian(out['p'][:nsolant,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
             attn.append(np.log10(vals[0]/vals[-1])*10.)
         except IndexError:
             if i > 6:
@@ -256,7 +305,7 @@ def attncal_from_solpnt_to_sql(out, do_plot=False):
         #    attna.append(np.log10(vals[0]/vals[-1])*10.)
         
     if do_plot:
-        for i in range(13):
+        for i in range(nsolant):
             for j in range(2):
                 ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
                 #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
@@ -267,11 +316,12 @@ def attncal_from_solpnt_to_sql(out, do_plot=False):
                         'rcvr':vx, 'attn': np.array(attn[1:])}
 
     attn = ac.read_attncal(t)   # Attempt to read attn from SQL
-    if attn[0]['time'].iso == outdict['time'].iso:
-        print 'Attenuation record already exists in SQL--not updated.'
-    else:
-        print 'Writing attenuations to SQL for',outdict['time'].iso
-        ch.fem_attn_val2sql([outdict])
+    if len(attn[0]) > 0:
+        if attn[0]['time'].iso == outdict['time'].iso:
+            print 'Attenuation record already exists in SQL--not updated.'
+            return outdict
+    print 'Writing attenuations to SQL for',outdict['time'].iso
+    ch.fem_attn_val2sql([outdict])
 
     return outdict
 
@@ -288,6 +338,8 @@ def solpnt_read(meta):
     '''
     warnings.filterwarnings("ignore", category=RuntimeWarning)
     #import pdb; pdb.set_trace()
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)
     t1 = time()
     trange = Time([meta['Timestamp'],meta['Timestamp']+nsec],format='lv')
     # Determine skycal from the solpntcal file itself
@@ -351,6 +403,8 @@ def solpnt_applymask(otp, meta):
            
         Returns nothing, but it updates the otp dictionary to add tsyspts key
     '''
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)             
     t1 = time()
     nallants, npol, nf, nt = otp['tsys'].shape   # Note, nallants is 16 here, but nant remains 13
     npol = 2
@@ -525,6 +579,8 @@ def solpnt_xanal(tsolpnt):
     '''
     from copy import deepcopy
     meta = solpnt_meta(tsolpnt)
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)              
     trajdict = solpnt_trajectory(tsolpnt)
     solpnt_addmask(meta, trajdict)
     otp = solpnt_read(meta)
@@ -578,6 +634,9 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
         meta = inparams['meta']
     else:
         params = inparams
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)              
+    oldidx = meta['setup']['oldidx']
     px = params['px']
     py = params['py']
     fghz = meta['fghz']
@@ -652,12 +711,12 @@ def solpnt_offsets(inparams, meta=None, savefig=True):
     ax[12].set_xlabel('Frequency [GHz]')
     ax[13].set_xlabel('Frequency [GHz]')
     # I am hazy about why the raoff needs to be opposite sign, but experience shows it's true.
-    offsets = {'raoff':-raoff, 'decoff':decoff, 'azoff':azoff, 'eloff':eloff, 'Timestamp':meta['Timestamp']}
+    offsets = {'raoff':-raoff, 'decoff':decoff, 'azoff':azoff, 'eloff':eloff, 'Timestamp':meta['Timestamp'], 'setup':meta['setup']}
     print 'solpnt_offsets took',time()-t1,'s'
     return offsets
     
-def offsets2ants(offsets,ant_str=None):
-    ''' Given the list of offsets output by solpnt_offsets() for 13 antennas, convert to 
+def offsets2ants(offsets,ant_str=None,send=True):
+    ''' Given the list of offsets output by solpnt_offsets() for nant antennas, convert to 
         pointing coefficients, update the existing coefficients, and send to the relevant 
         antennas.  The antennas to update are specified with ant_str (defaults to no 
         antennas, for safety). 
@@ -666,6 +725,9 @@ def offsets2ants(offsets,ant_str=None):
            offsets      Dictionary of offsets returned by solpnt_offsets().
            ant_str      The standard antenna list string (e.g. 'ant1-3 ant5-8') giving the
                           antenna list to be updated.
+           send         Boolean to actually send the commands to the antennas (default).
+                          Set this to False to suppress sending the commands, although they are
+                          still written to the terminal screen.
 
         Outputs:
            None, but commands are sent to each antenna indicated by ant_str, to update 
@@ -677,6 +739,9 @@ def offsets2ants(offsets,ant_str=None):
         print 'No antenna list specified, so there is nothing to do!'
         return
 
+    nant = offsets['setup']['nant']
+    antidx = np.arange(nant)              
+    oldidx = offsets['setup']['oldidx']
     timestamp = offsets['Timestamp']
     antlist = ant_str2list(ant_str)
     if antlist is None:
@@ -718,8 +783,9 @@ def offsets2ants(offsets,ant_str=None):
             print 'Commands to be sent:'
             print cmd1
             print cmd7,'\n'
-            send_cmds([cmd1],acc)
-            send_cmds([cmd7],acc)
+            if send:
+                send_cmds([cmd1],acc)
+                send_cmds([cmd7],acc)
     print 'offsets2ants',time()-t1,'s'
 
 def solpnt_bsize(inparams, meta=None):
@@ -740,6 +806,8 @@ def solpnt_bsize(inparams, meta=None):
         meta = inparams['meta']
     else:
         params = inparams
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)         
     fghz, a, aout = disk_conv(meta['fghz'])
     aout *= 10000./(2*np.sqrt(np.log(2)))
     px = params['px']
@@ -769,7 +837,8 @@ def params2calfac(s, params, fghz):
     a *= 10000.
 
     nfrq = len(fghz)
-    nant = len(antidx)
+    nant = len(params['px'][0,0])
+    antidx = np.arange(nant)
     calfac = np.zeros((2,nfrq,nant),'float')
     offsun = np.zeros((2,nfrq,nant),'float')
     for ant in antidx:
@@ -817,6 +886,8 @@ def solpnt_calfac(inparams, do_plot=False, prompt=True):
     params = inparams['params']
     autoparams = inparams['autoparams']
     meta = inparams['meta']
+    nant = meta['setup']['nant']
+    antidx = np.arange(nant)              
 
     t = Time(meta['Timestamp'],format='lv')
     fghz = meta['fghz']
@@ -827,7 +898,6 @@ def solpnt_calfac(inparams, do_plot=False, prompt=True):
     fghz = meta['fghz']
     fmhz = fghz*1000.
     nfrq = len(fghz)
-    nant = len(antidx)
     s = rstn.rstn2ant(frq, flux, fmhz, t)
 
     if do_plot:
@@ -880,6 +950,8 @@ def solpnt_check_offsets(solpnt,offsets,ant):
     import matplotlib.pylab as plt
     f, ax = plt.subplots(3,3,figsize=(7,7))
     ax = ax.flatten()
+    oldidx = offsets['setup']['oldidx']   
+
     if ant in oldidx:
         xoff = solpnt['trajdict']['trjrao']
         yoff = solpnt['trajdict']['trjdeco']

@@ -17,12 +17,18 @@
 #   2024-Sep-27  DG
 #     Slight update to eliminate Ant 14 from antlist, if it is there, since we only
 #     want to know the selection of 2-m antennas. 
+#   2025-May-21  DG
+#     We have eliminated the equatorial mounts by replacing those four antennas with
+#     Az-El mounted antennas.  Ant A was Ant 14 but has now become Ant 16 due to adding
+#     two other antennas.  However, we intend to rotate the Ant A feed to correct
+#     for the parallactic angle, so this XY delay correction should not be needed.
+#     Hence, I will not update this routine unless and until it is found necessary.
 #
 import numpy as np
 from util import lobe, Time, ant_str2list
 import read_idb as ri
 
-def get_xy_corr(out, ant_str='ant1-13',doplot=True):
+def get_xy_corr(out, ant_str='ant1-15', doplot=True):
     ''' Analyze a pair of parallel and cross polarization calibration scans and
         return the X vs. Y delay phase corrections on all antennas 1-14.
         

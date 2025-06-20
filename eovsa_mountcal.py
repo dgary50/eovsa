@@ -17,6 +17,9 @@
 #    EQ mount type).
 #  2020-11-29  DG
 #    Added '.' for path in case of path == '' when creating plot.
+#  2025-05-20  DG
+#    This needs to be updated to work with EOVSA-15 data, but I will put
+#    that off until I actually have such data, for debugging.
 #
 from util import Time
 import numpy as np

@@ -116,12 +116,15 @@
 #   2024-05-23  DG
 #      Added a purge [p] option to delete_cal(), due to recent glitch in code that resulted in a LOT of
 #      redundant records...use with caution!
+#   2025-05-18  DG
+#      Many changes to make it all work with 16 antennas.  It should still be able to read and write 
+#      older records.
 
 import struct, util
 import stateframe as sf
 import numpy as np
 
-def cal_types():
+def cal_types(t=util.Time.now()):
     ''' Routine that defines all of the basic "long-term" calibration
         /information types as a dictionary.  These types and descriptions 
         will be written into the Description field of the aBin table.
@@ -132,19 +135,33 @@ def cal_types():
         is changed in any way, it is good practice to increment the version
         number, given as the last element of each type.        
     '''
-    return {1: ['Prototype total power calibration (output of SOLPNTCAL)', 'proto_tpcal2xml', 1.0],
-            2: ['DCM master base attenuation table [units=dB]', 'dcm_master_table2xml', 2.0],  # Version 2.0 (2019-02-22)
-            3: ['DCM base attenuation table [units=dB]', 'dcm_table2xml', 1.0],
-            4: ['Delay centers [units=ns]', 'dlacen2xml', 1.0],
-            5: ['Equalizer gains', 'eq_gain2xml', 1.0],
-            6: ['DCM attenuator values [units=dB]', 'dcm_attn_val2xml', 1.0],
-            7: ['FEM attenuator values [units=dB]', 'fem_attn_val2xml', 1.0],
-            8: ['Reference calibration', 'refcal2xml', 2.0],   # Version 2.0 (2019-02-22)
-            9: ['Daily phase calibration', 'phacal2xml', 2.0],  # Version 2.0 (2019-02-22)
-           10: ['Total power calibration', 'tpcal2xml', 1.0],
-           11: ['X-Y phase calibration', 'xy_phasecal2xml', 2.0],  # Changed the definition of this, so version is 2.0 (2018-01-01)
-           12: ['RSTN noon flux', 'rstnflux2xml', 1.0],
-           13: ['Sky calibration', 'skycal2xml', 1.0]}
+    # Set cal_type versions based on date
+    if t.mjd < util.Time('2018-01-01').mjd:
+        # All version 1 before 2018-01-01
+        verlist = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    elif t.mjd < util.Time('2019-02-22').mjd:
+        # Type 11 becomes version 2.0 between 2018-01-01 and 2019-02-22
+        verlist = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 1.0]
+    elif t.mjd < util.Time('2025-05-22').mjd:
+        # Types 2, 8, and 9 become version 2.0 between 2019-02-22 and 2025-05-04
+        verlist = [1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 1.0, 2.0, 1.0, 1.0]
+    else:
+        # Types 2, 3, 4, 6, 7, 8, 9, 10, 11, and 13 all increment by 1 after 2025-05-04
+        verlist = [1.0, 3.0, 2.0, 2.0, 1.0, 1.0, 2.0, 3.0, 3.0, 1.0, 3.0, 1.0, 1.0]
+
+    return {1: ['Prototype total power calibration (output of SOLPNTCAL)', 'proto_tpcal2xml', verlist[0]],
+            2: ['DCM master base attenuation table [units=dB]', 'dcm_master_table2xml', verlist[1]],
+            3: ['DCM base attenuation table [units=dB]', 'dcm_table2xml', verlist[2]],
+            4: ['Delay centers [units=ns]', 'dlacen2xml', verlist[3]],
+            5: ['Equalizer gains', 'eq_gain2xml', verlist[4]],
+            6: ['DCM attenuator values [units=dB]', 'dcm_attn_val2xml', verlist[5]],
+            7: ['FEM attenuator values [units=dB]', 'fem_attn_val2xml', verlist[6]],
+            8: ['Reference calibration', 'refcal2xml', verlist[7]],
+            9: ['Daily phase calibration', 'phacal2xml', verlist[8]],
+           10: ['Total power calibration', 'tpcal2xml', verlist[9]],
+           11: ['X-Y phase calibration', 'xy_phasecal2xml', verlist[10]],
+           12: ['RSTN noon flux', 'rstnflux2xml', verlist[11]],
+           13: ['Sky calibration', 'skycal2xml', verlist[12]]}
 
 
 def str2bin(string):
@@ -306,7 +323,7 @@ def tpcal2xml(nant, nfrq):
     buf += str2bin('<Name></Name>')
     buf += str2bin('<NumElts>5</NumElts>')
 
-    # Antenna number (1-13).
+    # Antenna number (1 to nant).
     buf += str2bin('<U16>')
     buf += str2bin('<Name>Antnum</Name>')
     buf += str2bin('<Val></Val>')
@@ -410,7 +427,7 @@ def skycal2xml(nant, nfrq):
     buf += str2bin('<Name></Name>')
     buf += str2bin('<NumElts>3</NumElts>')
 
-    # Antenna number (1-13).
+    # Antenna number (1 to nant).
     buf += str2bin('<U16>')
     buf += str2bin('<Name>Antnum</Name>')
     buf += str2bin('<Val></Val>')
@@ -438,16 +455,21 @@ def skycal2xml(nant, nfrq):
     return buf
 
 
-def xy_phasecal2xml():
+def xy_phasecal2xml(t=util.Time.now()):
     ''' Writes the XML description of the X-Y delay phase calibration binary
-        data (get_xy_corr results), for antennas 1-14.  
+        data (get_xy_corr results), for antennas 1 to nant plus the 27-m.  
         Returns a binary representation of the text file, for putting into the SQL 
         database.
         
         Version 2 adds xi_rot phase offset (2018-01-01)
+        Version 3 is for 15 2-m antennas and 27-m in slot 16
     '''
-    version = cal_types()[11][2]
+    version = cal_types(t)[11][2]
 
+    if version == 2:
+        nant = 13
+    elif version == 3:
+        nant = 15
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>XYcal</Name>')
@@ -479,24 +501,29 @@ def xy_phasecal2xml():
     buf += str2bin('<Dimsize>500</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # Array of X-Y phases (14 x 500) for each of 14 antennas
+    # Array of X-Y phases (nant+1 x 500) for each of 14 antennas
     buf += str2bin('<Array>')
     buf += str2bin('<Name>XYphase</Name>')
-    buf += str2bin('<Dimsize>500</Dimsize><Dimsize>14</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('<Dimsize>500</Dimsize><Dimsize>'+str(nant+1)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')  # End XYphase array
     buf += str2bin('</Cluster>')  # End XYcal cluster
 
     return buf
 
 
-def dcm_master_table2xml():
+def dcm_master_table2xml(t=util.Time.now()):
     ''' Writes the XML description of the DCM master base attenuation 
         table (created by pcapture.py).  Returns a binary representation 
         of the text file, for putting into the SQL database.  The version 
         number must be incremented each time there is a change to the 
-        structure of this header.
+        structure of this header.  Updated to version 3 (16 antenna version)
     '''
-    version = cal_types()[2][2]
+    version = cal_types(t)[2][2]
+
+    if version == 2:
+        nant = 15
+    elif version == 3:
+        nant = 16
 
     buf = ''
     buf += str2bin('<Cluster>')
@@ -523,12 +550,12 @@ def dcm_master_table2xml():
     buf += str2bin('<Dimsize>52</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
     buf += str2bin('</Array>')
 
-    # Array of base attenuations [dB] (52 x 30).  Attenuations for unmeasured
+    # Array of base attenuations [dB] (52 x nant*2).  Attenuations for unmeasured
     # antennas and/or bands are set to nominal value of 10 dB.  Values are
-    # ordered as Ant1x, Ant1y, Ant2x, Ant2y, ..., Ant15x, Ant15y
+    # ordered as Ant1x, Ant1y, Ant2x, Ant2y, ..., Ant16x, Ant16y
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Attenuation</Name>')
-    buf += str2bin('<Dimsize>30</Dimsize><Dimsize>52</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
+    buf += str2bin('<Dimsize>'+str(nant*2)+'</Dimsize><Dimsize>52</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -537,16 +564,20 @@ def dcm_master_table2xml():
     return buf
 
 
-def dcm_table2xml():
+def dcm_table2xml(t=util.Time.now()):
     ''' Writes the XML description of the DCM base attenuation table 
         (derived from the DCM master base attenuation table and the
         current frequency sequence.  Returns a binary representation of the
         text file, for putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
-        of this header.
+        of this header.  Updated to version 2 (16 antenna version)
     '''
-    version = cal_types()[3][2]
+    version = cal_types(t)[3][2]
 
+    if version == 1:
+        nant = 15
+    elif version == 2:
+        nant = 16
     buf = ''
     buf += str2bin('<Cluster>')
     buf += str2bin('<Name>DCMBaseAttn</Name>')
@@ -566,12 +597,12 @@ def dcm_table2xml():
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
 
-    # Array of base attenuations [dB] (50 x 30).  Attenuations for unmeasured
+    # Array of base attenuations [dB] (50 x nant*2).  Attenuations for unmeasured
     # antennas and/or bands are set to nominal value of 10 dB.  Values are
-    # ordered as Ant1x, Ant1y, Ant2x, Ant2y, ..., Ant15x, Ant15y
+    # ordered as Ant1x, Ant1y, Ant2x, Ant2y, ..., Ant16x, Ant16y
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Attenuation</Name>')
-    buf += str2bin('<Dimsize>30</Dimsize><Dimsize>50</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
+    buf += str2bin('<Dimsize>'+str(nant*2)+'</Dimsize><Dimsize>50</Dimsize>\n<U16>\n<Name></Name>\n<Val></Val>\n</U16>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -580,14 +611,19 @@ def dcm_table2xml():
     return buf
 
 
-def dlacen2xml():
+def dlacen2xml(t=util.Time.now()):
     ''' Writes the XML description of the Delay Centers table (currently
         created by hand).  Returns a binary representation of the xml
         text file, for putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
-        of this header.
+        of this header. Updated to version 2 (16 antenna version)
     '''
-    version = cal_types()[4][2]
+    version = cal_types(t)[4][2]
+
+    if version == 1:
+        nchan = 15
+    elif version == 2:
+        nchan = 17
 
     buf = ''
     buf += str2bin('<Cluster>')
@@ -608,10 +644,10 @@ def dlacen2xml():
     buf += str2bin('<Val>' + str(version) + '</Val>')
     buf += str2bin('</DBL>')
 
-    # List of delay centers [ns] (2 x 16).
+    # List of delay centers [ns] (2 x nchan).
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Delaycen_ns</Name>')
-    buf += str2bin('<Dimsize>2</Dimsize><Dimsize>16</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+    buf += str2bin('<Dimsize>2</Dimsize><Dimsize>'+str(nchan)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -624,7 +660,8 @@ def eq_gain2xml():
     ''' Writes the XML description of the equalizer gain table.  Returns 
         a binary representation of the xml, for putting into the SQL 
         database.  The version number must be incremented each time there 
-        is a change to the structure of this header.
+        is a change to the structure of this header. This was never used,
+        so was not updated for 16 antennas.  Will need updating if used.
     '''
     version = cal_types()[5][2]
 
@@ -669,7 +706,7 @@ def dcm_attn_val2xml():
         bits (2, 4, 8 and 16).  Returns a binary representation of the 
         xml, for putting into the SQL database.  The version number 
         must be incremented each time there is a change to the structure 
-        of this header.
+        of this header. This was never used but should work for 16 ants.
     '''
     version = cal_types()[6][2]
 
@@ -714,17 +751,22 @@ def dcm_attn_val2xml():
     return buf
 
 
-def fem_attn_val2xml():
+def fem_attn_val2xml(t=util.Time.now()):
     ''' Writes the XML description of the FEM attenuator values as 
-        measured by GAINCALTEST, and analyzed by ???.  The
+        measured by GAINCALTEST, and analyzed by gaincal2().  The
         values are attenuation values corresponding to the level 1-8
         (each 2 dB nominal step), for each antenna, frequency, and 
         polarization. Returns a binary representation of the 
         xml, for putting into the SQL database.  The version number 
         must be incremented each time there is a change to the structure 
-        of this header.
+        of this header.   Updated for version 2 (16 antennas).
     '''
-    version = cal_types()[7][2]
+    version = cal_types(t)[7][2]
+
+    if version == 1:
+        nant = 15
+    elif version == 2:
+        nant = 16
 
     buf = ''
     buf += str2bin('<Cluster>')
@@ -751,12 +793,12 @@ def fem_attn_val2xml():
     buf += str2bin('<Dimsize>500</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of attenuations (nant x npol x nfreq x natt) (8 x 500 x 2 x 15).
+    # List of real part of attenuations (nant x npol x nfreq x natt) (8 x 500 x 2 x nant).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>FEM_Attn_Real</Name>')
     buf += str2bin(
-        '<Dimsize>500</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize><Dimsize>8</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>500</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize><Dimsize>8</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -765,15 +807,20 @@ def fem_attn_val2xml():
     return buf
 
 
-def refcal2xml():
+def refcal2xml(t=util.Time.now()):
     ''' Writes the XML description of the reference calibration table.
         The values are complex numbers.
         Returns a binary representation of the xml text file, for 
         putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
-        of this header.
+        of this header.  Updated to work for version 3 (16 antennas)
     '''
-    version = cal_types()[8][2]
+    version = cal_types(t)[8][2]
+
+    if version == 2:
+        nant = 15
+    elif version == 3:
+        nant = 16
 
     buf = ''
     buf += str2bin('<Cluster>')
@@ -822,130 +869,36 @@ def refcal2xml():
         '<Dimsize>52</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of real part of reference calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Real</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of imaginary part of reference calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Imag</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of sigmas of reference calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Sigma</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of flags of reference calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Refcal_Flag</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # End cluster
-    buf += str2bin('</Cluster>')  # End Refcal cluster
-
-    return buf
-
-def refcal2xml52():
-    ''' Writes the XML description of the 52-band reference calibration table.
-        The values are complex numbers.
-        Returns a binary representation of the xml text file, for 
-        putting into the SQL database.  The version number
-        must be incremented each time there is a change to the structure 
-        of this header.
-    '''
-    version = cal_types()[12][2]
-
-    buf = ''
-    buf += str2bin('<Cluster>')
-    buf += str2bin('<Name>REFCAL</Name>')
-    buf += str2bin('<NumElts>10</NumElts>')
-
-    # Timestamp (double) [s, in LabVIEW format]
-    # Time of creation of the table (precise time not critical)
-    buf += str2bin('<DBL>')
-    buf += str2bin('<Name>Timestamp</Name>')
-    buf += str2bin('<Val></Val>')
-    buf += str2bin('</DBL>')
-
-    # Version of this XML file.  This number should be incremented each
-    # time there is a change to the structure of this file.
-    buf += str2bin('<DBL>')
-    buf += str2bin('<Name>Version</Name>')
-    buf += str2bin('<Val>' + str(version) + '</Val>')
-    buf += str2bin('</DBL>')
-
-    # Timestamp of the gaincal (double) of [s, in LabVIEW format]
-    # Time of creation of the table (precise time not critical)
-    buf += str2bin('<DBL>')
-    buf += str2bin('<Name>T_gcal</Name>')
-    buf += str2bin('<Val></Val>')
-    buf += str2bin('</DBL>')
-
-    # Timestamp of the begin time of refcal (double) of [s, in LabVIEW format]
-    # Time of creation of the table (precise time not critical)
-    buf += str2bin('<DBL>')
-    buf += str2bin('<Name>T_beg</Name>')
-    buf += str2bin('<Val></Val>')
-    buf += str2bin('</DBL>')
-
-    # Timestamp of the end time of refcal (double) of [s, in LabVIEW format]
-    # Time of creation of the table (precise time not critical)
-    buf += str2bin('<DBL>')
-    buf += str2bin('<Name>T_end</Name>')
-    buf += str2bin('<Val></Val>')
-    buf += str2bin('</DBL>')
-
-    # List of averaged band frequencies in GHz.
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>Fghz</Name>')
-    buf += str2bin(
-        '<Dimsize>34</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of real part of reference calibration (nant x npol x nband) (15 x 2 x 52).
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>Refcal_Real</Name>')
-    buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of imaginary part of reference calibration (nant x npol x nband) (15 x 2 x 52).
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>Refcal_Imag</Name>')
-    buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of sigmas of reference calibration (nant x npol x nband) (15 x 2 x 52).
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>Refcal_Sigma</Name>')
-    buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
-    buf += str2bin('</Array>')
-
-    # List of flags of reference calibration (nant x npol x nband) (15 x 2 x 52).
-    # Note inverted order of dimensions
-    buf += str2bin('<Array>')
-    buf += str2bin('<Name>Refcal_Flag</Name>')
-    buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -954,15 +907,20 @@ def refcal2xml52():
     return buf
 
 
-def phacal2xml():
+def phacal2xml(t=util.Time.now()):
     ''' Writes the XML description of the phase calibration table.
         The values are complex numbers.
         Returns a binary representation of the xml text file, for 
         putting into the SQL database.  The version number
         must be incremented each time there is a change to the structure 
-        of this header.
+        of this header.  Updated to work with version 3 (16 antennas)
     '''
-    version = cal_types()[9][2]
+    version = cal_types(t)[9][2]
+
+    if version == 2:
+        nant = 15
+    elif version == 3:
+        nant = 16
 
     buf = ''
     buf += str2bin('<Cluster>')
@@ -996,7 +954,7 @@ def phacal2xml():
     buf += str2bin('<Array>')
     buf += str2bin('<Name>MBD</Name>')
     buf += str2bin(
-        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # List of flag of multi-band delay of daily phase calibration (nant x npol x [phase_offset, phase_slope]) (15 x 2 x 2).
@@ -1004,7 +962,7 @@ def phacal2xml():
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Flag</Name>')
     buf += str2bin(
-        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>2</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # Timestamp of the begin time of phacal (double) of [s, in LabVIEW format]
@@ -1028,36 +986,36 @@ def phacal2xml():
         '<Dimsize>52</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of real part of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of real part of daily phase calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Amp</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of imaginary part of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of imaginary part of daily phase calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Pha</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of sigmas of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of sigmas of daily phase calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Sigma</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
-    # List of flags of daily phase calibration (nant x npol x nband) (15 x 2 x 52).
+    # List of flags of daily phase calibration (nant x npol x nband) (nant x 2 x 52).
     # Note inverted order of dimensions
     buf += str2bin('<Array>')
     buf += str2bin('<Name>Phacal_Flag</Name>')
     buf += str2bin(
-        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>15</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
+        '<Dimsize>52</Dimsize><Dimsize>2</Dimsize><Dimsize>'+str(nant)+'</Dimsize>\n<SGL>\n<Name></Name>\n<Val></Val>\n</SGL>')
     buf += str2bin('</Array>')
 
     # End cluster
@@ -1462,7 +1420,7 @@ def write_cal(type, buf, t=None):
     if t is None:
         t = util.Time.now()
     timestamp = int(t.lv)  # Given (or current) time as LabVIEW timestamp
-    typdict = cal_types()
+    typdict = cal_types(t)
     try:
         typinfo = typdict[int(type)]
     except:
@@ -1772,12 +1730,15 @@ def xy_phasecal2sql(xyphase_dict, t=None):
         This kind of record is type definition 11.
     '''
     typedef = 11
-    ver = cal_types()[typedef][2]
     nant, nf = xyphase_dict['xyphase'].shape
     if t is None:
+        # Write timestamp of data
         t = util.Time(xyphase_dict['timestamp'],format='lv')
-    # Write timestamp of data
-    # t = util.Time(xyphase_dict['timestamp'],format='lv')
+    ver = cal_types(t)[typedef][2]
+    if ver <= 2:
+        nant = 14
+    elif ver == 3:
+        nant = 16
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
@@ -1792,11 +1753,11 @@ def xy_phasecal2sql(xyphase_dict, t=None):
     xi_rot[:nf] = xyphase_dict['xi_rot']
     buf += struct.pack('500f', *xi_rot)
     # Write xyphase
-    buf += struct.pack('I', 14)  # Length of antenna array
+    buf += struct.pack('I', nant)  # Length of antenna array
     buf += struct.pack('I', 500)  # Length of frequency array
-    xyout = np.zeros((14,500),np.float)
+    xyout = np.zeros((nant,500),np.float)
     xyout[:,:nf] = xyphase_dict['xyphase']
-    for i in range(14):
+    for i in range(nant):
         buf += struct.pack('500f', *xyout[i])
     return write_cal(typedef, buf, t)
 
@@ -1807,12 +1768,17 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
         or a DCM_list (from the output of adc_cal2.make_DCM_table()) or a table from
         the output of adc_cal2.set_dcm_attn() [use filename='' and give the table as tbl].
 
-        This kind of record is type definition 2.
+        This kind of record is type definition 2. Updated to version 3 (16 antennas)
     '''
-    typedef = 2
-    ver = cal_types()[typedef][2]
     if t is None:
         t = util.Time.now()
+    typedef = 2
+    ver = cal_types(t)[typedef][2]
+
+    if ver == 2:
+        nant = 15
+    elif ver == 3:
+        nant = 16
     if tbl is None:
         # Check the format of the input file and see if it is a file or a python list
         try:
@@ -1823,9 +1789,9 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
                 f.close()
             if type(filename) is list:
                 lines = filename
-            # Read file of attenuations (34 non-comment lines with band + 30 attns)
+            # Read file of attenuations (34 non-comment lines with band + nant*2 attns)
             bands = np.zeros(52, 'int')
-            attn = np.zeros((52, 30), 'float')
+            attn = np.zeros((52, nant*2), 'float')
             for line in lines:
                 if line[0] != '#':
                     band, rline = line.strip().split(':')
@@ -1837,7 +1803,7 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
     else:
         # Standard table was input, so interpret as output from adc_cal.set_dcm_attn()
         bands = np.linspace(1, 52, 52).astype(int)
-        attn = tbl[:, :30]
+        attn = tbl[:, :nant*2]
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
@@ -1846,9 +1812,9 @@ def dcm_master_table2sql(filename, tbl=None, t=None):
     buf += struct.pack('I', 52)
     buf += struct.pack('52H', *bands)
     buf += struct.pack('I', 52)
-    buf += struct.pack('I', 30)
+    buf += struct.pack('I', nant*2)
     for i in range(52):
-        buf += struct.pack('30H', *attn[i])
+        buf += struct.pack(str(nant*2)+'H', *attn[i])
     return write_cal(typedef, buf, t)
 
 
@@ -1857,12 +1823,18 @@ def dcm_table2sql(filename, t=None):
         current scan as a record into SQL server table abin. filename can 
         either be a txt file (DCM_table.txt) or a list
 
-        This kind of record is type definition 3.
+        This kind of record is type definition 3. Updated to version 2 (16 antenna version)
     '''
-    typedef = 3
-    ver = cal_types()[typedef][2]
     if t is None:
         t = util.Time.now()
+    typedef = 3
+    ver = cal_types(t)[typedef][2]
+
+    if ver == 1:
+        nant = 15
+    elif ver == 2:
+        nant = 16
+
     try:
         if type(filename) is str:
             # Open and read DCM_table.txt file
@@ -1871,8 +1843,8 @@ def dcm_table2sql(filename, t=None):
             f.close()
         if type(filename) is list:
             lines = filename
-        # Read file of attenuations (50 non-comment lines with ant + 30 attns)
-        attn = np.zeros((50, 30), 'float')
+        # Read file of attenuations (50 non-comment lines with nant*2 attns)
+        attn = np.zeros((50, nant*2), 'float')
         for i, line in enumerate(lines):
             attn[i] = map(int, line.split())
     except:
@@ -1883,9 +1855,9 @@ def dcm_table2sql(filename, t=None):
     # Write version number
     buf += struct.pack('d', ver)
     buf += struct.pack('I', 50)
-    buf += struct.pack('I', 30)
+    buf += struct.pack('I', nant*2)
     for i in range(50):
-        buf += struct.pack('30H', *attn[i])
+        buf += struct.pack(str(nant*2)+'H', *attn[i])
     return write_cal(typedef, buf, t)
 
 
@@ -1894,26 +1866,34 @@ def dla_update2sql(dla_update, xy_delay=None, t=None, lorx=False):
         with the timestamp given by Time() object t (or current time, if none)
 
         Input:
-          dla_update   a 14-element array of delay differences [ns], already
+          dla_update   a 16-element array of delay differences [ns], already
                           converted to be relative to Ant 1
-          xy_delay     an optional 14-element array of delay differences [ns] in 
+          xy_delay     an optional nant-element array of delay differences [ns] in 
                           Y relative to X
         Optional argument:
-          lorx         if True, ONLY the Ant 14 delay update is applied, and ONLY
-                          to the Ant 15 slot, which is the delay setting to use
-                          for Ant 14 Lo-frequency receiver.
+          lorx         if True, ONLY the Ant A delay update is applied, and ONLY
+                          to the Ant nant+1 slot, which is the delay setting to use
+                          for Ant A Lo-frequency receiver.
+
+        Updated to version 2 (16 antenna version)
     '''
     if dla_update[0] != 0.0:
         print 'First delay in list is not zero.  Delays must be relative to Ant 1'
         return False
-    typedef = 4
-    ver = cal_types()[typedef][2]
     if t is None:
         # If no time is defined, use the current time
         t = util.Time.now()
+    typedef = 4
+    ver = cal_types(t)[typedef][2]
+
+    if ver == 1:
+        nant = 14  # Old data had 15 slots but used the last one for Ant 14 LoRX delays
+    elif ver == 2:
+        nant = 16  # New data have 17 slots and use the last one for Ant 16 (Ant A) LoRX delays
+
     if xy_delay is None:
         # If no xy_delay was given, use zeros
-        xy_delay = np.zeros(14, dtype=float)
+        xy_delay = np.zeros(nant, dtype=float)
     # Read the SQL database to get delay_centers current at the given time
     xml, buf = read_cal(4, t)
     dcen = sf.extract(buf, xml['Delaycen_ns'])
@@ -1922,20 +1902,20 @@ def dla_update2sql(dla_update, xy_delay=None, t=None, lorx=False):
     xy_dla_ns = xy_delay  # XY delay is not relative to Ant 1
     if lorx:
         # This is the case of updating the Lo-frequency receiver delays ONLY
-        # Only change Ant 15 entries, using the Ant 14 information
-        dcen[14, 0] -= rel_dla_ns[13]
-        dcen[14, 1] -= rel_dla_ns[13] + xy_dla_ns[13]
+        # Only change "fake" Ant 17 entries, using the Ant A information
+        dcen[nant, 0] -= rel_dla_ns[nant-1]
+        dcen[nant, 1] -= rel_dla_ns[nant-1] + xy_dla_ns[nant-1]
     else:
-        dcen[:14, 0] -= rel_dla_ns
-        dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
+        dcen[:nant, 0] -= rel_dla_ns
+        dcen[:nant, 1] -= rel_dla_ns + xy_dla_ns
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
     # Write version number
     buf += struct.pack('d', ver)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 16)
-    for i in range(16):
+    buf += struct.pack('I', nant+1)
+    for i in range(nant+1):
         buf += struct.pack('2f', *dcen[i])
     return write_cal(typedef, buf, t)
 
@@ -1946,10 +1926,11 @@ def dla_censql2table(t=None, acc=True):
         and optionally sends the file to the ACC (for use by dppxmp).
 
         acc   boolean: if True (default), write the file to the ACC.
+
+        Updated to version 2 (16 antennas)
     '''
     import time
     from util import Time
-    typedef = 4
     if t is None:
         t = util.Time.now()
     else:
@@ -1957,7 +1938,16 @@ def dla_censql2table(t=None, acc=True):
         print 'Warning! Specifying a time disables writing the file to the ACC.'
         print 'FTP the file /tmp/delay_centers.txt by hand if that is what you intend.'
         acc = False
-    xml, buf = read_cal(4, t)
+    typedef = 4
+    ver = cal_types(t)[typedef][2]
+
+    if ver == 1:
+        nant = 15
+    elif ver == 2:
+        nant = 16
+
+    xml, buf = read_cal(typedef, t)
+
     delays = sf.extract(buf, xml['Delaycen_ns'])
     timestr = Time(int(sf.extract(buf, xml['Timestamp'])), format='lv').iso
     f = open('/tmp/delay_centers.txt', 'w')
@@ -1966,7 +1956,7 @@ def dla_censql2table(t=None, acc=True):
     f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
     f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
     fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
-    for i in range(16):
+    for i in range(nant+1):
         f.write(fmt.format(i + 1, *delays[i]))
     f.close()
     time.sleep(1)  # Make sure file has time to be closed.
@@ -1983,10 +1973,13 @@ def dla_censql2table(t=None, acc=True):
 
 def ACC_DCMtable2dict():
     ''' Returns the contents of the DCM_master_table.txt file stored on the ACC
-        as a dictionary with a time object and the [52, 30] array of 
+        as a dictionary with a time object and the [52, nant*2] array of 
         DCM attenuations.
         
         Returns and empty dict {} on error.
+
+        Updated to work with 16 antennas.  No need to generalize for backward
+        compatibility, since this is reading from ACC at current time.
     '''
     from ftplib import FTP
     from util import Time
@@ -2010,9 +2003,9 @@ def ACC_DCMtable2dict():
         print 'ACCdlatable2dict: DCM_master_table.txt could not be retrieved'
         return {}
     try:
-        # Parse the ascii file to get the data (52 non-comment lines with band + 30 attns)
+        # Parse the ascii file to get the data (52 non-comment lines with band + nant*2 attns)
         bands = np.zeros(52, 'int')
-        attn = np.zeros((52, 30), 'int')
+        attn = np.zeros((52, 32), 'int')
         for line in lines:
             if line[0] != '#':
                 band, rline = line.strip().split(':')
@@ -2025,9 +2018,12 @@ def ACC_DCMtable2dict():
 
 def ACCdlatable2dict():
     ''' Returns the contents of the delay_centers.txt file stored on the ACC
-        as a dictionary with a time object and the [16, 2] array of delays in ns.
+        as a dictionary with a time object and the [nant+1, 2] array of delays in ns.
         
         Returns and empty dict {} on error.
+
+        Updated to work with 16 antennas.  No need to generalize for backward
+        compatibility, since this is reading from ACC at current time.
     '''
     from ftplib import FTP
     from util import Time
@@ -2051,8 +2047,8 @@ def ACCdlatable2dict():
         
         # Get time from header line 2
         t = Time(lines[1][12:])
-        # Read file of delays (16 non-comment lines with ant, dlax, dlay)
-        tau_ns = np.zeros((16, 2), 'float')
+        # Read file of delays (17 non-comment lines with ant, dlax, dlay)
+        tau_ns = np.zeros((17, 2), 'float')
         for line in lines:
             if line[0] != '#':
                 ant, xdla, ydla = line.strip().split()
@@ -2067,17 +2063,20 @@ def dla_update2table(dla_update, xy_delay=None, t=None, lorx=False, acc=True):
         in the /nas4/Tables/Delays folder.  Optionally send the table to the ACC
 
         Input:
-          dla_update   a 14-element array of delay differences [ns], already
+          dla_update   an nant-element array of delay differences [ns], already
                           converted to be relative to Ant 1
-          xy_delay     an optional 14-element array of delay differences [ns] in 
+          xy_delay     an optional nant-element array of delay differences [ns] in 
                           Y relative to X
         Optional argument:
           t            the Time object from which to get the Time string for
                           the file header (uses the current time if None)
-          lorx         if True, ONLY the Ant 14 delay update is applied, and ONLY
-                          to the Ant 15 slot, which is the delay setting to use
-                          for Ant 14 Lo-frequency receiver.
+          lorx         if True, ONLY the Ant A delay update is applied, and ONLY
+                          to the Ant 17 slot, which is the delay setting to use
+                          for Ant A Lo-frequency receiver.
           acc          if True (default), the table is also written to the ACC
+
+        Updated to work with 16 antennas.  No need to generalize for backward
+        compatibility, since this only applies to the current time.
     '''
     import time
     if dla_update[0] != 0.0:
@@ -2088,7 +2087,7 @@ def dla_update2table(dla_update, xy_delay=None, t=None, lorx=False, acc=True):
         t = util.Time.now()
     if xy_delay is None:
         # If no xy_delay was given, use zeros
-        xy_delay = np.zeros(14, dtype=float)
+        xy_delay = np.zeros(16, dtype=float)
     # Read the current ACC table to get delay_centers current at the given time
     dladict = ACCdlatable2dict()
     if dladict == {}:
@@ -2100,12 +2099,12 @@ def dla_update2table(dla_update, xy_delay=None, t=None, lorx=False, acc=True):
     xy_dla_ns = xy_delay  # XY delay is not relative to Ant 1
     if lorx:
         # This is the case of updating the Lo-frequency receiver delays ONLY
-        # Only change Ant 15 entries, using the Ant 14 information
-        dcen[14, 0] -= rel_dla_ns[13]
-        dcen[14, 1] -= rel_dla_ns[13] + xy_dla_ns[13]
+        # Only change Ant 17 entries, using the Ant A information
+        dcen[16, 0] -= rel_dla_ns[15]
+        dcen[16, 1] -= rel_dla_ns[15] + xy_dla_ns[15]
     else:
-        dcen[:14, 0] -= rel_dla_ns
-        dcen[:14, 1] -= rel_dla_ns + xy_dla_ns
+        dcen[:16, 0] -= rel_dla_ns
+        dcen[:16, 1] -= rel_dla_ns + xy_dla_ns
 
     timestr = t.iso
     datstr = timestr[:19].replace('-','').replace(' ','_').replace(':','')
@@ -2116,7 +2115,7 @@ def dla_update2table(dla_update, xy_delay=None, t=None, lorx=False, acc=True):
     f.write('# Note: For historical reasons, dppxmp needs four header lines\n')
     f.write('# Ant  X Delay[ns]  Y Delay[ns]\n')
     fmt = '{:4d}   {:10.3f}   {:10.3f}\n'
-    for i in range(16):
+    for i in range(17):
         f.write(fmt.format(i + 1, *dcen[i]))
     f.close()
     time.sleep(1)  # Make sure file has time to be closed.
@@ -2136,18 +2135,26 @@ def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
         with the timestamp given by Time() object t (or current time, if none)
 
         This kind of record is type definition 4.
+
+        Updated to handle version 2 (16 antennnas)
     '''
-    typedef = 4
-    ver = cal_types()[typedef][2]
     if t is None:
         t = util.Time.now()
+    typedef = 4
+    ver = cal_types(t)[typedef][2]
+
+    if ver == 1:
+        nant = 15
+    elif ver == 2:
+        nant = 16
+
     try:
         # Open and read file of delay_center values
         f = open(filename, 'r')
         lines = f.readlines()
         f.close()
-        # Read file of delays (16 non-comment lines with ant, dlax, dlay)
-        tau_ns = np.zeros((16, 2), 'float')
+        # Read file of delays (nant+1 non-comment lines with ant, dlax, dlay)
+        tau_ns = np.zeros((nant+1, 2), 'float')
         for line in lines:
             if line[0] != '#':
                 ant, xdla, ydla = line.strip().split()
@@ -2161,8 +2168,8 @@ def dla_centable2sql(filename='/tmp/delay_centers_tmp.txt', t=None):
     # Write version number
     buf += struct.pack('d', ver)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 16)
-    for i in range(16):
+    buf += struct.pack('I', nant+1)
+    for i in range(nant+1):
         buf += struct.pack('2f', *tau_ns[i])
     return write_cal(typedef, buf, t)
 
@@ -2177,6 +2184,9 @@ def eq_gain2sql(coeff, ver=1.0, t=None):
         one for the Sun.  
            Version 1.0 => calibrator/blank sky
            Version 2.0 => Sun
+
+        This type of record was never used.  Will have to be updated
+        for 16 antennas if used in the future.   
     '''
     typedef = 5
     if t is None:
@@ -2201,11 +2211,14 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
         time, if none).
 
         This kind of record is type definition 6.
+
+        This type of record was never used.  Will have to be updated
+        for 16 antennas if used in the future.   
     '''
-    typedef = 6
-    ver = cal_types()[typedef][2]
     if t is None:
         t = util.Time.now()
+    typedef = 6
+    ver = cal_types(t)[typedef][2]
 
     # Write timestamp
     buf = struct.pack('d', int(t.lv))
@@ -2231,7 +2244,7 @@ def dcm_attn_val2sql(attn, ver=1.0, t=None):
     return write_cal(typedef, buf, t)
 
 
-def fem_attn_val2sql(attn, ver=1.0, t=None):
+def fem_attn_val2sql(attn, t=None):
     ''' Write measured FEM attenuation values (dB) to SQL server table
         abin, with the timestamp given by Time() object t (or the time
         of GAINCALTEST, if none).
@@ -2245,19 +2258,27 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
 
         This kind of record is type definition 7.
         
-        An update maybe needed to address the case where attn is None.
+        An update may be needed to address the case where attn is None.
+
+        Updated to work with 16 antennas.
     '''
-    typedef = 7
-    ver = cal_types()[typedef][2]
-    natn, nant, npol, nfrq = attn[0]['attn'].shape
     if t is None:
         t = attn[0]['time']
 
-    if attn is None:  # What should the default timestamp & fghz be??
-        # Create a default attn array, with nominal values
-        attnvals = np.array([2.,4.,6.,8.,10.,12.,14.,16.])  # The 8 attenuation values
-        attn = np.zeros((8,15,2,500))
-        attn[:,:,:,:] = attnvals
+    typedef = 7
+    ver = cal_types(t)[typedef][2]
+
+    if ver == 1:
+        nant = 15
+    elif ver == 2:
+        nant = 16
+
+    natn, nsolant, npol, nfrq = attn[0]['attn'].shape
+#    if attn is None:  # What should the default timestamp & fghz be??
+#        # Create a default attn array, with nominal values
+#        attnvals = np.array([2.,4.,6.,8.,10.,12.,14.,16.])  # The 8 attenuation values
+#        attn = np.zeros((8,nant,2,500))
+#        attn[:,:,:,:] = attnvals
     # Write timestamp
     buf = struct.pack('d', int(attn[0]['time'].lv))
     # Write version number
@@ -2269,14 +2290,14 @@ def fem_attn_val2sql(attn, ver=1.0, t=None):
     buf += struct.pack('500f', *flist)
 
     # Write the attenuation table
-    attn_pad = np.zeros((8,15,2,500))
-    attn_pad[:,:nant,:,:nfrq] = attn[0]['attn']
+    attn_pad = np.zeros((8,nant,2,500))
+    attn_pad[:,:nsolant,:,:nfrq] = attn[0]['attn']
     buf += struct.pack('f', 500)
     buf += struct.pack('f', 2)
-    buf += struct.pack('f', 15)
+    buf += struct.pack('f', nant)
     buf += struct.pack('f', 8)
     for i in range(8):
-        for j in range(15):
+        for j in range(nant):
             for k in range(2):
                 buf += struct.pack('500f', *attn_pad[i, j, k])
 
@@ -2290,19 +2311,27 @@ def refcal2sql(rfcal, timestamp=None):
         rfcal: a dict ('t_bg', 'vis', 't_gcal', 'timestamp', 'flag', 't_ed', 'fghz')
 
         This kind of record is type definition 8.
-    '''
-    typedef = 8
 
-    if not 'vis' in rfcal.keys():
-        raise KeyError('Key "vis" not exist')
-    ver = cal_types()[typedef][2]
+        Updated to work with 16 antennas
+    '''
     if timestamp:
         t = int(timestamp.lv)
     else:
         if 'timestamp' in rfcal.keys():
             t = int(rfcal['timestamp'].lv)
         else:
-            t = int(util.Time.now().lv)
+            t = int(timestamp.lv)
+    typedef = 8
+
+    if not 'vis' in rfcal.keys():
+        raise KeyError('Key "vis" not exist')
+    ver = cal_types(util.Time(t,format='lv'))[typedef][2]
+
+    if ver == 2:
+        nant = 15
+    elif ver == 3:
+        nant = 16
+
     if 't_gcal' in rfcal.keys():
         tgcal = int(rfcal['t_gcal'].lv)
     else:
@@ -2349,8 +2378,8 @@ def refcal2sql(rfcal, timestamp=None):
     rrfcal = np.real(rfcal['vis'])
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *rrfcal[i, j])
 
@@ -2358,16 +2387,16 @@ def refcal2sql(rfcal, timestamp=None):
     irfcal = np.imag(rfcal['vis'])
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *irfcal[i, j])
 
     # Write Sigma of table
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *sigma[i, j])
 
@@ -2375,8 +2404,8 @@ def refcal2sql(rfcal, timestamp=None):
     flag = np.array(flag, dtype=float)
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *flag[i, j])
     t = util.Time(t, format='lv')
@@ -2392,19 +2421,26 @@ def phacal2sql(phcal, timestamp=None):
         rfcal: a dict (phacal, flag, t_mid, t_bg, t_ed, t_dla, t_refcal, mbd0, mbd1, fghz)
 
         This kind of record is type definition 9.
+
+        Updated to work with 16 antennas
     '''
-    from util import Time
-    typedef = 9
-    if not 'phacal' in phcal.keys():
-        raise KeyError('Key "phacal" not exist')
-    ver = cal_types()[typedef][2]
     if timestamp:
         t = int(timestamp.lv)
     else:
         if 't_pha' in phcal.keys():
             t = int(phcal['t_pha'].lv)
         else:
-            t = int(util.Time.now().lv)
+            t = int(timestamp.lv)
+    typedef = 9
+    if not 'phacal' in phcal.keys():
+        raise KeyError('Key "phacal" not exist')
+    ver = cal_types(util.Time(t,format='lv'))[typedef][2]
+
+    if ver == 2:
+        nant = 15
+    elif ver == 3:
+        nant = 16
+
     if 't_ref' in phcal.keys():
         trefcal = int(phcal['t_ref'].lv)
     else:
@@ -2433,8 +2469,8 @@ def phacal2sql(phcal, timestamp=None):
     mbd = np.concatenate((np.expand_dims(phcal['poff'],2), np.expand_dims(phcal['pslope'],2)),axis=2)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack('2f', *mbd[i, j])
 
@@ -2442,8 +2478,8 @@ def phacal2sql(phcal, timestamp=None):
     flag = np.concatenate((np.expand_dims(phcal['flag'], 2), np.expand_dims(phcal['flag'], 2)), axis=2)
     buf += struct.pack('I', 2)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack('2f', *flag[i, j])
 
@@ -2460,8 +2496,8 @@ def phacal2sql(phcal, timestamp=None):
     aphcal = np.real(phcal['phacal']['amp'])
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *aphcal[i, j])
 
@@ -2469,8 +2505,8 @@ def phacal2sql(phcal, timestamp=None):
     pphcal = np.array(phcal['phacal']['pha'])
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *pphcal[i, j])
 
@@ -2478,8 +2514,8 @@ def phacal2sql(phcal, timestamp=None):
     sigma = np.array(phcal['phacal']['sigma'])
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *sigma[i, j])
 
@@ -2487,8 +2523,8 @@ def phacal2sql(phcal, timestamp=None):
     phacal_flag = np.array(phcal['phacal']['flag'], dtype=float)
     buf += struct.pack('I', nf)
     buf += struct.pack('I', 2)
-    buf += struct.pack('I', 15)
-    for i in range(15):
+    buf += struct.pack('I', nant)
+    for i in range(nant):
         for j in range(2):
             buf += struct.pack(str(nf)+'f', *phacal_flag[i, j])
 

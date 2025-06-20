@@ -36,6 +36,8 @@
 #    occurrence.
 #  2023-12-16  DG
 #    Added check and error handling for a short GAINCAL.
+#  2025-05-17  DG
+#    Updated to work for 16 antennas.
 #
 from util import Time
 import numpy as np
@@ -56,9 +58,9 @@ def get_attncal(trange, do_plot=False, dataonly=False):
            'time':      The start time of the GAINCALTEST scan, as a Time() object
            'fghz':      The list of frequencies [GHz] at which attenuations are measured
            'attn':      The array of attenuations [dB] of size (nattn, nant, npol, nf), 
-                           where nattn = 8, nant = 13, npol = 2, and nf is variable
+                           where nattn = 8, nant = nsolant, npol = 2, and nf is variable
            'rcvr':      The array of receiver noise level (raw units) of size 
-                           (nant, npol, nf), where nant = 13, npol = 2, and nf is variable
+                           (nant, npol, nf), where nant = nsolant, npol = 2, and nf is variable
            'rcvr_auto': Same as rcvr, but for auto-correlation (hence it is complex)
                            
         N.B.: Ignores days with other than one GAINCALTEST measurement, e.g. 0 or 2,
@@ -67,6 +69,8 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         
         The dataonly parameter tells the routine to skip calculating the attenuation
         and only return the IDB data from the (first) gaincal.
+
+        Updated to work for either nsolant = 13 or 15 solar antennas.
     '''
     from util import get_idbdir, fname2mjd, nearest_val_idx
     import socket
@@ -77,15 +81,20 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         mjd2 = mjd1
     else: 
         mjd1, mjd2 = trange.mjd.astype(int)
+    # Determine number of solar antennas based on the date
+    if mjd1 < Time('2025-05-22').mjd:
+        nsolant = 13
+    else:
+        nsolant = 15
     if do_plot:
         import matplotlib.pylab as plt
-        f, ax = plt.subplots(4,13)
-        f.set_size_inches((14,5))
+        f, ax = plt.subplots(4,nsolant)
+        f.set_size_inches((nsolant+1,5))
         ax[0,0].set_ylabel('Atn1X [dB]')
         ax[1,0].set_ylabel('Atn1Y [dB]')
         ax[2,0].set_ylabel('Atn2X [dB]')
         ax[3,0].set_ylabel('Atn2Y [dB]')
-        for i in range(13):
+        for i in range(nsolant):
             ax[0,i].set_title('Ant '+str(i+1))
             ax[3,i].set_xlabel('Freq [GHz]')
             for j in range(2):
@@ -121,6 +130,8 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         # Get time from filename and read 120 records of attn state from SQL database
         filemjd = fname2mjd(fdb['FILE'][gcidx])
         cursor = dbutil.get_cursor()
+        # NB: The next call, internally to dbutil, decides based on the timestamp whether
+        # to return 15 or 16 columns in "d15".
         d15 = dbutil.get_dbrecs(cursor, dimension=15, timestamp=Time(filemjd,format='mjd'), nrecs=120)
         cursor.close()
         # Find time indexes of the 62 dB attn state
@@ -137,13 +148,13 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         # These now have to be translated into indexes into the data, using the times
         idx = nearest_val_idx(d15['Timestamp'][good,0][transitions],Time(out['time'],format='jd').lv)
         #import pdb; pdb.set_trace()
-        vx = np.nanmedian(out['p'][:13,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
-        va = np.mean(out['a'][:13,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
+        vx = np.nanmedian(out['p'][:nsolant,:,:,np.arange(idx[0]+1,idx[1]-1)],3)
+        va = np.mean(out['a'][:nsolant,:2,:,np.arange(idx[0]+1,idx[1]-1)],3)
         vals = []
         attn = []
         for i in range(1,10):
             try:
-                vals.append(np.nanmedian(out['p'][:13,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
+                vals.append(np.nanmedian(out['p'][:nsolant,:,:,np.arange(idx[i]+1,idx[i+1]-1)],3) - vx)
                 attn.append(np.log10(vals[0]/vals[-1])*10.)
             except IndexError:
                 if i > 6:
@@ -159,7 +170,7 @@ def get_attncal(trange, do_plot=False, dataonly=False):
         #    attna.append(np.log10(vals[0]/vals[-1])*10.)
         
         if do_plot:
-            for i in range(13):
+            for i in range(nsolant):
                 for j in range(2):
                     ax[j,i].plot(out['fghz'],attn[1][i,j],'.',markersize=3)
                     #ax[j,i].plot(out['fghz'],attna[1][i,j],'.',markersize=1)
@@ -182,8 +193,9 @@ def read_attncal(trange=None):
            'time':      The start time of the GAINCALTEST scan, as a Time() object
            'fghz':      The list of frequencies [GHz] at which attenuations are measured
            'attn':      The array of attenuations [dB] of size (nattn, nant, npol, nf), 
-                           where nattn = 8, nant = 13, npol = 2, and nf is variable
+                           where nattn = 8, nant = nsolant, npol = 2, and nf is variable
 
+        Returns attn for either nsolant = 13 or 15 solar antennas.
     '''
     import cal_header as ch
     import stateframe as stf
@@ -199,12 +211,15 @@ def read_attncal(trange=None):
     for mjd in range(mjd1,mjd2+1):
         # Read next earlier SQL entry from end of given UT day (mjd+0.999) 
         xml, buf = ch.read_cal(7,t=Time(mjd+0.999,format='mjd'))
-        t = Time(stf.extract(buf,xml['Timestamp']),format='lv')
-        fghz = stf.extract(buf,xml['FGHz'])
-        nf = len(np.where(fghz != 0.0)[0])
-        fghz = fghz[:nf]
-        attnvals = stf.extract(buf,xml['FEM_Attn_Real'])[:,:,:,:nf]
-        attn.append({'time':t,'fghz':fghz,'attn':attnvals})
+        if len(xml) > 0:
+            t = Time(stf.extract(buf,xml['Timestamp']),format='lv')
+            fghz = stf.extract(buf,xml['FGHz'])
+            nf = len(np.where(fghz != 0.0)[0])
+            fghz = fghz[:nf]
+            attnvals = stf.extract(buf,xml['FEM_Attn_Real'])[:,:,:,:nf]
+            attn.append({'time':t,'fghz':fghz,'attn':attnvals})
+        else:
+            attn.append({})
     return attn
     
 if __name__ == "__main__":

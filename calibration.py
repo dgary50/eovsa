@@ -169,7 +169,7 @@ import struct, time, glob, sys, socket, os
 from disk_conv import *
 import dump_tsys
 
-def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, outfile=None):
+def calpnt_multi(trange, fdir=None, ant_str='ant1-15', calpnt2m=False, do_plot=True, outfile=None):
     ''' Runs calpntanal() for all scans within the given time range.
     
         trange   Time object with start and end time over which scans
@@ -275,7 +275,7 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
                 else:
                     if k == 0:
                         # Print heading to screen and to file
-                        heading = ' Source     Date     Time       HA     Dec        Ant 14'
+                        heading = ' Source     Date     Time       HA     Dec        Ant A'
                         print heading
                         # Write heading to file only if the file has not been opened/created yet.
                         if not os.path.isfile(outfile):
@@ -292,7 +292,7 @@ def calpnt_multi(trange, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=T
                 f.close()
     return out
     
-def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax=None):
+def calpntanal(t, fdir=None, ant_str='ant1-15', calpnt2m=False, do_plot=True, ax=None):
     ''' Does a complete analysis of CALPNTCAL, reading information from the SQL
         database, finding the corresponding Miriad IDB data, and doing the 
         gaussian fit to the beam, to return the beam and offset parameters.
@@ -355,7 +355,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     print "Number of times in data",outo['time'].shape,"(Needs to be 16+)"
     # Perform feed rotation correction
     out = read_idb.unrot(outo)
-    # Determine wanted baselines with ant 14 from ant_str
+    # Determine wanted baselines with ant A from ant_str
     idx = ant_str2list(ant_str)
     ##idx1 = idx[idx>7]  # Ants > 8
     ##idx2 = idx[idx<8]  # Ants <= 8
@@ -369,7 +369,7 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
     if pltfac == 1.:
         # Case of 27m antenna pointing
         # Do appropriate sums over frequency, polarization and baseline
-        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2],1),1)),0)
+        pntdata = np.sum(np.abs(np.sum(np.sum(out['x'][bl2ord[idx,15],:2],1),1)),0)
         tarray = np.zeros(50)
         pntarray = np.zeros(50)
         k = 0
@@ -428,12 +428,12 @@ def calpntanal(t, fdir=None, ant_str='ant1-13', calpnt2m=False, do_plot=True, ax
                 ax[1].set_title(midtime.iso[:16])
             plt.pause(0.5)
         return {'source':out['source'],'ha':out['ha'][24]*180./np.pi,'dec':out['dec']*180/np.pi,
-                   'rao':plsqr[1],'deco':plsqd[1],'time':midtime,'antidx':13}
+                   'rao':plsqr[1],'deco':plsqd[1],'time':midtime,'antidx':15}
     else:
         # Case of 2m antenna pointing
         # Do appropriate sum over frequency and polarization but not baseline
         ##--This line replaces all of the lines marked with ##
-        pntdata = np.abs(np.sum(np.sum(out['x'][bl2ord[idx,13],:2,:,:48],1),1)) # Combines XX and YY
+        pntdata = np.abs(np.sum(np.sum(out['x'][bl2ord[idx,15],:2,:,:48],1),1)) # Combines XX and YY
         ##if abschi >= 0 and abschi < np.pi/6:
         ##    pntdata = np.abs(np.sum(out['x'][bl2ord[idx,13],0,:,:48],1))  # Use only XX
         ##elif abschi >= np.pi/6 and abschi < np.pi/3:
@@ -631,7 +631,10 @@ def skycal_anal(t=None, do_plot=False, last=False, desat=False, file=''):
         out = ri.read_idb([file], desat=desat)
         skytrange = Time(out['time'][[0,-1]],format='jd')
         nant, npol, nf, nt = out['p'].shape
-        if nant > 13: nant = 13
+        if t > Time('2025-05-22'):
+            if nant > 15: nant = 15
+        else:
+            if nant > 13: nant = 13
         offsun = np.zeros((nant,npol,nf), dtype=float)
         rcvr = np.zeros((nant,npol,nf), dtype=float)
         offsun_auto = np.zeros((nant,npol,nf), dtype=complex)
@@ -1192,8 +1195,10 @@ def offsets2ants(t,xoff,yoff,ant_str=None):
         antennas.  The antennas to update are specified with ant_str 
         (defaults to no antennas, for safety).        
     '''
-
-    oldant = [8,9,10,12]
+    if t < Time('2025-05-22'):
+        oldant = [8,9,10,12]
+    else:
+        oldant = []   # No more old antennas!
     if ant_str is None:
         print 'No antenna list specified, so there is nothing to do!'
         return

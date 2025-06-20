@@ -212,7 +212,7 @@ class App():
         fantcn = []    # Frame for Central Status info for each antenna
         fanttrip = []  # Frame for text widgets for trip info for each antenna
         fantctrl = []  # Frame for text widgets for controller stateframe info
-        self.antlist = np.array([1,2,3,4,5,6,7,8,9,10,11,12,13,14])
+        self.antlist = np.array([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])
         nants = len(self.antlist)
         nlab = 20
         # 2-d array (of zeros) to hold labels
@@ -1153,12 +1153,12 @@ class App():
         if charge12 == 0.0 or charge13 == 0.0:
             self.L3.itemconfig(END,bg=self.colors['error'])
 
-        antn = [' 1 ',' 2 ',' 3 ',' 4 ',' 5 ',' 6 ',' 7 ',' 8 ',' 9 ','10 ','11 ','12 ','13 ',' A ']
-        altantindex = np.array([0,1,2,3,4,5,6,7,8,9,10,11,12,13])
+        antn = [' 1 ',' 2 ',' 3 ',' 4 ',' 5 ',' 6 ',' 7 ',' 8 ',' 9 ','10 ','11 ','12 ','13 ','14 ','15 ',' A ']
+        altantindex = np.array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15])
         # Expected STOW coordinates for the different types of antenna.  If/when Ant 12 is changed to
         # the old mount, its values must be changed.
-        azstow = np.array([180,180,180,180,180,180,180,180,180,180,180,180,180,0])
-        elstow = np.array([88,88,88,88,88,88,88,88,88,88,88,88,88,29])
+        azstow = np.array([180,180,180,180,180,180,180,180,180,180,180,180,180,180,180,0])
+        elstow = np.array([88,88,88,88,88,88,88,88,88,88,88,88,88,88,88,29])
 
         azel = stf.azel_from_stateframe(sf,data)
         antindex = self.antlist - 1
@@ -1244,7 +1244,7 @@ class App():
                 line += " "+'{:+8.4f}'.format(azel['dElevation'][i])
                 azoff, eloff = stf.extract(data,c['AzOffset'])/10000., stf.extract(data,c['ElOffset'])/10000.
                 raoff, decoff = stf.extract(data,c['RAOffset'])/10000.,stf.extract(data,c['DecOffset'])/10000.
-                if i > 12:
+                if i > 14:
                     line += " "+'{:+5.2f}{:+5.2f}'.format(azoff,eloff)
                     line += " "+'{:+5.2f}{:+5.2f}'.format(raoff,decoff)
                 else:
@@ -1275,7 +1275,7 @@ class App():
                     # (indicates cRIO not reporting)
                     if ra.get() == 0.0 and dec.get() == 0.0:
                         self.L3.itemconfig(END,bg=self.colors['error'])
-                if i == 12:
+                if i == 14:
                     self.L3.insert(END,head2)
                     self.L3.itemconfig(END,bg=self.colors['colhead'])
 
@@ -1545,15 +1545,15 @@ class App():
                     stf.extract(data,laird['DutyFactor']),stf.extract(data,laird['InputVoltage']),
                     stf.extract(data,laird['MainCurrent']),stf.extract(data,laird['Alarm']),
                     stf.extract(data,laird['Error']),stf.extract(data,laird['ErrorHistory']))
-                if i == 13:
+                if i == 15:
                     lairdtemp = stf.extract(data,sf['FEMA']['Thermal']['SecondStageTemp'])
                     line = '{:2d}     {:6.3f}       {:6.3f} K     --         --       --       --     ---     ---     ---'.format(i+1,fetemp,lairdtemp)
                 self.L3.insert(END,line)
                 if fetemp < 20 or fetemp > 30:
                     self.L3.itemconfig(END,bg=self.colors['warn'])
-                if i == 13 and (lairdtemp < 10 or lairdtemp > 50):
+                if i == 15 and (lairdtemp < 10 or lairdtemp > 50):
                     self.L3.itemconfig(END,bg=self.colors['error'])
-                if i < 13 and (lairdtemp < 24 or lairdtemp > 26):
+                if i < 15 and (lairdtemp < 24 or lairdtemp > 26):
                     self.L3.itemconfig(END,bg=self.colors['error'])
                 if not subarray1[i]:
                     self.L3.itemconfig(END,bg=self.colors['na'])
@@ -1732,7 +1732,7 @@ class App():
                 self.cryoLB.insert(END,line)
             # Section on Temperatures
             rt = cryo['Thermal']
-            fe14temp = stf.extract(data,sf['Antenna'][13]['Frontend']['FEM']['Temperature'])
+            feAtemp = stf.extract(data,sf['Antenna'][15]['Frontend']['FEM']['Temperature'])
 
             line = 'Temps:  FocusBox  RadShield  2ndStage  1stStage  HiFrqPlate  LoFrqHorn  HiFrqHorn  LoFrqLNA  HiFrqLNA'
             self.cryoLB.insert(END,line)
@@ -1741,7 +1741,7 @@ class App():
             self.cryoLB.insert(END,line)
             self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
             line = '        '
-            line += '  {:5.1f}  '.format(fe14temp)
+            line += '  {:5.1f}  '.format(feAtemp)
             line += '   {:5.1f}  '.format(stf.extract(data,rt['RadiationShieldTemp']))
             line += '   {:5.1f}  '.format(stf.extract(data,rt['SecondStageTemp']))
             line += '   {:5.1f}   '.format(stf.extract(data,rt['FirstStageTemp']))
@@ -1791,7 +1791,7 @@ class App():
         dmode = ['AZ-EL ','RA-DEC','-ERROR--']
 
         antn = [' A ']#,' B ']
-        altantindex = np.array([13])#,14])
+        altantindex = np.array([15])#,14])
         # Expected STOW coordinates for the different types of antenna.  If/when Ant 12 is changed to
         # the old mount, its values must be changed.
 
@@ -1806,7 +1806,7 @@ class App():
             subarray1.append(sub1 & (1<<i) > 0)
             subarray2.append(sub1 & (1<<i) > 0)
 
-        self.cryoLB.insert(END,'====== Ant 14 Tracking ======')
+        self.cryoLB.insert(END,'====== Ant A Tracking ======')
         head  = 'a# ---HA--Act--Dec--  ---HA--Req--Dec--  ---HA--Err--Dec--  Az-Off-El  RA-Off-Dc  ---RA---Req---Dec---'
         templ = '   xxx.xxxx sxx.xxxx  xxx.xxxx sxx.xxxx  sxx.xxxx sxx.xxxx  xx.x xx.x  xx.x xx.x  xx xx xx.x sxx xx xx'
         self.cryoLB.insert(END,head)
@@ -1879,7 +1879,7 @@ class App():
                     self.cryoLB.itemconfig(END,bg=self.colors['error'])
 
         self.cryoLB.insert(END,' ') # Blank line
-        self.cryoLB.insert(END,'====== Ant 14 Communication ======')
+        self.cryoLB.insert(END,'====== Ant A Communication ======')
         head = 'a# Pwr  Runctrl  Runmode  Datamode   cRIO_Time     Ant_Time     cRIO--TDIF--Ant'
         self.cryoLB.insert(END,head)
         self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
@@ -1914,7 +1914,7 @@ class App():
                 self.cryoLB.itemconfig(END,bg=self.colors['na'])
 
         self.cryoLB.insert(END,' ') # Blank line
-        self.cryoLB.insert(END,'====== Ant 14 Power and Attenuation ======')
+        self.cryoLB.insert(END,'====== Ant A Power and Attenuation ======')
         head = '     Frontend:  --H-Channel---  --V-Channel---   Backend:  --H-Channel---  --V-Channel---'
         self.cryoLB.insert(END,head)
         self.cryoLB.itemconfig(END,bg=self.colors['colhead'])
@@ -1951,15 +1951,15 @@ class App():
         sf = self.accini['sf']
         laird = []
         fe = []
-        for i in range(13):
+        for i in range(15):
             laird.append(sf['Antenna'][i]['Frontend']['TEC'])
             fe.append(sf['Antenna'][i]['Frontend']['FEM'])
-        fe.append(sf['Antenna'][13]['Frontend']['FEM'])  # Ant 14 ambient temperature
-        laird.append(sf['FEMA']['Thermal']['SecondStageTemp'])   # Ant 14 cyro temperature
+        fe.append(sf['Antenna'][15]['Frontend']['FEM'])  # Ant A ambient temperature
+        laird.append(sf['FEMA']['Thermal']['SecondStageTemp'])   # Ant A cyro temperature
         windkey = sf['Schedule']['Data']['Weather']['AvgWind']
         npts = len(self.que)
 #        daydif = (datetime.datetime(1901,1,1)-datetime.datetime(1,1,1)).days
-        temps = np.zeros((npts,14,2),dtype=np.float)
+        temps = np.zeros((npts,16,2),dtype=np.float)
         tm = np.zeros(npts,dtype=np.float)   # Timestamp
         amb = np.zeros(npts,dtype=np.float)
         wind = np.zeros(npts,dtype=np.float)
@@ -1969,8 +1969,8 @@ class App():
             for j in range(13):
                 temps[i,j,0] = stf.extract(self.que[i],laird[j]['Temperature'])
                 temps[i,j,1] = stf.extract(self.que[i],fe[j]['Temperature'])
-            temps[i,13,0] = stf.extract(self.que[i],laird[13])
-            temps[i,13,1] = stf.extract(self.que[i],fe[13]['Temperature'])
+            temps[i,15,0] = stf.extract(self.que[i],laird[15])
+            temps[i,15,1] = stf.extract(self.que[i],fe[15]['Temperature'])
             wind[i] = stf.extract(self.que[i],windkey)
         # Exactly zero temperatures mean missing data (except ambient on rare cold days!), so flag with NaN
         amb[np.where(amb == 0.0)[0]] = np.NaN
@@ -1988,9 +1988,9 @@ class App():
             self.sub_plot1.plot_date(tim,temps[:,i,0],label='Laird A'+str(i+1),marker=None,linestyle='-')
             if i!=9: # will be removed when ant10's temperature is fixed
                 self.sub_plot1.plot_date(tim,temps[:,i,1],label='FEM A'+str(i+1),marker='.',markersize=0.5)
-        # Plot Ant 14 temperatures in RED to highlight them somewhat
-        self.sub_plot1.plot_date(tim,temps[:,13,0],label='A14 Cryo [K]',marker=None,color='red',linestyle='-')
-        self.sub_plot1.plot_date(tim,temps[:,13,1],label='A14 FE Box'+str(i+1),marker='.',color='red',markersize=0.5)
+        # Plot Ant A temperatures in RED to highlight them somewhat
+        self.sub_plot1.plot_date(tim,temps[:,13,0],label='Ant A Cryo [K]',marker=None,color='red',linestyle='-')
+        self.sub_plot1.plot_date(tim,temps[:,13,1],label='Ant A FE Box'+str(i+1),marker='.',color='red',markersize=0.5)
         self.sub_plot1.plot_date(tim,amb,label='Ambient',marker=None,color='magenta',linestyle='-',linewidth=2)
         self.sub_plot1.plot_date(tim,wind,label='AvgWind',marker=None,color='gray',linestyle='-',linewidth=2)
         # Set appropriate titles, legend, etc.

@@ -38,6 +38,10 @@
 #  2018-03-05  NK
 #    Update refcal_anal() to calculate band 4 phase from lohi scan if lohi=True,
 #    and estimate band 4 phase using the most recent lohi=True result if otherwise.
+#  2025-05-22  DG
+#    NB: I believe this code is superseded by equivalent code in calwidget.py, so
+#    it has not been updated to work with 16 antennas.  It doesn't even work for
+#    52 bands...
 #
 import read_idb as ri
 from util import Time, ant_str2list, lobe, nearest_val_idx

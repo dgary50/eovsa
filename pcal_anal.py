@@ -29,6 +29,9 @@
 #    Added back the Windscram check.
 #  2024-Jun-17 DG
 #    Belatedly added back the windscram check.
+#  2025-May-21  DG
+#    Changes to work with 16 antennas.  It is mainly just a larger plot with more
+#    antennas.
 #
 
 import numpy as np
@@ -188,7 +191,11 @@ def graph(f,navg=None,path=None):
     if len(out['fghz']) == 0:
         # This file is no good, so skip it
         return
-    fig, ax = plt.subplots(4,13,sharex=True, sharey=True)
+    if out['time'][0] < Time('2025-05-22').jd:
+        nsolant = 13
+    else:
+        nsolant = 15
+    fig, ax = plt.subplots(4,nsolant,sharex=True, sharey=True)
     trange = Time([fname2mjd(f[0]),fname2mjd(f[-1]) + ten_minutes],format='mjd')
     times, wscram, avgwind = db.a14_wscram(trange)
     nwind = len(wscram)
@@ -199,16 +206,16 @@ def graph(f,navg=None,path=None):
     else:
         warn = ''
         color = '#1f77b4'   # Plot points with "normal" Blue color
-    fig.set_size_inches(18,6)
+    fig.set_size_inches(nsolant+5,6)
     nf = len(out['fghz'])
     fstr = str(out['fghz'][nf/2]*1000)[:5]+' MHz '
-    for k in range(13):
+    for k in range(nsolant):
         for j in range(4):
             ax[j,k].cla()
-            ax[j,k].plot(out['ha'],np.angle(out['x'][ri.bl2ord[k,13],j,nf/2]),'.',color=color)
+            ax[j,k].plot(out['ha'],np.angle(out['x'][ri.bl2ord[k,nsolant],j,nf/2]),'.',color=color)
             ax[j,k].set_ylim(-4, 4)
             ax[j,k].xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-            if k in range(1,13): ax[j,k].yaxis.set_visible(False)
+            if k in range(1,nsolant): ax[j,k].yaxis.set_visible(False)
             if j in range(3): ax[j,k].xaxis.set_visible(False)
             if j == 0: ax[0,k].title.set_text('antenna %d' %(k+1))
     fig.suptitle(out['source']+'  '+Time(out['time'][0],format='jd').iso[:19]+' UT  '+fstr+warn)
@@ -225,18 +232,18 @@ def graph(f,navg=None,path=None):
     plt.close(fig)
 
     ph = np.angle(np.sum(out['x'],3))
-    fig, ax = plt.subplots(4,13)
-    fig.set_size_inches(18,6)
-    for k in range(13):
+    fig, ax = plt.subplots(4,nsolant)
+    fig.set_size_inches(nsolant+3,6)
+    for k in range(nsolant):
         for j in range(4):
             ax[j,k].cla()
             if k == 0:
-                ax[j,k].plot(out['fghz'],ph[ri.bl2ord[k,13],j],'.',color=color)
+                ax[j,k].plot(out['fghz'],ph[ri.bl2ord[k,nsolant],j],'.',color=color)
             else:
-                ax[j,k].plot(out['fghz'],lobe(ph[ri.bl2ord[k,13],j]-ph[ri.bl2ord[0,13],j]),'.',color=color)                
+                ax[j,k].plot(out['fghz'],lobe(ph[ri.bl2ord[k,nsolant],j]-ph[ri.bl2ord[0,nsolant],j]),'.',color=color)                
             ax[j,k].set_ylim(-4, 4)
             ax[j,k].xaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-            if k in range(1,13): ax[j,k].yaxis.set_visible(False)
+            if k in range(1,nsolant): ax[j,k].yaxis.set_visible(False)
             if j in range(3): ax[j,k].xaxis.set_visible(False)
             if j == 0: ax[0,k].title.set_text('antenna %d' %(k+1))
     fig.suptitle(out['source']+' '+Time(out['time'][0],format='jd').iso[:19]+' UT'+warn)

@@ -35,6 +35,7 @@
 #    Fixed a bug in bands plotted.
 #  2020-01-06  DG
 #    Change line thickness for sigma map grid for every 5th ant and 10th band.  Also
+#    Change line thickness for sigma map grid for every 5th ant and 10th band.  Also
 #    add button for flagging all bands higher than a selected band.
 #  2020-01-13  DG
 #    Fixed a bug in fitting phase slopes with new 52-band data (just needed a nanmedian 
@@ -49,6 +50,10 @@
 #    Change use_date() to consider an observing day as timerange 8:40 UT - 8:40 UT + 1 day
 #  2024-04-28  DG
 #    Change use_date() to consider an observing day as timerange 7:12 UT - 7:12 UT + 1 day
+#  2025-05-19  DG
+#    Updated to use either 13 or 15 solar antennas, with Ant A either 14 or 16.
+#  2025-06-08  DG
+#    Lots of changes to fix various bugs...it seems to be working now.
 #
 
 import matplotlib
@@ -181,22 +186,23 @@ class App():
         Tk.Label(pc_resultframe, textvariable=self.resultvar, font='Helvetica 12').pack()
         self.resultvar.set('No Results Yet')
         self.ab_fig_info = subplots(1,1)
-        self.ab_fig_info[0].set_size_inches(2.6,4.5,forward=True)
+        self.ab_fig_info[0].set_size_inches(3.0,4.5,forward=True)
         ax = self.ab_fig_info[1]
-        im = ax.pcolormesh(np.arange(14),np.arange(maxnbd+1),np.zeros((maxnbd,13)))
-        for i in range(13):
+        # This sets up the initial windows for 16 antennas, but fewer can be used.
+        im = ax.pcolormesh(np.arange(16),np.arange(maxnbd+1),np.zeros((maxnbd,15)))
+        for i in range(15):
             linewidth = 0.4 if i % 5 == 0 else 0.2 # make every 5th antenna line thicker
             ax.plot([i,i],[0,maxnbd],color='white',linewidth=linewidth)
 #            ax.plot([i,i],[0,maxnbd],color='white',linewidth=0.2)
         for j in range(maxnbd):
             linewidth = 0.4 if j % 10 == 0 else 0.2 # make every 10th band line thicker
-            ax.plot([0,13],[j,j],color='white',linewidth=linewidth)
+            ax.plot([0,15],[j,j],color='white',linewidth=linewidth)
 #            ax.plot([0,13],[j,j],color='white',linewidth=0.2)
         self.ab_text = ax.text(2, maxnbd/2, 'No scan selected', color='white')
         ax.set_xlabel('Antenna Number')
         ax.set_ylabel('Band Number')
         bbox = ax.get_position().extents
-        ax.set_position([bbox[0]+0.08,bbox[1],bbox[2]-bbox[0],bbox[3]-bbox[1]])
+        ax.set_position([bbox[0]+0.08,bbox[1],bbox[2]-bbox[0]-0.03,bbox[3]-bbox[1]])
         #ax.set_title('No Results Yet')
         canvas = FigureCanvasTkAgg(self.ab_fig_info[0], master=pc_resultframe)
         canvas.mpl_connect('button_press_event',self.ab_select)
@@ -229,11 +235,11 @@ class App():
         self.fig_info.append(subplots(1,2))
         fant.append(Tk.Frame())
         self.nb_ant.add(fant[1], text='Sum Amp')
-        self.fig_info.append(subplots(2,13))
+        self.fig_info.append(subplots(2,15))
         self.fig_info[-1][0].subplots_adjust(wspace=0, left=0.08, right=0.98)
         fant.append(Tk.Frame())
         self.nb_ant.add(fant[2], text='Sum Pha')
-        self.fig_info.append(subplots(2,13))
+        self.fig_info.append(subplots(2,15))
         self.fig_info[-1][0].subplots_adjust(wspace=0, left=0.08, right=0.98)
         self.fig_info[-1][0].set_size_inches(9.0,5.2)
 #            bbox = self.fig_info[-1][1].get_position().extents
@@ -586,7 +592,7 @@ class App():
                     flags = extract(buf,xml['Refcal_Flag'])
                     fghz = extract(buf,xml['Fghz'])
                     bands = freq2bdname(fghz)
-                    self.pc_dictlist.append({'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 'bands':bands, 'color':'#fff'})
+                    self.pc_dictlist.append({'mjd':mjd,'refcal_time':refcal_time, 'T_beg': t_beg, 'T_end': t_end, 'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 'bands':bands, 'color':'#fff'})
                     self.saved.append(True)
                     not_a_refcal = False
             except:
@@ -615,7 +621,7 @@ class App():
                         bands = freq2bdname(fghz)
                         mbd = extract(buf,xml['MBD'])
                         mbd_flag = extract(buf,xml['Flag'])
-                        self.pc_dictlist.append({'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 
+                        self.pc_dictlist.append({'mjd':mjd,'fghz':fghz, 'sigma':sigma, 'x':x, 'flags':flags, 
                                              'mbd':mbd[:,:,1], 'offsets':mbd[:,:,0], 'mbd_flag':mbd_flag, 'bands':bands, 'color':'#fff'})
                         self.saved.append(True)
                         not_a_phacal = False
@@ -623,7 +629,7 @@ class App():
                     pass
             if not_a_refcal and not_a_phacal:
                 # Neither refcal nor phacal exists for this time, so set empty dictionary
-                self.pc_dictlist.append({'color': '#fff'})
+                self.pc_dictlist.append({'mjd':mjd,'color': '#fff'})
                 self.saved.append(False)
 
             self.pc_scanbox.insert(Tk.END, line)
@@ -708,27 +714,31 @@ class App():
             #self.pc_resultbox.delete(0, Tk.END)
             self.refcal_btn.configure(state=Tk.NORMAL)
             if not self.ref_selected is None: self.phacal_btn.configure(state=Tk.NORMAL)
-            self.resultvar.set('Sigma Map for '+line[:19])
+            self.resultvar.set('Sigma Map for '+line[:8])
             fig1, ax1 = self.fig_info[-2]
             fig2, ax2 = self.fig_info[-1]
             fig, ax = self.ab_fig_info
-            ax.set_title(line[:19])
+            ax.set_title(line[:8])
             fig.suptitle('Sigma Map')
             if line[-1] == 'R':
                 data = self.pc_dictlist[k]
+                if data['mjd'] < Time('2025-05-22').mjd:
+                    nsolant = 13
+                else:
+                    nsolant = 15
                 # Convert frequency to band
                 bands = data['bands'] #(data['fghz']*2 - 1).astype(np.int)
                 good, = np.where(bands != -1)
                 # This is a refcal so act accordingly
-                flags = data['flags'][:13,:2]
-                im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
+                flags = data['flags'][:nsolant,:2]
+                im = ax.pcolormesh(np.arange(nsolant+1),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
                 #for i in range(13):
                 #    ax.plot([i,i],[0,34],color='white',linewidth=0.2)
                 #for j in range(34):
                 #    ax.plot([0,13],[j,j],color='white',linewidth=0.2)
                 self.ab_text.set_text('')
                 # Plot summary plots
-                for i in range(13):
+                for i in range(nsolant):
                     for j in range(2):
                         ax1[j,i].cla()
                         ax2[j,i].cla()
@@ -737,7 +747,7 @@ class App():
                             # Special case for antenna 1
                             phz = np.unwrap(np.angle(data['x'][i,j,good]))
                             # Set 2pi wrap so that minimum of "U" (~ 7 GHz) is near 0
-                            phz -= np.round(phz[14] / (2*np.pi)) * 2*np.pi
+                            phz -= np.round(phz[nsolant+1] / (2*np.pi)) * 2*np.pi
                         else:
                             #phz = np.unwrap(lobe(np.unwrap(np.angle(data['x'][i,j,good]) - np.angle(data['x'][0,j,good]))))
                             phz = lobe(np.unwrap(np.angle(data['x'][i,j,good]) - np.angle(data['x'][0,j,good])))
@@ -751,7 +761,7 @@ class App():
                             lab = ax1[j,i].get_yticklabels()
                             ax1[j,i].set_yticklabels(['']*len(lab))
                             ax2[j,i].set_yticklabels(['']*len(lab))
-                for i in range(13):
+                for i in range(nsolant):
                     ax1[0,i].set_title('Ant '+str(i+1), fontsize=10)
                     ax2[0,i].set_title('Ant '+str(i+1), fontsize=10)
                 ax1[0,0].set_ylabel('XX Amplitude')
@@ -762,21 +772,21 @@ class App():
                     
             elif line[-1] == 'P':
                 data = self.pc_dictlist[k]
+                if data['mjd'] < Time('2025-05-22').mjd:
+                    nsolant = 13
+                else:
+                    nsolant = 15
                 # Convert frequency to band
                 bands = data['bands'] #(data['fghz']*2 - 1).astype(np.int)
                 # This is a phacal so act accordingly
-                flags = data['flags'][:13,:2]
-                im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
-                #for i in range(13):
-                #    ax.plot([i,i],[0,34],color='white',linewidth=0.2)
-                #for j in range(34):
-                #    ax.plot([0,13],[j,j],color='white',linewidth=0.2)
+                flags = data['flags'][:nsolant,:2]
+                im = ax.pcolormesh(np.arange(nsolant+1),np.arange(self.maxnbd+1),np.transpose(np.sum(flags,1)))
                 self.ab_text.set_text('')
                 #if not 'pdiff' in data.keys():
                 if self.ref_selected:
                     data = phase_diff(data,self.pc_dictlist[self.ref_selected])
                 # Plot summary plots
-                for i in range(13):
+                for i in range(nsolant):
                     for j in range(2):
                         ax1[j,i].cla()
                         ax2[j,i].cla()
@@ -799,7 +809,7 @@ class App():
                             ax2[j,i].plot(bands,data['mbd'][i,j]*2*np.pi*data['fghz'])
                             ax1[j,i].set_ylim(0,0.5)
                             ax2[j,i].set_ylim(-8,8)
-                for i in range(13):
+                for i in range(nsolant):
                     ax1[0,i].set_title('Ant '+str(i+1))
                     ax2[0,i].set_title('Ant '+str(i+1))
                 ax1[0,0].set_ylabel('XX Amplitude')
@@ -808,11 +818,11 @@ class App():
                 ax2[1,0].set_ylabel('YY Phase Diff (rad)')
             else:
                 ax = self.ab_fig_info[1]
-                im = ax.pcolormesh(np.arange(14),np.arange(self.maxnbd+1),np.zeros((self.maxnbd,13)))
+                im = ax.pcolormesh(np.arange(16),np.arange(self.maxnbd+1),np.zeros((self.maxnbd,15)))
                 self.ab_text.set_text('Not yet analyzed')
 #                self.pc_resultbox.insert(Tk.END, 'Not yet analyzed.')
                 # Clear summary plots
-                for i in range(13):
+                for i in range(15):
                     for j in range(2):
                         ax1[j,i].cla()
                         ax2[j,i].cla()
@@ -838,51 +848,69 @@ class App():
                 self.ant_selected = ant    # 0-based index
                 k = self.scan_selected
                 scan = self.pc_dictlist[k]
-                vis = scan.get('vis',None)
-                fig, ax = self.fig_info[0]
-                self.nb_ant.select(0)
-                ax[0].cla()
-                ax[1].cla()
-                if vis is None:
-                    # This is from SQL.  No time profiles, so do nothing
-                    fig.suptitle('No time history available until the selected scan is reanalyzed')
+                if scan['mjd'] < Time('2025-05-22').mjd:
+                    nsolant = 13
                 else:
-                    pdtimes = Time(scan['times'],format='jd').plot_date
-                    # Update antenna plot for this band
-                    fig.suptitle('Ant '+str(ant+1)+', Band '+str(band+1))
-                    ax[0].plot_date(pdtimes,np.abs(vis[ant,0,band]),'.')
-                    ax[0].plot_date(pdtimes,np.abs(vis[ant,1,band]),'.')
-                    ax[1].plot_date(pdtimes,np.angle(vis[ant,0,band]),'.')
-                    ax[1].plot_date(pdtimes,np.angle(vis[ant,1,band]),'.')
-                    datamax = np.max(np.abs(vis[ant,:2,band]))
-                    datamin = np.min(np.abs(vis[ant,:2,band]))
-                    ax[0].set_ylim(0.001,max(1, datamax))
-                    ax[0].set_yscale('log')
-                    ax[1].set_ylim(-4,4)
-                    ax[0].set_ylabel('Amplitude [arb units]')
-                    ax[1].set_ylabel('Phase [rad]')
-                    ax[0].set_xlabel('Time [UT]')
-                    ax[1].set_xlabel('Time [UT]')
-                    ax[0].xaxis.set_major_locator(MaxNLocator(3))
-                    ax[0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
-                    ax[1].xaxis.set_major_locator(MaxNLocator(3))
-                    ax[1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
-                    # Apply any existing time flags
-                    if 'tflags' in self.pc_dictlist[self.scan_selected].keys():
-                        for k in range(2):
-                            tflags = self.pc_dictlist[self.scan_selected]['tflags'][ant,band,:,k]
-                            if tflags[0] != 0:
-                                ax[0].plot_date(tflags[0]*np.ones(2),ax[0].get_ylim(),'g-')
-                                ax[1].plot_date(tflags[0]*np.ones(2),ax[1].get_ylim(),'g-')
-                            if tflags[1] != 0:
-                                ax[0].plot_date(tflags[1]*np.ones(2),ax[0].get_ylim(),'r--')
-                                ax[1].plot_date(tflags[1]*np.ones(2),ax[1].get_ylim(),'r--')
-                fig.canvas.draw()
-                #fig.canvas.show()
-                fig.canvas.get_tk_widget().focus_force()
-                self.nb_ant.select(0)
-                #print band,'selected.'
-                #print self.pc_dictlist[self.scan_selected].keys()
+                    nsolant = 15
+                if ant < nsolant:
+                    vis = scan.get('vis',None)
+                    fig, ax = self.fig_info[0]
+                    self.nb_ant.select(0)
+                    ax[0].cla()
+                    ax[1].cla()
+                    if vis is None:
+                        # This is from SQL.  No time profiles, so do nothing
+                        fig.suptitle('No time history available until the selected scan is reanalyzed')
+                    else:
+                        pdtimes = Time(scan['times'],format='jd').plot_date
+                        # Update antenna plot for this band
+                        fig.suptitle('Ant '+str(ant+1)+', Band '+str(band+1))
+                        xxgood = False
+                        yygood = False
+                        if np.sum(np.isfinite(vis[ant,0,band])) != 0:
+                            ax[0].plot_date(pdtimes,np.abs(vis[ant,0,band]),'.')
+                            ax[1].plot_date(pdtimes,np.angle(vis[ant,0,band]),'.')
+                            xxgood = True
+                        if np.sum(np.isfinite(vis[ant,1,band])) != 0:
+                            ax[0].plot_date(pdtimes,np.abs(vis[ant,1,band]),'.')
+                            ax[1].plot_date(pdtimes,np.angle(vis[ant,1,band]),'.')
+                            yygood = True
+                        if xxgood or yygood:
+                            datamax = np.max(np.abs(vis[ant,:2,band]))
+                            datamin = np.min(np.abs(vis[ant,:2,band]))
+                            ax[0].set_ylim(0.001,max(1, datamax))
+                            ax[0].set_yscale('log')
+                            ax[1].set_ylim(-4,4)
+                            ax[0].set_ylabel('Amplitude [arb units]')
+                            ax[1].set_ylabel('Phase [rad]')
+                            ax[0].set_xlabel('Time [UT]')
+                            ax[1].set_xlabel('Time [UT]')
+                            ax[0].xaxis.set_major_locator(MaxNLocator(3))
+                            ax[0].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
+                            ax[1].xaxis.set_major_locator(MaxNLocator(3))
+                            ax[1].xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M"))
+                            # Apply any existing time flags
+                            if 'tflags' in self.pc_dictlist[self.scan_selected].keys():
+                                for k in range(2):
+                                    tflags = self.pc_dictlist[self.scan_selected]['tflags'][ant,band,:,k]
+                                    if tflags[0] != 0:
+                                        ax[0].plot_date(tflags[0]*np.ones(2),ax[0].get_ylim(),'g-')
+                                        ax[1].plot_date(tflags[0]*np.ones(2),ax[1].get_ylim(),'g-')
+                                    if tflags[1] != 0:
+                                        ax[0].plot_date(tflags[1]*np.ones(2),ax[0].get_ylim(),'r--')
+                                        ax[1].plot_date(tflags[1]*np.ones(2),ax[1].get_ylim(),'r--')
+                        else:
+                            ax[0].text(0.5,0.5,'No good data',ha='center')
+                            ax[1].text(0.5,0.5,'No good data',ha='center')
+                    fig.canvas.draw()
+                    #fig.canvas.show()
+                    fig.canvas.get_tk_widget().focus_force()
+                    self.nb_ant.select(0)
+                    #print band,'selected.'
+                    #print self.pc_dictlist[self.scan_selected].keys()
+                else:
+                    self.status.config(text = 'Error: Non-existent antenna selected')
+                    self.status.update()
 
     def date_prev(self, event):
         w = event.widget
@@ -975,15 +1003,22 @@ class App():
         j = self.ref2_selected
         lodict = None
         hidict = None
-        nflagged_i = np.sum(np.array(self.pc_dictlist[i]['flags'][:13,:2]).astype(int))
-        nflagged_j = np.sum(np.array(self.pc_dictlist[j]['flags'][:13,:2]).astype(int))
-        if nflagged_i > 1000:
+        if self.pc_dictlist[i]['mjd'] < Time('2025-05-22').mjd:
+            nsolant = 13
+        else:
+            nsolant = 15
+        nflagged_i = np.sum(np.array(self.pc_dictlist[i]['flags'][:15,:2]).astype(int))
+        nflagged_j = np.sum(np.array(self.pc_dictlist[j]['flags'][:15,:2]).astype(int))
+        # Use number of flagged points as a guide to whether this is a Lo or Hi frequency
+        # scan.  This is rough, but seems to work unless there are a LOT of flagged high-freq
+        # antennas.
+        if nflagged_i > 80*nsolant:
             lodict = self.pc_dictlist[i]
             loscan = i
         else:
             hidict = self.pc_dictlist[i]
             hiscan = i
-        if nflagged_j > 1000:
+        if nflagged_j > 80*nsolant:
             lodict = self.pc_dictlist[j]
             loscan = j
         else:
@@ -992,7 +1027,7 @@ class App():
         if lodict is None or hidict is None:
             print 'Selected Refcal scans do not form a LO-HI pair.'
             print 'Scan 1 has',nflagged_i,'flagged points and Scan 2 has',nflagged_j,'flagged points.'
-            print 'The LO receiver scan should have >1000 flagged datapoints and the HI receiver should have <1000.'
+            print 'The LO receiver scan should have >'+str(80*nsolant)+' flagged datapoints and the HI receiver should have <'+str(80*nsolant)+'.'
             return
         # The LO and HI receiver dicts have been identified.  Now determine phase slope of LO
         # relative to HI, and apply to correct the LO phases
@@ -1019,8 +1054,8 @@ class App():
         hidict['flags'][:,:,lobands] = lodict['flags'][:,:,lobands]
         #hidict['vis'][:,:,:4] = lodict['vis'][:,:,:4]
         #hidict['flag'][:,:,:4] = lodict['flag'][:,:,:4]
-        # Now apply corrections (generally small) for the relevant ants 2-13 and pols XX and YY
-        for i in range(12):
+        # Now apply corrections (generally small) for the relevant ants 2 to nsolant and pols XX and YY
+        for i in range(nsolant-1):
             for j in range(2):
                 # Calculate phase slope of difference between LO and HI receiver for common frequencies
                 pcal = lobe(plo[0,j,overlap] - phi[0,j,overlap])  # Ant 1 LO - HI phases (for calibration)
@@ -1067,8 +1102,11 @@ class App():
         if self.fixdrift.get():
             phacal = fix_time_drift(phacal)
         out = refcal_anal(phacal)
+        #print out['vis'].shape
+
         # Now calculate the phase difference wrt the appropriate refcal
         pcout = phase_diff(out,self.pc_dictlist[self.ref_selected])
+        #print out['vis'].shape, out['mbd'].shape
         self.pc_dictlist[i].update(out)
         self.saved[i] = False  # Mark as unsaved
         self.pc_scanbox.delete(2,Tk.END)
@@ -1121,17 +1159,23 @@ def phase_diff(phacal, refcal):
     
     fghz = phacal['fghz']
     if len(fghz) != len(refcal['fghz']):
-        self.status.config(text = 'Status: Phase and Reference calibrations have different frequencies.  No action taken.')
+        print 'Status: Phase and Reference calibrations have different frequencies.  No action taken.'
         return phacal
+    if refcal['mjd'] < Time('2025-05-22').mjd:
+        nsolant = 13
+        nant = 15
+    else:
+        nsolant = 15
+        nant = 16
     dpha = np.angle(phacal['x'][:,:2]) - np.angle(refcal['x'][:,:2])
     flags = np.logical_or(phacal['flags'][:,:2],refcal['flags'][:,:2]).astype(np.int)
     amp_pc = np.abs(phacal['x'][:,:2])
     amp_rc = np.abs(refcal['x'][:,:2])
     sigma = ((phacal['sigma'][:,:2]/amp_pc)**2. + (refcal['sigma'][:,:2]/amp_rc)**2)**0.5
-    slopes = np.zeros((15,2),np.float)
-    offsets = np.zeros((15,2),np.float)
-    flag = np.zeros((15,2),np.float)
-    for ant in range(13):
+    slopes = np.zeros((nant,2),np.float)
+    offsets = np.zeros((nant,2),np.float)
+    flag = np.zeros((nant,2),np.float)
+    for ant in range(nsolant):
         for pol in range(2):
             good, = np.where(flags[ant,pol] == 0)
             if len(good) > 3:
@@ -1201,20 +1245,26 @@ def rd_refcal(file, quackint=120., navg=3):
     nt = len(out['time'])
     nbd = len(bds)
     mjd = Time(out['time'][0],format='jd').mjd
+    if mjd > Time('2025-05-22').mjd:
+        nsolant = 15
+        nant = 16
+    else:
+        nsolant = 13
+        nant = 15
     if mjd > 58536:
         maxnbd = 52
         from chan_util_52 import freq2bdname
     else:
         maxnbd = 34
         from chan_util_bc import freq2bdname
-    vis = np.zeros((15, 4, maxnbd, nt), dtype=complex)
+    vis = np.zeros((nant, 4, maxnbd, nt), dtype=complex)
     fghz = np.zeros(maxnbd)
     # average over channels within each band
-    o = out['x'][bl2ord[13,:13]]
+    o = out['x'][bl2ord[nsolant,:nsolant]]
     for bd in bds:
         idx = np.where(out['band'] == bd)[0]
         fghz[bd-1] = np.nanmean(out['fghz'][idx])
-        vis[:13,:,bd-1] = np.mean(o[:, :, idx], axis=2)
+        vis[:nsolant,:,bd-1] = np.mean(o[:, :, idx], axis=2)
     # Need to apply unrot to correct for feed rotation, before returning
     xml, buf = ch.read_cal(11, Time(out['time'][0],format='jd'))
     dph = extract(buf,xml['XYphase'])
@@ -1226,14 +1276,14 @@ def rd_refcal(file, quackint=120., navg=3):
     bds, sidx = np.unique(band, return_index=True)
     nbd = len(bds)
     eidx = np.append(sidx[1:], len(band))
-    dxy = np.zeros((14, maxnbd), dtype=np.float)
+    dxy = np.zeros((nsolant+1, maxnbd), dtype=np.float)
     xi = np.zeros(maxnbd, dtype=np.float)
     fghz = np.zeros(maxnbd)
     # average dph and xi_rot frequencies within each band, to convert to band representation
     for b, bd in enumerate(bds):
         fghz[bd - 1] = np.nanmean(freq[sidx[b]:eidx[b]])
         xi[bd - 1] = np.nanmean(xi_rot[sidx[b]:eidx[b]])
-        for a in range(14):
+        for a in range(nsolant+1):
             dxy[a, bd - 1] = np.angle(np.sum(np.exp(1j * dph[a, sidx[b]:eidx[b]])))
     bands = np.array(freq2bdname(fghz))
     # Read parallactic angles for this scan
@@ -1241,23 +1291,25 @@ def rd_refcal(file, quackint=120., navg=3):
     times, chi = db.get_chi(trange)
     tchi = times.jd
     t = out['time']
+    # This entire section needs rewriting when we start nightly Ant A feed rotation to zero the parallactic angle
     if len(t) > 0:
         vis2 = deepcopy(vis)
         idx = nearest_val_idx(t, tchi)
         pa = chi[idx]  # Parallactic angle for the times of this refcal.
-        pa[:, [8, 9, 10, 12]] = 0.0
+        if nsolant == 13:
+            pa[:, [8, 9, 10, 12]] = 0.0    # From a time before old antenna replacement
         nt = len(idx)  # Number of times in this refcal
         # Apply X-Y delay phase correction
-        for a in range(13):
-            a1 = lobe(dxy[a] - dxy[13])
-            a2 = -dxy[13] - xi
+        for a in range(nsolant):
+            a1 = lobe(dxy[a] - dxy[nsolant])
+            a2 = -dxy[nsolant] - xi
             a3 = dxy[a] - xi + np.pi
             for j in range(nt):
                 vis2[a, 1, :, j] *= np.exp(1j * a1)
                 vis2[a, 2, :, j] *= np.exp(1j * a2)
                 vis2[a, 3, :, j] *= np.exp(1j * a3)
         for j in range(nt):
-            for a in range(13):
+            for a in range(nsolant):
                 vis[a, 0, :, j] = vis2[a, 0, :, j] * np.cos(pa[j, a]) + vis2[a, 3, :, j] * np.sin(pa[j, a])
                 vis[a, 2, :, j] = vis2[a, 2, :, j] * np.cos(pa[j, a]) + vis2[a, 1, :, j] * np.sin(pa[j, a])
                 vis[a, 3, :, j] = vis2[a, 3, :, j] * np.cos(pa[j, a]) - vis2[a, 0, :, j] * np.sin(pa[j, a])
@@ -1281,11 +1333,17 @@ def refcal_anal(out):
         maxnbd = 52
     else:
         maxnbd = 34
+    if mjd > Time('2025-05-22').mjd:
+        nsolant = 15
+        nant = 16
+    else:
+        nsolant = 13
+        nant = 15
     # Apply tflags
     if 'tflags' in out.keys():
         tflags = out['tflags']
         # Apply time flags
-        for i in range(13):
+        for i in range(nsolant):
             for j in range(maxnbd):
                 for k in range(2):
                     if tflags[i,j,1,k] != 0.0:
@@ -1297,7 +1355,7 @@ def refcal_anal(out):
                             vis[i,:,j,bad] = np.nan
     else:
         # If there was no tflags key, add one of all zeros.
-        out.update({'tflags':np.zeros((13,maxnbd,2,2),np.float)})
+        out.update({'tflags':np.zeros((nant,maxnbd,2,2),np.float)})
     nt = len(times)
     # compute standard deviation of the visibilities
     sigma = np.nanstd(vis, axis=3)

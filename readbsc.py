@@ -45,7 +45,7 @@
 #   Changed duration of do_stars() scans to 2 min/star.
 # Must be run from Dropbox/PythonCode/Current directory
 
-from numpy import array, zeros, ones, arange, where, argsort, sort, pi, median, argmin
+from numpy import array, zeros, ones, arange, where, argsort, sort, pi, median, argmin, cos
 from util import *
 import ephem
 import datetime as dt
