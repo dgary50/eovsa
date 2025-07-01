@@ -51,6 +51,9 @@
 #      table has the antenna information and the dimension 15 table is gone.
 #   2025-May-18  DG
 #      More changes to work with 16 antennas when Ant A is in slot 16.
+#   2025-Jun-30  DG
+#      Discovered a bug in the Table 67 database, which has 8 garbage records with
+#      timestamps 2010-05-15!  Added a work-around for find_table_version().
      
 import stateframedef
 import util
@@ -83,6 +86,11 @@ def find_table_version(cursor,timestamp,scan_header=False):
             try:
                 cursor.execute('select top 1 Timestamp from '+tbl)
                 tstamp = cursor.fetchone()[0]
+                if tstamp < Time('2014-01-01').lv:
+                    # Weird bug in table 67, which has garbage records for times on 2010-05-15
+                    # A table with times earlier than 2014 should be table 67, whose first
+                    # good record is for the time in the next line.
+                    tstamp = Time('2025-01-08 22:24:16').lv
                 if tstamp < timestamp:
                     mytbl = tbl
                     version = mytbl[2:4]
