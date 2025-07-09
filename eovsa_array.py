@@ -50,6 +50,8 @@
 #      Updated for the two new antennas.  The baseline corrections are zeroed by adding them
 #      to the nominal antenna positions so we can start with a clean slate for EOVSA-15. The
 #      legacy code is retained by renaming to eovsa_array0() and bl_cor0()
+#   2025-Jul-09  DG
+#      Update for new antennas and baseline measurements from 2025-07-08
 #
 
 import aipy, ephem
@@ -128,6 +130,14 @@ def bl_cor(x, y, z, iant):
     dx = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
     dy = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
     dz = np.array([0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
+
+    # Update based on 2253+161 obs. on 2025 Jul 8 -- in ns (dx and dy only for now)
+    dx += np.array(
+        [0.000, 0.000, 0.000, -0.007, -0.005, -0.015, -0.013, -0.020, 0.000, 0.000, -0.805, 0.000, -0.753, 0.000, 0.000,
+         0.000])
+    dy += np.array(
+        [0.000, 0.000, 0.000, 0.004, 0.004, -0.002, -0.000, 0.006, 0.000, 0.000, -0.162, 0.000, -0.037, 0.000, 0.000,
+         0.000])
 
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]

@@ -784,7 +784,7 @@ def allday_process(path=None):
     for file in files:
         out = ri.read_idb([file])
         nant,npol,nf,nt = out['p'].shape
-        if out['time'][0] < Time('2025-05-22'):
+        if out['time'][0] < Time('2025-05-22').jd:
             nsolant = 13
         else:
             nsolant = 15

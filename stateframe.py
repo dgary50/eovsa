@@ -658,38 +658,42 @@ def PA_adjust(ant=None, crossed=False, offset_angle=0):
     while 1:
         # Read stateframe from ACC
         data, sfmsg = get_stateframe(accini)
-        if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 15 == 0:
-            # Stateframe has a valid Timestamp, and Antenna A is not in the subarray, so exit
-            break
-        if extract(data,timekey) != 0:
-            # Do this only if stateframe timestamp is valid--otherwise just skip this update
-            # Get Chi for this antenna from the stateframe, converted to degrees
-            chi = extract(data,chikey)[ant]*180/np.pi
-            
-            # If the crossed keyword is set, the orientation angle is 90-degrees from chi
-            if crossed: chi += 90
-            
-            # Make sure it is in range...
-            if chi > 90.:
-                chi = 180. - chi
-            elif chi < -90:
-                chi = 180. + chi
-            pa_to_send = -np.int(chi)+offset_angle   # Desired rotation angle is -chi
-            current_pa = np.int(extract(data,pakey)+0.5)+offset_angle
-            if pa_to_send != current_pa:
-                # Current PA is different from new one, so rotate feed to new position.
-                send_cmds(['frm-set-pa '+str(pa_to_send)+' ant16'],acc)
-        # Sleep for 1 minute (but checking for Abort message every second), 
-        # and then repeat
-        for i in range(60):
-            try:
-                msg = q.get_nowait()
-                if msg == 'Abort':
-                    # Got abort message, so exit.
-                    send_cmds(['frm-set-pa 0 ant16'],acc)
-                    return
-            except:
-                pass
+        if sfmsg == 'No Error':
+            if extract(data,sf['Timestamp']) != 0 and extract(data,sub1) >> 15 == 0:
+                # Stateframe has a valid Timestamp, and Antenna A is not in the subarray, so exit
+                break
+            if extract(data,timekey) != 0:
+                # Do this only if stateframe timestamp is valid--otherwise just skip this update
+                # Get Chi for this antenna from the stateframe, converted to degrees
+                chi = extract(data,chikey)[ant]*180/np.pi
+                
+                # If the crossed keyword is set, the orientation angle is 90-degrees from chi
+                if crossed: chi += 90
+                
+                # Make sure it is in range...
+                if chi > 90.:
+                    chi = 180. - chi
+                elif chi < -90:
+                    chi = 180. + chi
+                pa_to_send = np.int(-chi+offset_angle)   # Desired rotation angle is -chi
+                current_pa = np.int(extract(data,pakey)+0.5+offset_angle)
+                if pa_to_send != current_pa:
+                    # Current PA is different from new one, so rotate feed to new position.
+                    send_cmds(['frm-set-pa '+str(pa_to_send)+' ant16'],acc)
+            # Sleep for 1 minute (but checking for Abort message every second), 
+            # and then repeat
+            for i in range(60):
+                try:
+                    msg = q.get_nowait()
+                    if msg == 'Abort':
+                        # Got abort message, so exit.
+                        send_cmds(['frm-set-pa 0 ant16'],acc)
+                        return
+                except:
+                    pass
+                time.sleep(1)
+        else:
+            # Error reading the stateframe, so try again 1 s later.
             time.sleep(1)
     # To get here, either Ant A is not in the subarray, or else we got 
     # an Abort message.  In either case, reset the PA to 0 and exit.
