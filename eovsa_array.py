@@ -52,6 +52,10 @@
 #      legacy code is retained by renaming to eovsa_array0() and bl_cor0()
 #   2025-Jul-09  DG
 #      Update for new antennas and baseline measurements from 2025-07-08
+#   2025-Jul-10  DG
+#      Oops, wrong sign on the correction.  Now updated for correct sign.
+#   2025-Jul-11  DG
+#      Additional update based on new measurements from 2025-07-11
 #
 
 import aipy, ephem
@@ -133,11 +137,19 @@ def bl_cor(x, y, z, iant):
 
     # Update based on 2253+161 obs. on 2025 Jul 8 -- in ns (dx and dy only for now)
     dx += np.array(
-        [0.000, 0.000, 0.000, -0.007, -0.005, -0.015, -0.013, -0.020, 0.000, 0.000, -0.805, 0.000, -0.753, 0.000, 0.000,
-         0.000])
+        [0.000, 0.000, 0.000, 0.007, 0.005, 0.015, 0.013, 0.020, 0.000, 0.000, 0.805, 0.003, 0.753, 0.000, 0.000,
+         0.109])
     dy += np.array(
-        [0.000, 0.000, 0.000, 0.004, 0.004, -0.002, -0.000, 0.006, 0.000, 0.000, -0.162, 0.000, -0.037, 0.000, 0.000,
-         0.000])
+        [0.000, 0.000, 0.000, -0.004, -0.004, 0.002, 0.000, -0.006, 0.000, 0.000, 0.162, 0.013, 0.037, 0.000, 0.000,
+         0.031])
+
+    # Update based on 2253+161 obs. on 2025 Jul 11 -- in ns (dx and dy only for now)
+    dx += np.array(
+        [0.000, 0.000, 0.000, -0.001, -0.001, -0.003, -0.004, 0.001, 0.000, 0.000, 0.104, -0.013, 0.171, 0.000, 0.000,
+         -0.048])
+    dy += np.array(
+        [0.000, 0.000, 0.000, -0.000, -0.001, 0.000, 0.000, -0.000, 0.000, 0.000, 0.027, -0.004, 0.005, 0.000, 0.000,
+         -0.006])
 
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]
