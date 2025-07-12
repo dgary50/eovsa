@@ -56,6 +56,9 @@
 #      Oops, wrong sign on the correction.  Now updated for correct sign.
 #   2025-Jul-11  DG
 #      Additional update based on new measurements from 2025-07-11
+#   2025-Jul-12  DG
+#      Additional update based on new measurements from 2025-07-12, this time including the effect
+#      of the offset axes of the new dishes.
 #
 
 import aipy, ephem
@@ -150,6 +153,15 @@ def bl_cor(x, y, z, iant):
     dy += np.array(
         [0.000, 0.000, 0.000, -0.000, -0.001, 0.000, 0.000, -0.000, 0.000, 0.000, 0.027, -0.004, 0.005, 0.000, 0.000,
          -0.006])
+
+    # Update based on 2138+006 and 2253+161 obs. on 2025 Jul 12 -- in ns
+    # In this correction, the D term is also considered when performing the fitting.
+    dx += np.array(
+        [0.000, 0.000, 0.000, 0.004, 0.001, 0.003, -0.001, 0.005, 0.000, 0.000, -0.416, 0.008, -0.480, 0.000, 0.000,
+         0.012])
+    dy += np.array(
+        [0.000, 0.000, 0.000, 0.002, 0.001, 0.001, 0.002, 0.001, 0.000, 0.000, 0.001, 0.000, -0.007, 0.000, 0.000,
+         0.001])
 
     # Corrections are subtracted from nominal positions.
     xp = x - dx[iant]

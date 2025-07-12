@@ -94,6 +94,11 @@
 #   2025-May-17  DG
 #      Import send_cmds() from calibration.py instead of defunct adc_cal2.py
 #      Update code for refer to Ant A/Ant 16 instead of Ant 14.
+#   2025-Jul-12  DG
+#      Discovered and fixed two major bugs!
+#      Fixed hadec2altaz(), which apparently never worked.  This made parallactic angles wrong!
+#      Fixed error in PA_adjust() when chi > 90.  Should have been chi-180, not 180-chi! 2025-07-12
+#
 
 import struct, sys
 import socket
@@ -523,22 +528,15 @@ def hadec2altaz(ha, dec):
     lat = 37.233170*np.pi/180.
     salt = np.sin(dec)*np.sin(lat) + np.cos(dec)*np.cos(lat)*np.cos(ha)
     alt = np.arcsin(salt)
-    caz = (np.sin(dec) - np.sin(alt)*np.sin(lat)) / (np.cos(alt)*np.cos(lat))
-    if type(caz) is np.ndarray:
-        az = np.zeros(caz.shape,float)
-        for i,c in enumerate(caz):
-            if c >= 1 or c <= -1:
-                az[i] = np.pi
-            else:
-                az[i] = np.arccos(c)
-        if np.sin(ha[i]) > 0: 
-            az[i] = 2*np.pi - az[i]
+    
+    az = np.arctan2(-np.cos(dec)*np.sin(ha), np.sin(dec)*np.cos(lat) - np.cos(dec)*np.cos(ha)*np.sin(lat))
+
+    if type(az) is np.ndarray:
+        az[np.where(az < 0)] += 2*np.pi
     else:
-        if caz >= 1 or caz <= -1:
-            az = np.pi
-        else:
-            az = np.arccos(caz)
-        if np.sin(ha) > 0: return alt, 2*np.pi - az
+        if az < 0:
+            az += 2*np.pi
+
     return alt, az
 
 #============================
@@ -672,7 +670,7 @@ def PA_adjust(ant=None, crossed=False, offset_angle=0):
                 
                 # Make sure it is in range...
                 if chi > 90.:
-                    chi = 180. - chi
+                    chi = chi - 180.
                 elif chi < -90:
                     chi = 180. + chi
                 pa_to_send = np.int(-chi+offset_angle)   # Desired rotation angle is -chi
