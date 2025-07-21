@@ -71,7 +71,8 @@ def load_geosats():
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
     try:
-        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle')
+#        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=geo&FORMAT=tle')
+        f = urllib2.urlopen('https://web.njit.edu/~sjyu/download/eovsa/geo.txt')
     except urllib2.URLError as err:
         print 'Error reading GEO satellite web file:', err
         return []
@@ -102,7 +103,8 @@ def load_gpssats():
     '''
     # Retrieve TLE file for geostationary satellites from Celestrak site.
     try:
-        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle')
+#        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle')
+        f = urllib2.urlopen('https://web.njit.edu/~sjyu/download/eovsa/GPS.txt')
     except urllib2.URLError as err:
         print 'Error reading GPS satellite web file:', err
         return []
@@ -132,7 +134,8 @@ def load_o3bsats():
     '''
     # Retrieve TLE file for o3b satellites from Celestrak site.
     try:
-        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=other-comm&FORMAT=tle')
+#        f = urllib2.urlopen('https://celestrak.org/NORAD/elements/gp.php?GROUP=other-comm&FORMAT=tle')
+        f = urllib2.urlopen('https://web.njit.edu/~sjyu/download/eovsa/other_comm.txt')
     except urllib2.URLError as err:
         print 'Error reading ob3 satellite web file:', err
         return []
